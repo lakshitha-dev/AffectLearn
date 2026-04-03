@@ -6,20 +6,23 @@ import { useSessionStore } from "@/stores/session-store";
 
 const ROLE_DASHBOARDS: Record<string, string> = {
   learner: "/courses",
-  designer: "/analytics",
+  course_designer: "/analytics",
   admin: "/users",
 };
 
 interface AuthGuardProps {
   children: React.ReactNode;
-  requiredRole?: string;
+  allowedRoles?: string[];
 }
 
-export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
+export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   const router = useRouter();
   const { accessToken, expiresAt, user } = useSessionStore();
   const isAuthenticated =
     accessToken !== null && expiresAt !== null && Date.now() < expiresAt;
+
+  const hasAccess =
+    !allowedRoles || (user && allowedRoles.includes(user.role));
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -27,14 +30,14 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
       return;
     }
 
-    if (requiredRole && user && user.role !== requiredRole) {
+    if (allowedRoles && user && !allowedRoles.includes(user.role)) {
       const redirect = ROLE_DASHBOARDS[user.role] ?? "/courses";
       router.replace(redirect);
     }
-  }, [isAuthenticated, user, requiredRole, router]);
+  }, [isAuthenticated, user, allowedRoles, router]);
 
   if (!isAuthenticated) return null;
-  if (requiredRole && user && user.role !== requiredRole) return null;
+  if (!hasAccess) return null;
 
   return <>{children}</>;
 }

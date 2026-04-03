@@ -6,7 +6,7 @@ import { useSessionStore } from "@/stores/session-store";
 
 const ROLE_DASHBOARDS: Record<string, string> = {
   learner: "/courses",
-  designer: "/analytics",
+  course_designer: "/analytics",
   admin: "/users",
 };
 
