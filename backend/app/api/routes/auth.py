@@ -43,6 +43,8 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         password_hash=hash_password(body.password),
         first_name=body.first_name,
         last_name=body.last_name,
+        age_range=body.age_range,
+        degree_program=body.degree_program,
         role=Role.learner,
         is_active=True,
     )
@@ -66,7 +68,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email_address == body.email_address))
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(body.password, user.password_hash):
+    if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": {"code": "INVALID_CREDENTIALS", "message": "Invalid email or password"}},
@@ -117,10 +119,11 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
         )
 
     new_access_token = create_access_token(str(user.id))
+    new_refresh_token = create_refresh_token(str(user.id))
 
     return TokenResponse(
         access_token=new_access_token,
-        refresh_token=body.refresh_token,
+        refresh_token=new_refresh_token,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
@@ -134,4 +137,6 @@ async def me(current_user: User = Depends(get_current_user)):
         first_name=current_user.first_name,
         last_name=current_user.last_name,
         role=current_user.role.value,
+        age_range=current_user.age_range,
+        degree_program=current_user.degree_program,
     )

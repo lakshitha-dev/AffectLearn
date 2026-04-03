@@ -27,9 +27,9 @@ const loginSchema = z.object({
 type LoginData = z.infer<typeof loginSchema>;
 
 const ROLE_REDIRECTS: Record<string, string> = {
-  learner: "/(learner)/courses",
-  designer: "/(designer)/analytics",
-  admin: "/(admin)/users",
+  learner: "/courses",
+  designer: "/analytics",
+  admin: "/users",
 };
 
 export default function LoginPage() {
@@ -43,13 +43,18 @@ export default function LoginPage() {
     mode: "onBlur",
   });
 
+  const onValidationError = (errors: Record<string, unknown>) => {
+    const firstKey = Object.keys(errors)[0] as keyof LoginData;
+    if (firstKey) form.setFocus(firstKey);
+  };
+
   const onSubmit = async (data: LoginData) => {
     setIsSubmitting(true);
     setServerError(null);
 
     try {
       const user = await login(data);
-      const redirect = ROLE_REDIRECTS[user.role] ?? "/(learner)/courses";
+      const redirect = ROLE_REDIRECTS[user.role] ?? "/courses";
       router.push(redirect);
     } catch (err) {
       if (err instanceof ApiRequestError && err.errorCode === "INVALID_CREDENTIALS") {
@@ -70,7 +75,7 @@ export default function LoginPage() {
 
       <CardContent>
         <form
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={form.handleSubmit(onSubmit, onValidationError)}
           noValidate
           className="space-y-4"
         >

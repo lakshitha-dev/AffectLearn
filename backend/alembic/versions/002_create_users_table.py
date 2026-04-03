@@ -32,6 +32,8 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.String(128), nullable=False),
         sa.Column("first_name", sa.String(100), nullable=False),
         sa.Column("last_name", sa.String(100), nullable=False),
+        sa.Column("age_range", sa.String(20), nullable=True),
+        sa.Column("degree_program", sa.String(200), nullable=True),
         sa.Column("role", role_enum, nullable=False, server_default="learner"),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
     )

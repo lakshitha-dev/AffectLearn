@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { useSessionStore } from "@/stores/session-store";
 
 const ROLE_DASHBOARDS: Record<string, string> = {
-  learner: "/(learner)/courses",
-  designer: "/(designer)/analytics",
-  admin: "/(admin)/users",
+  learner: "/courses",
+  designer: "/analytics",
+  admin: "/users",
 };
 
 export function GuestGuard({ children }: { children: React.ReactNode }) {
@@ -18,7 +18,7 @@ export function GuestGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      const redirect = ROLE_DASHBOARDS[user.role] ?? "/(learner)/courses";
+      const redirect = ROLE_DASHBOARDS[user.role] ?? "/courses";
       router.replace(redirect);
     }
   }, [isAuthenticated, user, router]);

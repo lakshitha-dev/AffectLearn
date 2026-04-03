@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { useSessionStore } from "@/stores/session-store";
 
 const ROLE_DASHBOARDS: Record<string, string> = {
-  learner: "/(learner)/courses",
-  designer: "/(designer)/analytics",
-  admin: "/(admin)/users",
+  learner: "/courses",
+  designer: "/analytics",
+  admin: "/users",
 };
 
 interface AuthGuardProps {
@@ -28,7 +28,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
     }
 
     if (requiredRole && user && user.role !== requiredRole) {
-      const redirect = ROLE_DASHBOARDS[user.role] ?? "/(learner)/courses";
+      const redirect = ROLE_DASHBOARDS[user.role] ?? "/courses";
       router.replace(redirect);
     }
   }, [isAuthenticated, user, requiredRole, router]);

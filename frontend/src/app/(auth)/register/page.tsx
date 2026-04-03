@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
@@ -16,12 +16,25 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiRequestError } from "@/lib/api-client";
 
 const step1Schema = z.object({
   emailAddress: z.string().email("Please enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[a-z]/, "Must contain a lowercase letter")
+    .regex(/[A-Z]/, "Must contain an uppercase letter")
+    .regex(/\d/, "Must contain a digit")
+    .regex(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/, "Must contain a special character"),
 });
 
 const step2Schema = z.object({
@@ -53,6 +66,16 @@ export default function RegisterPage() {
     mode: "onBlur",
   });
 
+  const onStep1ValidationError = (errors: Record<string, unknown>) => {
+    const firstKey = Object.keys(errors)[0] as keyof Step1Data;
+    if (firstKey) step1Form.setFocus(firstKey);
+  };
+
+  const onStep2ValidationError = (errors: Record<string, unknown>) => {
+    const firstKey = Object.keys(errors)[0] as keyof Step2Data;
+    if (firstKey) step2Form.setFocus(firstKey);
+  };
+
   const onStep1Submit = (data: Step1Data) => {
     setStep1Data(data);
     setServerError(null);
@@ -70,7 +93,7 @@ export default function RegisterPage() {
         ...step1Data,
         ...data,
       });
-      router.push("/(learner)/courses");
+      router.push("/courses");
     } catch (err) {
       if (err instanceof ApiRequestError && err.errorCode === "DUPLICATE_EMAIL") {
         setIsDuplicateEmail(true);
@@ -102,7 +125,7 @@ export default function RegisterPage() {
       <CardContent>
         {step === 1 && (
           <form
-            onSubmit={step1Form.handleSubmit(onStep1Submit)}
+            onSubmit={step1Form.handleSubmit(onStep1Submit, onStep1ValidationError)}
             noValidate
             className="space-y-4"
           >
@@ -165,7 +188,7 @@ export default function RegisterPage() {
 
         {step === 2 && (
           <form
-            onSubmit={step2Form.handleSubmit(onStep2Submit)}
+            onSubmit={step2Form.handleSubmit(onStep2Submit, onStep2ValidationError)}
             noValidate
             className="space-y-4"
           >
@@ -216,18 +239,27 @@ export default function RegisterPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="ageRange">Age range</Label>
-                <select
-                  id="ageRange"
-                  className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  {...step2Form.register("ageRange")}
-                >
-                  <option value="">Select age range</option>
-                  <option value="18-24">18-24</option>
-                  <option value="25-34">25-34</option>
-                  <option value="35-44">35-44</option>
-                  <option value="45-54">45-54</option>
-                  <option value="55+">55+</option>
-                </select>
+                <Controller
+                  control={step2Form.control}
+                  name="ageRange"
+                  render={({ field }) => (
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value ?? ""}
+                    >
+                      <SelectTrigger id="ageRange" className="h-11">
+                        <SelectValue placeholder="Select age range" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="18-24">18-24</SelectItem>
+                        <SelectItem value="25-34">25-34</SelectItem>
+                        <SelectItem value="35-44">35-44</SelectItem>
+                        <SelectItem value="45-54">45-54</SelectItem>
+                        <SelectItem value="55+">55+</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </div>
 
               <div className="space-y-2">
