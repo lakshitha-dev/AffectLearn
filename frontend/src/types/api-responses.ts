@@ -1,0 +1,21 @@
+export interface TokenResponse {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+  expiresIn: number;
+}
+
+export interface UserResponse {
+  id: string;
+  emailAddress: string;
+  firstName: string;
+  lastName: string;
+  role: "learner" | "designer" | "admin";
+}
+
+export interface ApiError {
+  error: {
+    code: string;
+    message: string;
+  };
+}
