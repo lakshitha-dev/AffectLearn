@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthGuard } from "@/components/shared/auth-guard";
+import { TopBar } from "@/components/shared/TopBar";
+import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/cn";
 
 const NAV_ITEMS = [
@@ -18,14 +20,19 @@ export default function LearnerLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  const { sidebarCollapsed: collapsed, toggleSidebar } = useUiStore();
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => setHydrated(true), []);
 
   return (
     <AuthGuard allowedRoles={["learner"]}>
-      <div className="flex min-h-screen">
+      <TopBar />
+      <div className="flex min-h-[calc(100vh-3.5rem)]">
         <aside
           className={cn(
-            "shrink-0 border-r border-border bg-surface transition-all",
+            "shrink-0 border-r border-border bg-surface",
+            hydrated && "transition-all",
             collapsed ? "w-12" : "w-60"
           )}
         >
@@ -36,7 +43,7 @@ export default function LearnerLayout({
               </span>
             )}
             <button
-              onClick={() => setCollapsed(!collapsed)}
+              onClick={toggleSidebar}
               className="rounded p-1 text-muted-foreground hover:bg-border"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -64,7 +71,7 @@ export default function LearnerLayout({
           </nav>
         </aside>
         <main className="flex-1 bg-background">
-          <div className="mx-auto max-w-3xl p-8">{children}</div>
+          <div className="mx-auto max-w-[720px] p-8">{children}</div>
         </main>
       </div>
     </AuthGuard>

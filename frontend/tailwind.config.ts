@@ -42,6 +42,12 @@ const config: Config = {
         warning: "rgb(var(--warning) / <alpha-value>)",
         error: "rgb(var(--error) / <alpha-value>)",
         info: "rgb(var(--info) / <alpha-value>)",
+        affect: {
+          engaged: "rgb(var(--affect-engaged) / <alpha-value>)",
+          confused: "rgb(var(--affect-confused) / <alpha-value>)",
+          bored: "rgb(var(--affect-bored) / <alpha-value>)",
+          frustrated: "rgb(var(--affect-frustrated) / <alpha-value>)",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

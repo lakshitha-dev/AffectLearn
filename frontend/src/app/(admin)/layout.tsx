@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthGuard } from "@/components/shared/auth-guard";
+import { TopBar } from "@/components/shared/TopBar";
 import { cn } from "@/lib/cn";
 
 const NAV_ITEMS = [
@@ -22,11 +23,11 @@ export default function AdminLayout({
 
   return (
     <AuthGuard allowedRoles={["admin"]}>
-      <div className="flex min-h-screen">
-        <aside className="w-60 shrink-0 bg-secondary text-white">
-          <div className="p-6">
-            <h2 className="text-lg font-bold">AffectLearn</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Administration</p>
+      <TopBar />
+      <div className="flex min-h-[calc(100vh-3.5rem)]">
+        <aside className="w-60 shrink-0 bg-slate-900 text-white">
+          <div className="px-6 py-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Administration</p>
           </div>
           <nav className="mt-4">
             {NAV_ITEMS.map((item) => (
@@ -34,7 +35,7 @@ export default function AdminLayout({
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center px-6 py-3 text-sm transition-colors hover:bg-white/10",
+                  "flex items-center px-6 py-3 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white",
                   pathname === item.href &&
                     "border-l-[3px] border-primary bg-white/5 font-medium text-white"
                 )}
