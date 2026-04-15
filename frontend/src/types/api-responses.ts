@@ -10,7 +10,7 @@ export interface UserResponse {
   emailAddress: string;
   firstName: string;
   lastName: string;
-  role: "learner" | "designer" | "admin";
+  role: "learner" | "course_designer" | "admin";
 }
 
 export interface ApiError {

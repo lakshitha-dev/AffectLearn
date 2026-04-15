@@ -7,7 +7,7 @@ from app.models.base import BaseModel
 
 class Role(enum.Enum):
     learner = "learner"
-    designer = "designer"
+    course_designer = "course_designer"
     admin = "admin"
 
 

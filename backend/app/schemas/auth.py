@@ -53,6 +53,6 @@ class UserResponse(CamelModel):
     email_address: str
     first_name: str
     last_name: str
-    role: Literal["learner", "designer", "admin"]
+    role: Literal["learner", "course_designer", "admin"]
     age_range: str | None = None
     degree_program: str | None = None

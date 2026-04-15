@@ -75,7 +75,7 @@ async def test_designer(db_session: AsyncSession):
         password_hash=hash_password("TestPass123!"),
         first_name="Test",
         last_name="Designer",
-        role=Role.designer,
+        role=Role.course_designer,
         is_active=True,
     )
     db_session.add(user)

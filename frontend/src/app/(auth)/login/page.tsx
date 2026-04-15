@@ -28,7 +28,7 @@ type LoginData = z.infer<typeof loginSchema>;
 
 const ROLE_REDIRECTS: Record<string, string> = {
   learner: "/courses",
-  designer: "/analytics",
+  course_designer: "/analytics",
   admin: "/users",
 };
 

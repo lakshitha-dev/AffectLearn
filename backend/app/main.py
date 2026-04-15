@@ -8,7 +8,15 @@ from app.api.routes import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: DB connection pool, Redis connection
+    # Startup: seed pre-registered accounts (only when enabled)
+    from app.core.config import settings
+
+    if settings.SEED_ON_STARTUP:
+        from app.db.seed import seed_accounts
+        from app.db.session import async_session
+
+        async with async_session() as db:
+            await seed_accounts(db)
     yield
     # Shutdown: Close connections
 
