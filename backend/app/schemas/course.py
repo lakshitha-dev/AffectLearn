@@ -146,6 +146,7 @@ class CourseCreate(CamelModel):
     description: str | None = None
     estimated_duration_minutes: int | None = Field(default=None, ge=0)
     is_published: bool = False
+    learning_objectives: str | None = None
 
 
 class CourseUpdate(CamelModel):
@@ -153,6 +154,7 @@ class CourseUpdate(CamelModel):
     description: str | None = None
     estimated_duration_minutes: int | None = Field(default=None, ge=0)
     is_published: bool | None = None
+    learning_objectives: str | None = None
 
 
 class CourseResponse(CamelModel):
@@ -161,8 +163,13 @@ class CourseResponse(CamelModel):
     description: str | None
     estimated_duration_minutes: int | None
     is_published: bool
+    learning_objectives: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Annotations populated when the requesting user is an authenticated learner.
+    is_enrolled: bool | None = None
+    enrollment_progress: float | None = None
+    module_count: int | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

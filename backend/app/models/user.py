@@ -1,6 +1,7 @@
 import enum
 
 from sqlalchemy import Boolean, Column, Enum, String
+from sqlalchemy.orm import relationship
 
 from app.models.base import BaseModel
 
@@ -22,3 +23,7 @@ class User(BaseModel):
     degree_program = Column(String(200), nullable=True)
     role = Column(Enum(Role), nullable=False, default=Role.learner)
     is_active = Column(Boolean, nullable=False, default=True)
+
+    enrollments = relationship(
+        "Enrollment", back_populates="user", cascade="all, delete-orphan"
+    )
