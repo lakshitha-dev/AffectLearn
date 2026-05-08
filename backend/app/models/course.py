@@ -81,6 +81,7 @@ class Section(BaseModel):
 
     lesson = relationship("Lesson", back_populates="sections")
     content_blocks = relationship("ContentBlock", back_populates="section", cascade="all, delete-orphan", order_by="ContentBlock.sort_order")
+    user_progress = relationship("SectionProgress", back_populates="section", cascade="all, delete-orphan")
 
 
 class ContentBlock(BaseModel):
