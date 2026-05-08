@@ -166,6 +166,24 @@ async def delete_lesson(db: AsyncSession, lesson_id: uuid.UUID) -> None:
     await db.commit()
 
 
+async def get_lesson_detail(db: AsyncSession, lesson_id: uuid.UUID) -> Lesson:
+    """Return a lesson with all sections and content blocks eagerly loaded."""
+    stmt = (
+        select(Lesson)
+        .where(Lesson.id == lesson_id)
+        .options(
+            selectinload(Lesson.sections).selectinload(Section.content_blocks)
+        )
+    )
+    lesson = (await db.execute(stmt)).scalar_one_or_none()
+    if lesson is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Lesson not found"}},
+        )
+    return lesson
+
+
 # ---------------------------------------------------------------------------
 # Section CRUD
 # ---------------------------------------------------------------------------

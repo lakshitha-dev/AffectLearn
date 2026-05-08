@@ -11,6 +11,8 @@ export interface UserResponse {
   firstName: string;
   lastName: string;
   role: "learner" | "course_designer" | "admin";
+  consentGivenAt?: string | null;
+  webcamEnabled?: boolean;
 }
 
 export interface ApiError {
