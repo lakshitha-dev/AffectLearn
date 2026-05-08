@@ -17,6 +17,7 @@ from app.schemas.course import (
     CourseResponse,
     CourseUpdate,
     LessonCreate,
+    LessonDetailResponse,
     LessonResponse,
     LessonUpdate,
     ModuleCreate,
@@ -160,6 +161,16 @@ async def list_lessons(
     current_user: User = Depends(get_current_user),
 ):
     return await course_service.list_lessons(db, module_id)
+
+
+@router.get("/lessons/{lesson_id}/detail", response_model=LessonDetailResponse)
+async def get_lesson_detail(
+    lesson_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return a lesson with all sections and content blocks (single query)."""
+    return await course_service.get_lesson_detail(db, lesson_id)
 
 
 @router.put("/lessons/{lesson_id}", response_model=LessonResponse)
