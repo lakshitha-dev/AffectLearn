@@ -6,6 +6,7 @@ from app.api.routes import (
     assessments,
     auth,
     courses,
+    enrollments,
     learners,
     section_progress,
     surveys,
@@ -15,6 +16,7 @@ from app.api.routes import (
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(courses.router, prefix="/courses", tags=["courses"])
+api_router.include_router(enrollments.router, prefix="/enrollments", tags=["enrollments"])
 api_router.include_router(learners.router, prefix="/learners", tags=["learners"])
 api_router.include_router(assessments.router, prefix="/assessments", tags=["assessments"])
 

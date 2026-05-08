@@ -45,6 +45,7 @@ async def create_course(
     course = await course_service.create_course(
         db, title=body.title, description=body.description,
         estimated_duration_minutes=body.estimated_duration_minutes, is_published=body.is_published,
+        learning_objectives=body.learning_objectives,
     )
     return course
 
@@ -53,11 +54,37 @@ async def create_course(
 async def list_courses(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, min_length=2, max_length=200),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    items, total = await course_service.list_courses(db, page=page, page_size=page_size)
-    return CourseListResponse(items=items, total=total, page=page, page_size=page_size)
+    is_learner = current_user.role == Role.learner
+    items, total = await course_service.list_courses(
+        db,
+        page=page,
+        page_size=page_size,
+        published_only=is_learner,
+        search=search,
+        learner_id=current_user.id if is_learner else None,
+    )
+    response_items = []
+    for item in items:
+        course = item["course"]
+        response_items.append(
+            CourseResponse(
+                id=course.id,
+                title=course.title,
+                description=course.description,
+                estimated_duration_minutes=course.estimated_duration_minutes,
+                is_published=course.is_published,
+                created_at=course.created_at,
+                updated_at=course.updated_at,
+                module_count=item.get("module_count"),
+                is_enrolled=item.get("is_enrolled") if is_learner else None,
+                enrollment_progress=item.get("enrollment_progress") if is_learner else None,
+            )
+        )
+    return CourseListResponse(items=response_items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/{course_id}", response_model=CourseDetailResponse)

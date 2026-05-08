@@ -71,7 +71,7 @@ export default function LearnerLayout({
           </nav>
         </aside>
         <main className="flex-1 bg-background">
-          <div className="mx-auto max-w-[720px] p-8">{children}</div>
+          <div className="mx-auto max-w-7xl p-8">{children}</div>
         </main>
       </div>
     </AuthGuard>

@@ -134,8 +134,9 @@ async def test_create_course_unauthenticated(test_client: AsyncClient):
 
 async def test_list_courses_as_learner(test_client: AsyncClient, test_designer, test_user):
     headers_d = designer_headers(test_designer)
-    await _create_course(test_client, headers_d, title="Course A")
-    await _create_course(test_client, headers_d, title="Course B")
+    # Learners only see published courses (AC1 of story 2.2).
+    await _create_course(test_client, headers_d, title="Course A", isPublished=True)
+    await _create_course(test_client, headers_d, title="Course B", isPublished=True)
 
     headers_l = learner_headers(test_user)
     resp = await test_client.get(BASE, headers=headers_l)

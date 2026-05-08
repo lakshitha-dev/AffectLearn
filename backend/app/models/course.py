@@ -34,8 +34,10 @@ class Course(BaseModel):
     description = Column(Text, nullable=True)
     estimated_duration_minutes = Column(Integer, nullable=True)
     is_published = Column(Boolean, nullable=False, default=False)
+    learning_objectives = Column(Text, nullable=True)
 
     modules = relationship("Module", back_populates="course", cascade="all, delete-orphan", order_by="Module.sort_order")
+    enrollments = relationship("Enrollment", back_populates="course", cascade="all, delete-orphan")
 
 
 class Module(BaseModel):

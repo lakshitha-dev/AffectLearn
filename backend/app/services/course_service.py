@@ -3,12 +3,13 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.course import ContentBlock, Course, Lesson, Module, Section
+from app.models.enrollment import Enrollment
 
 
 # ---------------------------------------------------------------------------
@@ -16,9 +17,11 @@ from app.models.course import ContentBlock, Course, Lesson, Module, Section
 # ---------------------------------------------------------------------------
 
 async def create_course(db: AsyncSession, *, title: str, description: str | None = None,
-                        estimated_duration_minutes: int | None = None, is_published: bool = False) -> Course:
+                        estimated_duration_minutes: int | None = None, is_published: bool = False,
+                        learning_objectives: str | None = None) -> Course:
     course = Course(title=title, description=description,
-                    estimated_duration_minutes=estimated_duration_minutes, is_published=is_published)
+                    estimated_duration_minutes=estimated_duration_minutes, is_published=is_published,
+                    learning_objectives=learning_objectives)
     db.add(course)
     await db.commit()
     await db.refresh(course)
@@ -44,13 +47,75 @@ async def get_course(db: AsyncSession, course_id: uuid.UUID) -> Course:
     return course
 
 
-async def list_courses(db: AsyncSession, *, page: int = 1, page_size: int = 20) -> tuple[list[Course], int]:
-    count_result = await db.execute(select(func.count()).select_from(Course))
-    total = count_result.scalar_one()
+async def list_courses(
+    db: AsyncSession,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    published_only: bool = False,
+    search: str | None = None,
+    learner_id: uuid.UUID | None = None,
+) -> tuple[list[dict], int]:
+    """List courses with optional filtering and learner enrollment annotation.
 
-    stmt = select(Course).order_by(Course.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    Returns dicts (one per course) carrying the SQLAlchemy Course plus the
+    annotation fields ``module_count``, ``is_enrolled``, ``enrollment_progress``.
+    Designers/admins typically pass ``published_only=False`` and ``learner_id=None``.
+    """
+    filters = []
+    if published_only:
+        filters.append(Course.is_published.is_(True))
+    if search:
+        like = f"%{search}%"
+        filters.append(or_(Course.title.ilike(like), Course.description.ilike(like)))
+
+    count_stmt = select(func.count()).select_from(Course)
+    for f in filters:
+        count_stmt = count_stmt.where(f)
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    module_count_subq = (
+        select(Module.course_id, func.count(Module.id).label("module_count"))
+        .group_by(Module.course_id)
+        .subquery()
+    )
+
+    columns = [
+        Course,
+        func.coalesce(module_count_subq.c.module_count, 0).label("module_count"),
+    ]
+    if learner_id is not None:
+        columns.append(Enrollment.id.label("enrollment_id"))
+        columns.append(Enrollment.progress_percentage.label("progress_percentage"))
+
+    stmt = select(*columns).outerjoin(
+        module_count_subq, module_count_subq.c.course_id == Course.id
+    )
+    if learner_id is not None:
+        stmt = stmt.outerjoin(
+            Enrollment,
+            (Enrollment.course_id == Course.id) & (Enrollment.user_id == learner_id),
+        )
+    for f in filters:
+        stmt = stmt.where(f)
+    stmt = (
+        stmt.order_by(Course.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     result = await db.execute(stmt)
-    items = list(result.scalars().all())
+
+    items: list[dict] = []
+    for row in result.all():
+        course = row[0]
+        module_count = row[1]
+        item = {"course": course, "module_count": module_count}
+        if learner_id is not None:
+            enrollment_id = row[2]
+            progress = row[3]
+            item["is_enrolled"] = enrollment_id is not None
+            item["enrollment_progress"] = progress if enrollment_id is not None else None
+        items.append(item)
     return items, total
 
 
