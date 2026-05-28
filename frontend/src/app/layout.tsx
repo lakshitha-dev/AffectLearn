@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { Toaster } from "sonner";
+import { ThemeProvider } from "@/components/shared/ThemeProvider";
+import { QueryProvider } from "@/components/shared/query-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -23,9 +26,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
-        {children}
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <QueryProvider>
+            {children}
+            <Toaster position="top-right" richColors closeButton />
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

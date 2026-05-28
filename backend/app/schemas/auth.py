@@ -53,6 +53,16 @@ class UserResponse(CamelModel):
     email_address: str
     first_name: str
     last_name: str
-    role: Literal["learner", "designer", "admin"]
+    role: Literal["learner", "course_designer", "admin"]
     age_range: str | None = None
     degree_program: str | None = None
+    consent_given_at: str | None = None
+    webcam_enabled: bool = False
+
+
+class ConsentRequest(CamelModel):
+    consent_given: Literal[True]
+
+
+class WebcamModeRequest(CamelModel):
+    webcam_enabled: bool

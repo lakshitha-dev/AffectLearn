@@ -7,6 +7,8 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import func
+
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.core.security import (
@@ -17,15 +19,32 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import Role, User
+from app.core.deps import require_role
 from app.schemas.auth import (
+    ConsentRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
     UserResponse,
+    WebcamModeRequest,
 )
 
 router = APIRouter()
+
+
+def _build_user_response(user: User) -> UserResponse:
+    return UserResponse(
+        id=user.id,
+        email_address=user.email_address,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        role=user.role.value,
+        age_range=user.age_range,
+        degree_program=user.degree_program,
+        consent_given_at=user.consent_given_at.isoformat() if user.consent_given_at else None,
+        webcam_enabled=user.webcam_enabled or False,
+    )
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -131,12 +150,51 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)):
-    return UserResponse(
-        id=current_user.id,
-        email_address=current_user.email_address,
-        first_name=current_user.first_name,
-        last_name=current_user.last_name,
-        role=current_user.role.value,
-        age_range=current_user.age_range,
-        degree_program=current_user.degree_program,
-    )
+    return _build_user_response(current_user)
+
+
+@router.get("/dev-credentials")
+async def dev_credentials():
+    """Return the seeded role-based accounts for the login page in dev mode.
+
+    Gated by `EXPOSE_DEV_CREDENTIALS`. Returns 404 in production so the route
+    is invisible to clients.
+    """
+    if not settings.EXPOSE_DEV_CREDENTIALS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Not found"}},
+        )
+    from app.db.seed import get_dev_credentials
+
+    return {
+        "environment": settings.ENVIRONMENT,
+        "accounts": get_dev_credentials(),
+    }
+
+
+@router.post("/consent", response_model=UserResponse)
+async def give_consent(
+    body: ConsentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.learner)),
+):
+    """Record informed consent for the learner (idempotent — never overwrites once set)."""
+    if current_user.consent_given_at is None:
+        current_user.consent_given_at = func.now()
+        await db.commit()
+        await db.refresh(current_user)
+    return _build_user_response(current_user)
+
+
+@router.post("/webcam-mode", response_model=UserResponse)
+async def set_webcam_mode(
+    body: WebcamModeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.learner)),
+):
+    """Set the learner's webcam mode preference."""
+    current_user.webcam_enabled = body.webcam_enabled
+    await db.commit()
+    await db.refresh(current_user)
+    return _build_user_response(current_user)

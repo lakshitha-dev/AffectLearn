@@ -8,7 +8,15 @@ from app.api.routes import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: DB connection pool, Redis connection
+    # Startup: seed pre-registered accounts (only when enabled)
+    from app.core.config import settings
+
+    if settings.SEED_ON_STARTUP:
+        from app.db.seed import seed_accounts
+        from app.db.session import async_session
+
+        async with async_session() as db:
+            await seed_accounts(db)
     yield
     # Shutdown: Close connections
 
@@ -21,7 +29,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

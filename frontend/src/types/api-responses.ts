@@ -10,7 +10,9 @@ export interface UserResponse {
   emailAddress: string;
   firstName: string;
   lastName: string;
-  role: "learner" | "designer" | "admin";
+  role: "learner" | "course_designer" | "admin";
+  consentGivenAt?: string | null;
+  webcamEnabled?: boolean;
 }
 
 export interface ApiError {

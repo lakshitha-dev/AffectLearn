@@ -8,7 +8,7 @@ services:
     volumes:
       - ./frontend/src:/app/src    # Hot reload for Next.js
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
       - NEXT_PUBLIC_WS_URL=ws://localhost:8000
     depends_on:
       - api
@@ -26,6 +26,12 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=dev-secret-change-in-production
       - VLLM_ENDPOINT=http://vllm:8080
+      - ENVIRONMENT=development
+      - SEED_ON_STARTUP=true
+      - EXPOSE_DEV_CREDENTIALS=true
+      - SEED_LEARNER_PASSWORD=Learner123!
+      - SEED_DESIGNER_PASSWORD=Designer123!
+      - SEED_ADMIN_PASSWORD=Admin123!
     depends_on:
       db:
         condition: service_healthy
