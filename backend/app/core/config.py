@@ -9,7 +9,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     VLLM_ENDPOINT: str = "http://vllm:8080"
+
+    ENVIRONMENT: str = "development"
+    EXPOSE_DEV_CREDENTIALS: bool = False
+
     SEED_ON_STARTUP: bool = False
+    SEED_LEARNER_PASSWORD: str = "Learner123!"
     SEED_DESIGNER_PASSWORD: str = "Designer123!"
     SEED_ADMIN_PASSWORD: str = "Admin123!"
 

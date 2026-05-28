@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Check, Loader2 } from "lucide-react";
 
@@ -60,7 +60,7 @@ export function SectionView({
             {isSaving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Saving�
+                Saving…
               </>
             ) : (
               "Mark complete"

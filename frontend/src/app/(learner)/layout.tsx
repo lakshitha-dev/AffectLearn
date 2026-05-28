@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/shared/auth-guard";
 import { TopBar } from "@/components/shared/TopBar";
+import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/cn";
 
@@ -20,10 +21,20 @@ export default function LearnerLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { sidebarCollapsed: collapsed, toggleSidebar } = useUiStore();
+  const user = useSessionStore((s) => s.user);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => setHydrated(true), []);
+
+  // Force any learner without recorded consent through the onboarding wizard
+  // before they can access learner-area pages.
+  useEffect(() => {
+    if (user && user.role === "learner" && !user.consentGivenAt) {
+      router.replace("/onboarding");
+    }
+  }, [user, router]);
 
   return (
     <AuthGuard allowedRoles={["learner"]}>

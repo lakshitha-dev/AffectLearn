@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,9 +32,37 @@ const ROLE_REDIRECTS: Record<string, string> = {
   admin: "/users",
 };
 
+const ROLE_LABELS: Record<string, string> = {
+  learner: "Learner",
+  course_designer: "Course Designer",
+  admin: "Platform Admin",
+};
+
+const ROLE_ROUTES: Record<string, string> = {
+  learner: "/onboarding → /courses",
+  course_designer: "/analytics (Designer Dashboard)",
+  admin: "/users (Admin Console)",
+};
+
+interface DevAccount {
+  role: string;
+  email_address: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+}
+
+interface DevCredentialsResponse {
+  environment: string;
+  accounts: DevAccount[];
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+
 export default function LoginPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [devCreds, setDevCreds] = useState<DevCredentialsResponse | null>(null);
   const { login } = useAuth();
   const router = useRouter();
 
@@ -42,6 +70,21 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
     mode: "onBlur",
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/auth/dev-credentials`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: DevCredentialsResponse | null) => {
+        if (!cancelled && data) setDevCreds(data);
+      })
+      .catch(() => {
+        /* silent — dev credentials are optional */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onValidationError = (errors: Record<string, unknown>) => {
     const firstKey = Object.keys(errors)[0] as keyof LoginData;
@@ -54,7 +97,11 @@ export default function LoginPage() {
 
     try {
       const user = await login(data);
-      const redirect = ROLE_REDIRECTS[user.role] ?? "/courses";
+      const needsOnboarding =
+        user.role === "learner" && !user.consentGivenAt;
+      const redirect = needsOnboarding
+        ? "/onboarding"
+        : (ROLE_REDIRECTS[user.role] ?? "/courses");
       router.push(redirect);
     } catch (err) {
       if (err instanceof ApiRequestError && err.errorCode === "INVALID_CREDENTIALS") {
@@ -65,6 +112,17 @@ export default function LoginPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const useAccount = (acct: DevAccount) => {
+    form.setValue("emailAddress", acct.email_address, { shouldValidate: true });
+    form.setValue("password", acct.password, { shouldValidate: true });
+    setServerError(null);
+  };
+
+  const fillAndSubmit = async (acct: DevAccount) => {
+    useAccount(acct);
+    await onSubmit({ emailAddress: acct.email_address, password: acct.password });
   };
 
   return (
@@ -166,6 +224,70 @@ export default function LoginPage() {
           </Link>
         </p>
       </CardFooter>
+
+      {devCreds && devCreds.accounts.length > 0 && (
+        <div
+          className="mx-6 mb-6 rounded-md border border-dashed border-warning/40 bg-warning/5 p-4"
+          aria-label="Development credentials"
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <span className="rounded-full bg-warning/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
+              {devCreds.environment}
+            </span>
+            <p className="text-xs font-medium text-foreground">
+              Seeded role-based accounts (dev only)
+            </p>
+          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Course Designer and Platform Admin accounts cannot self-register —
+            they are seeded into the database on backend startup. Click a row to
+            pre-fill the form, or &quot;Sign in&quot; to log in directly.
+          </p>
+          <ul className="space-y-2">
+            {devCreds.accounts.map((acct) => (
+              <li
+                key={acct.email_address}
+                className="rounded-md border border-border bg-background p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                        {ROLE_LABELS[acct.role] ?? acct.role}
+                      </span>
+                      <span className="truncate text-xs font-mono text-foreground">
+                        {acct.email_address}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      <span className="font-mono">{acct.password}</span>
+                      <span className="mx-1.5">·</span>
+                      <span>{ROLE_ROUTES[acct.role] ?? "/"}</span>
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => useAccount(acct)}
+                      className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent"
+                    >
+                      Fill
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fillAndSubmit(acct)}
+                      disabled={isSubmitting}
+                      className="rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      Sign in
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
   );
 }

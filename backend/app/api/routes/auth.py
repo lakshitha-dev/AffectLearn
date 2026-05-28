@@ -153,6 +153,26 @@ async def me(current_user: User = Depends(get_current_user)):
     return _build_user_response(current_user)
 
 
+@router.get("/dev-credentials")
+async def dev_credentials():
+    """Return the seeded role-based accounts for the login page in dev mode.
+
+    Gated by `EXPOSE_DEV_CREDENTIALS`. Returns 404 in production so the route
+    is invisible to clients.
+    """
+    if not settings.EXPOSE_DEV_CREDENTIALS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Not found"}},
+        )
+    from app.db.seed import get_dev_credentials
+
+    return {
+        "environment": settings.ENVIRONMENT,
+        "accounts": get_dev_credentials(),
+    }
+
+
 @router.post("/consent", response_model=UserResponse)
 async def give_consent(
     body: ConsentRequest,

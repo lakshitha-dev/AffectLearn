@@ -56,6 +56,12 @@ export default function RegisterPage() {
   const { register: registerUser } = useAuth();
   const router = useRouter();
 
+  const ROLE_REDIRECTS: Record<string, string> = {
+    learner: "/courses",
+    course_designer: "/analytics",
+    admin: "/users",
+  };
+
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
     mode: "onBlur",
@@ -89,11 +95,17 @@ export default function RegisterPage() {
     setServerError(null);
 
     try {
-      await registerUser({
+      const registeredUser = await registerUser({
         ...step1Data,
         ...data,
       });
-      router.push("/courses");
+      // New learners must go through onboarding (consent + webcam) first
+      const needsOnboarding =
+        registeredUser.role === "learner" && !registeredUser.consentGivenAt;
+      const redirect = needsOnboarding
+        ? "/onboarding"
+        : (ROLE_REDIRECTS[registeredUser.role] ?? "/courses");
+      router.push(redirect);
     } catch (err) {
       if (err instanceof ApiRequestError && err.errorCode === "DUPLICATE_EMAIL") {
         setIsDuplicateEmail(true);
