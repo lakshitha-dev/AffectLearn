@@ -25,17 +25,17 @@ export function CalibrationStep({ onDone, onSkip, currentStep, totalSteps }: Cal
     if (intervalRef.current) clearInterval(intervalRef.current);
     setCountdown(10);
     setState("counting");
+    let remaining = 10;
     intervalRef.current = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current!);
-          // Simulate face detection success (real MediaPipe integration in Epic 4)
-          setState("success");
-          setCalibrated(true);
-          return 0;
-        }
-        return prev - 1;
-      });
+      remaining -= 1;
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(intervalRef.current!);
+        intervalRef.current = null;
+        // Simulate face detection success (real MediaPipe integration in Epic 4)
+        setState("success");
+        setCalibrated(true);
+      }
     }, 1000);
   }
 

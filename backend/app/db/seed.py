@@ -14,6 +14,13 @@ from app.models.user import Role, User
 def _get_seed_accounts() -> list[dict]:
     return [
         {
+            "email_address": "learner@affectlearn.io",
+            "password": settings.SEED_LEARNER_PASSWORD,
+            "first_name": "Demo",
+            "last_name": "Learner",
+            "role": Role.learner,
+        },
+        {
             "email_address": "designer@affectlearn.io",
             "password": settings.SEED_DESIGNER_PASSWORD,
             "first_name": "Course",
@@ -27,6 +34,24 @@ def _get_seed_accounts() -> list[dict]:
             "last_name": "Admin",
             "role": Role.admin,
         },
+    ]
+
+
+def get_dev_credentials() -> list[dict]:
+    """Return seed credentials (with plaintext password) for development surfaces.
+
+    Never call this from a code path that runs in production — guard with the
+    EXPOSE_DEV_CREDENTIALS flag in `settings`.
+    """
+    return [
+        {
+            "role": acct["role"].value,
+            "email_address": acct["email_address"],
+            "password": acct["password"],
+            "first_name": acct["first_name"],
+            "last_name": acct["last_name"],
+        }
+        for acct in _get_seed_accounts()
     ]
 
 
