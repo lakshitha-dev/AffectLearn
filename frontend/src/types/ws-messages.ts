@@ -30,7 +30,39 @@ export interface HeartbeatMessage extends WSMessage {
   data: { seq: number };
 }
 
-export type UpstreamMessage = ClientHelloMessage | HeartbeatMessage;
+/**
+ * Facial-feature cycle (Story 4.2). One message per 30s cycle, regardless of
+ * whether any frames were captured (`frames_b64: ""` when none — explicit signal
+ * to the server to switch to behavioral-only for that cycle).
+ *
+ * `frames_b64` is base64 of the concatenated CHW-float32 buffer; the server
+ * decodes it to `(frames_captured, 3, 96, 96)` and picks
+ * `framesPerInferenceWindow` frames for the CNN-LSTM.
+ *
+ * Field naming: snake_case (architecture.md line 555 — WS protocol exception
+ * to the REST camelCase rule).
+ */
+export interface FacialFeaturesMessage extends WSMessage {
+  type: "facial_features";
+  data: {
+    cycle_number: number;
+    capture_started_at: number;
+    capture_ended_at: number;
+    frames_captured: number;
+    dropped_frames: number;
+    dropped_reasons: { no_face: number; low_confidence: number };
+    frames_b64: string;
+    contract_version: number;
+    crop_size: number;
+    channel_order: "RGB";
+    dtype: "float32";
+  };
+}
+
+export type UpstreamMessage =
+  | ClientHelloMessage
+  | HeartbeatMessage
+  | FacialFeaturesMessage;
 
 // ---------- Downstream (server → client) ----------
 

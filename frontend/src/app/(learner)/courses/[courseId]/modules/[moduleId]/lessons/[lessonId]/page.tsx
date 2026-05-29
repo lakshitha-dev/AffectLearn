@@ -11,13 +11,17 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
   BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
 import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
+import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useUiStore } from "@/stores/ui-store";
 import type { SectionDetail } from "@/types/course";
+
+const AFFECT_DEBUG_ENABLED = process.env.NEXT_PUBLIC_AFFECT_DEBUG === "1";
 
 interface PageProps {
   params: Promise<{ courseId: string; moduleId: string; lessonId: string }>;
@@ -36,8 +40,9 @@ export default function LessonPage({ params }: PageProps) {
 
   // Open the single learner WebSocket for affect detection + adaptation delivery.
   // Story 4.2+ hooks (facial features, behavioral window, adaptations) consume this connection
-  // via the connection-store / send function — do NOT open additional connections elsewhere.
-  useWebSocket();
+  // via the send function — do NOT open additional connections elsewhere.
+  const { send } = useWebSocket();
+  const { debug: affectDebug } = useMediaPipe({ send });
 
   const completedSectionIds = new Set(progressQuery.data?.completedSectionIds ?? []);
   const lessonPercentage = progressQuery.data?.lessonPercentage ?? 0;
@@ -181,6 +186,7 @@ export default function LessonPage({ params }: PageProps) {
           />
         ))
       )}
+      {AFFECT_DEBUG_ENABLED && <AffectDebugOverlay debugRef={affectDebug} />}
     </div>
   );
 }
