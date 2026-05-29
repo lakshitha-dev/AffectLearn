@@ -16,10 +16,11 @@ interface CalibrationStepProps {
   totalSteps: number;
 }
 
-// Story 4.2 AC #6 — pass requires ≥ 7 of 10 frames at score ≥ 0.7 AND mean confidence ≥ 0.5.
+// Story 4.2 AC #6 — pass requires ≥ 7 of 10 frames at score ≥ 0.7 AND mean confidence ≥ 0.7.
+// Mean threshold aligned to Success Criteria (story section "Success Criteria", mean ≥ 0.7).
 const PASS_FRAME_COUNT = 7;
 const PASS_FRAME_SCORE = 0.7;
-const PASS_MEAN_CONFIDENCE = 0.5;
+const PASS_MEAN_CONFIDENCE = 0.7;
 const CALIBRATION_DURATION_SECONDS = 10;
 
 export function CalibrationStep({ onDone, onSkip, currentStep, totalSteps }: CalibrationStepProps) {

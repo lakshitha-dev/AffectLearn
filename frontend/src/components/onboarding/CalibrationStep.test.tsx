@@ -89,7 +89,7 @@ describe("CalibrationStep — MediaPipe integration (Story 4.2 AC #6)", () => {
     }
   });
 
-  it("succeeds when ≥ 7 of 10 frames score ≥ 0.7 and mean confidence ≥ 0.5", async () => {
+  it("succeeds when ≥ 7 of 10 frames score ≥ 0.7 and mean confidence ≥ 0.7", async () => {
     mocks.loadFaceDetectorSpy.mockResolvedValueOnce(
       makeDetector([0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]),
     );
