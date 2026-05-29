@@ -22,6 +22,7 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import type { CloseEvent as RWSCloseEvent } from "reconnecting-websocket/dist/events";
@@ -78,6 +79,7 @@ export function useWebSocket(
 ): UseWebSocketReturn {
   const { enabled = true } = options;
 
+  const router = useRouter();
   const wsRef = useRef<ReconnectingWebSocket | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heartbeatTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -230,6 +232,8 @@ export function useWebSocket(
         } catch {
           // already closing
         }
+        // Grace period so the toast is readable before the redirect.
+        setTimeout(() => router.push("/login"), 2000);
         return;
       }
 

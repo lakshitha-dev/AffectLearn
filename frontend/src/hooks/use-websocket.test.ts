@@ -79,6 +79,11 @@ vi.mock("sonner", () => ({
   toast: { error: mocks.toastErrorSpy, success: mocks.toastSuccessSpy },
 }));
 
+const routerPushSpy = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPushSpy }),
+}));
+
 import { useWebSocket } from "./use-websocket";
 import { useConnectionStore } from "@/stores/connection-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -101,6 +106,7 @@ beforeEach(() => {
   mocks.toastErrorSpy.mockReset();
   mocks.toastSuccessSpy.mockReset();
   mocks.MockReconnectingWebSocket.instance = null;
+  routerPushSpy.mockReset();
   useConnectionStore.getState().reset();
 });
 
@@ -294,6 +300,26 @@ describe("useWebSocket", () => {
     expect(mocks.toastErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("Session expired"),
     );
+    unmount();
+  });
+
+  it("on close code 4401 redirects to /login after a 2s grace period", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      ws.emitClose(4401, "expired_token");
+    });
+
+    // No redirect yet — the grace timer is still pending.
+    expect(routerPushSpy).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(routerPushSpy).toHaveBeenCalledWith("/login");
     unmount();
   });
 
