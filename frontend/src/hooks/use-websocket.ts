@@ -29,6 +29,7 @@ import type { CloseEvent as RWSCloseEvent } from "reconnecting-websocket/dist/ev
 
 import { useConnectionStore } from "@/stores/connection-store";
 import { useSessionStore } from "@/stores/session-store";
+import { refreshAccessToken } from "@/lib/api-client";
 import {
   isHeartbeatAck,
   isSystemConnected,
@@ -64,9 +65,25 @@ interface UseWebSocketReturn {
   close: () => void;
 }
 
-function buildWsUrl(): string | null {
+/**
+ * Build the WS URL for a (re)connect. Per AC #5 this:
+ *   1. Calls `refreshAccessToken()` first if the stored access token is within the
+ *      refresh window (`shouldRefresh()` — currently 5 min before expiry).
+ *   2. Reads a fresh `accessToken` from the session store.
+ *   3. Returns `null` if no token is available — the caller must give up rather
+ *      than retry with an empty URL.
+ *
+ * `refreshAccessToken()` shares its in-flight-promise dedup with `api-client.ts`,
+ * so concurrent REST + WS refresh attempts collapse to a single network call.
+ */
+async function buildWsUrl(): Promise<string | null> {
   const base = process.env.NEXT_PUBLIC_WS_URL;
   if (!base) return null;
+
+  const session = useSessionStore.getState();
+  if (session.shouldRefresh()) {
+    await refreshAccessToken();
+  }
 
   const accessToken = useSessionStore.getState().accessToken;
   if (!accessToken) return null;
@@ -90,6 +107,10 @@ export function useWebSocket(
   const send = useCallback((msg: WSMessage) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== ReconnectingWebSocket.OPEN) {
+      // Dropping is intentional during reconnects, but future stories (4.2 facial
+      // features, 4.3 behavioral windows) send on this hook at high frequency —
+      // surface drops so they can be investigated rather than silently lost.
+      console.warn("[ws] send dropped — socket not OPEN", { type: msg.type });
       return;
     }
     ws.send(serialize(msg));
@@ -103,8 +124,9 @@ export function useWebSocket(
   useEffect(() => {
     if (!enabled) return;
 
-    const isAuthed = useSessionStore.getState().accessToken !== null;
-    if (!isAuthed) return;
+    // Check token freshness, not just presence — a persisted-but-expired token
+    // would otherwise immediately bounce off a 4401 close on connect.
+    if (!useSessionStore.getState().isAuthenticated()) return;
 
     const store = useConnectionStore.getState();
     store.reset();
@@ -112,16 +134,30 @@ export function useWebSocket(
 
     // Expose the connection store on window for E2E inspection (Playwright reads it
     // via page.evaluate to assert isConnected / connectionState transitions).
-    if (typeof window !== "undefined") {
+    // Dev/test only — production builds should not leak internal state.
+    if (
+      typeof window !== "undefined" &&
+      process.env.NODE_ENV !== "production"
+    ) {
       (window as unknown as { __connectionStore?: typeof useConnectionStore }).__connectionStore =
         useConnectionStore;
     }
 
-    // URL provider lets reconnecting-websocket pick up a fresh JWT on every retry.
-    // The library's typings accept either a string or a () => string. If the user logs
-    // out mid-session the provider can return an empty string, which will cause RWS
-    // to fail and emit `onerror` — fine, the connection will surface as auth_failed.
-    const urlProvider = (): string => buildWsUrl() ?? "";
+    // URL provider runs on every (re)connect attempt — refreshes the JWT first so
+    // a long-lived session never sends an expired token. `reconnecting-websocket`
+    // accepts either a sync or async URL provider and awaits the promise.
+    const urlProvider = (): Promise<string> =>
+      buildWsUrl().then((url) => {
+        if (url === null) {
+          // No token available — flip the give-up flag and surface auth_failed.
+          // Returning "" causes RWS to throw on `new WebSocket("")`, which we
+          // intercept via the close handler below.
+          giveUpRef.current = true;
+          useConnectionStore.getState().setConnectionState("auth_failed");
+          return "";
+        }
+        return url;
+      });
 
     const ws = new ReconnectingWebSocket(urlProvider, [], RWS_OPTIONS);
     wsRef.current = ws;

@@ -23,6 +23,7 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
+from jose.exceptions import ExpiredSignatureError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,9 +71,10 @@ async def _resolve_learner(token: str, db: AsyncSession) -> tuple[User | None, s
 
     try:
         payload = decode_token(token)
-    except JWTError as exc:
-        reason = "expired_token" if "expired" in str(exc).lower() else "invalid_token"
-        return None, reason
+    except ExpiredSignatureError:
+        return None, "expired_token"
+    except JWTError:
+        return None, "invalid_token"
 
     if payload.get("type") != "access":
         return None, "invalid_token"
@@ -132,10 +134,9 @@ async def websocket_endpoint(
 
     await websocket.accept()
     user_id = str(user.id)
-    session_id = uuid_mod.uuid4().hex
     accept_ms = _now_ms()
 
-    superseded = await connection_manager.connect(user_id, websocket)
+    superseded, session_id = await connection_manager.connect(user_id, websocket)
 
     # Send connected or session_restored
     prior_state = await _load_session_state(user_id)

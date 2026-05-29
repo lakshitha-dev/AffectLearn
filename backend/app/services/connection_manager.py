@@ -11,6 +11,7 @@ which one wins.
 """
 
 import asyncio
+import uuid as uuid_mod
 
 import structlog
 from fastapi import WebSocket
@@ -22,22 +23,35 @@ WS_CLOSE_AUTH_FAILED = 4401
 
 
 class ConnectionManager:
-    """In-process registry of `user_id -> WebSocket`. One connection per learner."""
+    """In-process registry of `user_id -> WebSocket`. One connection per learner.
+
+    Tracks a stable `session_id` per `user_id` so research events emitted across
+    same-user reconnects (network blip, supersede) join into a single learner
+    session per AC #9. The session_id is kept alongside the socket registry but
+    survives a disconnect — only `clear_session()` (called on explicit logout
+    flows or test resets) removes it.
+    """
 
     def __init__(self) -> None:
         self._sockets: dict[str, WebSocket] = {}
+        self._session_ids: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
-    async def connect(self, user_id: str, websocket: WebSocket) -> bool:
+    async def connect(self, user_id: str, websocket: WebSocket) -> tuple[bool, str]:
         """Register a new socket for `user_id`. If a prior socket exists, close it with 4001.
 
-        Returns True if a prior socket was superseded, False if this is a fresh connection.
-        Must be called *after* `await websocket.accept()`.
+        Returns `(superseded, session_id)`. `session_id` is reused across same-user
+        reconnects so research events can correlate them. Must be called *after*
+        `await websocket.accept()`.
         """
         superseded = False
         async with self._lock:
             prior = self._sockets.get(user_id)
             self._sockets[user_id] = websocket
+            session_id = self._session_ids.get(user_id)
+            if session_id is None:
+                session_id = uuid_mod.uuid4().hex
+                self._session_ids[user_id] = session_id
 
         if prior is not None and prior is not websocket:
             superseded = True
@@ -45,7 +59,11 @@ class ConnectionManager:
                 await prior.close(code=WS_CLOSE_SUPERSEDED, reason="superseded_by_new_connection")
             except Exception:
                 logger.warning("supersede_close_failed", user_id=user_id)
-        return superseded
+        return superseded, session_id
+
+    def clear_session(self, user_id: str) -> None:
+        """Drop the stored session_id for a user (e.g. on logout). Tests also use this."""
+        self._session_ids.pop(user_id, None)
 
     def disconnect(self, user_id: str, websocket: WebSocket) -> None:
         """Remove the registered socket only if it *is* the one we hold.

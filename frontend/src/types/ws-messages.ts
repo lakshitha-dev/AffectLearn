@@ -43,13 +43,16 @@ export interface SystemConnectedMessage extends WSMessage {
 export interface SystemSessionRestoredMessage extends WSMessage {
   type: "system";
   action: "session_restored";
+  // Field names are snake_case on the wire (architecture.md line 555 — WS exception
+  // to the REST camelCase rule). Story 4.5+ populates real values; for Story 4.1
+  // every field is optional because the load returns `null`.
   data: {
-    currentLessonId?: string;
-    currentSectionId?: string;
-    lastAffectState?: unknown;
+    current_lesson_id?: string;
+    current_section_id?: string;
+    last_affect_state?: unknown;
     phase?: string;
     group?: string;
-    cycleNumber?: number;
+    cycle_number?: number;
     // Forward-compat: accept any additional keys without breaking parsing.
     [extra: string]: unknown;
   };

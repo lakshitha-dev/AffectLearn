@@ -19,9 +19,12 @@ const mocks = vi.hoisted(() => {
 
     readyState = 1;
     listeners: MockListenerMap = { open: [], message: [], close: [], error: [] };
+    // Capture the URL provider so tests can assert what URL would be used per retry.
+    urlProvider: (() => string | Promise<string>) | null = null;
 
-    constructor() {
+    constructor(urlProvider: string | (() => string | Promise<string>)) {
       MockReconnectingWebSocket.instance = this;
+      this.urlProvider = typeof urlProvider === "function" ? urlProvider : () => urlProvider;
     }
 
     addEventListener<K extends keyof MockListenerMap>(
@@ -61,6 +64,7 @@ const mocks = vi.hoisted(() => {
 
   const toastErrorSpy = vi.fn();
   const toastSuccessSpy = vi.fn();
+  const refreshAccessTokenSpy = vi.fn();
 
   return {
     MockReconnectingWebSocket,
@@ -68,6 +72,7 @@ const mocks = vi.hoisted(() => {
     closeSpy,
     toastErrorSpy,
     toastSuccessSpy,
+    refreshAccessTokenSpy,
   };
 });
 
@@ -84,11 +89,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPushSpy }),
 }));
 
+vi.mock("@/lib/api-client", () => ({
+  refreshAccessToken: mocks.refreshAccessTokenSpy,
+}));
+
 import { useWebSocket } from "./use-websocket";
 import { useConnectionStore } from "@/stores/connection-store";
 import { useSessionStore } from "@/stores/session-store";
 
-const VALID_FUTURE_TS = Date.now() + 60_000;
+// Sit well outside `shouldRefresh()`'s 5-minute pre-expiry window so tests can
+// observe the "no refresh needed" path. Tests that exercise the refresh path
+// override `expiresAt` explicitly.
+const VALID_FUTURE_TS = Date.now() + 30 * 60_000;
 
 function authenticate() {
   useSessionStore.setState({
@@ -107,6 +119,11 @@ beforeEach(() => {
   mocks.toastSuccessSpy.mockReset();
   mocks.MockReconnectingWebSocket.instance = null;
   routerPushSpy.mockReset();
+  mocks.refreshAccessTokenSpy.mockReset();
+  mocks.refreshAccessTokenSpy.mockResolvedValue("refreshed-token");
+  // NEXT_PUBLIC_WS_URL is read inside the hook — set it explicitly so tests
+  // don't depend on whatever .env happens to leak through.
+  process.env.NEXT_PUBLIC_WS_URL = "ws://localhost:8000";
   useConnectionStore.getState().reset();
 });
 
@@ -124,6 +141,78 @@ describe("useWebSocket", () => {
   it("does not open a connection when unauthenticated", () => {
     const { unmount } = renderHook(() => useWebSocket());
     expect(mocks.MockReconnectingWebSocket.instance).toBeNull();
+    unmount();
+  });
+
+  it("does not open a connection when the persisted token has already expired", () => {
+    // Persisted state with an `accessToken` but `expiresAt` in the past — the old
+    // `accessToken !== null` check would have opened a doomed connection (4401).
+    useSessionStore.setState({
+      accessToken: "tok-stale",
+      refreshToken: "ref-123",
+      expiresAt: Date.now() - 60_000,
+      user: null,
+    });
+    const { unmount } = renderHook(() => useWebSocket());
+    expect(mocks.MockReconnectingWebSocket.instance).toBeNull();
+    unmount();
+  });
+
+  it("URL provider returns a fresh token on each retry (AC #5)", async () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    expect(ws.urlProvider).not.toBeNull();
+
+    // First call: token is fresh (expires in 60s, well outside the 5-min refresh
+    // window). refreshAccessToken should NOT be called yet.
+    const firstUrl = await ws.urlProvider!();
+    expect(firstUrl).toContain("token=tok-123");
+    expect(mocks.refreshAccessTokenSpy).not.toHaveBeenCalled();
+
+    // Simulate the token entering the 5-min refresh window. The provider must
+    // call refreshAccessToken() AND then pick up whatever the store now holds.
+    useSessionStore.setState({
+      accessToken: "tok-old",
+      refreshToken: "ref-123",
+      expiresAt: Date.now() + 60_000, // <5min → shouldRefresh() true
+      user: null,
+    });
+    mocks.refreshAccessTokenSpy.mockImplementation(async () => {
+      useSessionStore.setState({
+        accessToken: "tok-new",
+        refreshToken: "ref-123",
+        expiresAt: Date.now() + 30 * 60_000,
+        user: null,
+      });
+      return "tok-new";
+    });
+
+    const secondUrl = await ws.urlProvider!();
+    expect(mocks.refreshAccessTokenSpy).toHaveBeenCalledTimes(1);
+    expect(secondUrl).toContain("token=tok-new");
+    expect(secondUrl).not.toContain("token=tok-old");
+    unmount();
+  });
+
+  it("URL provider flips connectionState to auth_failed when no token is available", async () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+
+    // Clear the session mid-connection — provider should refuse to build a URL.
+    useSessionStore.setState({
+      accessToken: null,
+      refreshToken: null,
+      expiresAt: null,
+      user: null,
+    });
+    mocks.refreshAccessTokenSpy.mockResolvedValue(null);
+
+    const url = await ws.urlProvider!();
+    expect(url).toBe("");
+    expect(useConnectionStore.getState().connectionState).toBe("auth_failed");
     unmount();
   });
 

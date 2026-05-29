@@ -23,6 +23,7 @@ HEARTBEAT_CYCLES = 60
 def _reset_manager_after_each_test():
     yield
     connection_manager._sockets.clear()
+    connection_manager._session_ids.clear()
 
 
 @pytest.fixture

@@ -24,9 +24,10 @@ async def test_connect_registers_socket():
     cm = ConnectionManager()
     ws = _mock_ws()
 
-    superseded = await cm.connect("user-1", ws)
+    superseded, session_id = await cm.connect("user-1", ws)
 
     assert superseded is False
+    assert isinstance(session_id, str) and len(session_id) > 0
     assert cm.is_connected("user-1")
     assert cm.active_user_ids() == ["user-1"]
 
@@ -38,12 +39,45 @@ async def test_second_connect_supersedes_prior():
     ws_b = _mock_ws()
 
     await cm.connect("user-1", ws_a)
-    superseded = await cm.connect("user-1", ws_b)
+    superseded, _sid = await cm.connect("user-1", ws_b)
 
     assert superseded is True
     ws_a.close.assert_awaited_once()
     args, kwargs = ws_a.close.await_args
     assert kwargs.get("code", args[0] if args else None) == WS_CLOSE_SUPERSEDED
+
+
+@pytest.mark.asyncio
+async def test_session_id_persists_across_same_user_reconnects():
+    """AC #9: session_id must be reused across same-user reconnects/supersede."""
+    cm = ConnectionManager()
+    ws_a = _mock_ws()
+    ws_b = _mock_ws()
+
+    _, sid_first = await cm.connect("user-1", ws_a)
+    # Simulate a disconnect (network blip) — disconnect must NOT erase the session_id.
+    cm.disconnect("user-1", ws_a)
+    _, sid_after_reconnect = await cm.connect("user-1", ws_b)
+
+    assert sid_first == sid_after_reconnect
+
+
+@pytest.mark.asyncio
+async def test_session_id_differs_across_users():
+    cm = ConnectionManager()
+    _, sid_a = await cm.connect("user-a", _mock_ws())
+    _, sid_b = await cm.connect("user-b", _mock_ws())
+    assert sid_a != sid_b
+
+
+@pytest.mark.asyncio
+async def test_clear_session_drops_the_session_id():
+    cm = ConnectionManager()
+    _, sid_first = await cm.connect("user-1", _mock_ws())
+    cm.disconnect("user-1", cm._sockets["user-1"])
+    cm.clear_session("user-1")
+    _, sid_after_clear = await cm.connect("user-1", _mock_ws())
+    assert sid_first != sid_after_clear
 
 
 @pytest.mark.asyncio
@@ -106,9 +140,11 @@ async def test_concurrent_connects_serialise_via_lock():
     )
 
     # Exactly one of the two should report supersede=True (the second to enter the lock).
-    assert sum(1 for r in results if r is True) == 1
+    assert sum(1 for r in results if r[0] is True) == 1
     # And exactly one of the two sockets should have been closed.
     closed_count = (1 if ws_a.close.await_count else 0) + (1 if ws_b.close.await_count else 0)
     assert closed_count == 1
     # The registered socket is the one whose close was NOT called.
     assert cm.is_connected("user-1") is True
+    # Both connect calls returned the same session_id (same user).
+    assert results[0][1] == results[1][1]
