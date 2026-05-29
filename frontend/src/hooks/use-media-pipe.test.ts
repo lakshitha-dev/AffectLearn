@@ -421,6 +421,13 @@ describe("useMediaPipe", () => {
     useWebcamStore.setState({ mode: "adaptive" });
 
     const lsSetItem = vi.spyOn(Storage.prototype, "setItem");
+    // AC10: also guard IndexedDB — spy on the open() entry point (all IDB writes
+    // require an open() call). jsdom may not implement indexedDB; if unavailable,
+    // the assertion is vacuously satisfied (the hook can't use a missing API).
+    const idbOpen =
+      typeof globalThis.indexedDB !== "undefined"
+        ? vi.spyOn(globalThis.indexedDB, "open")
+        : null;
 
     renderHook(() => useMediaPipe({ send, captureMs: 100, cycleMs: 300 }));
 
@@ -432,6 +439,10 @@ describe("useMediaPipe", () => {
     });
 
     expect(lsSetItem).not.toHaveBeenCalled();
+    if (idbOpen) {
+      expect(idbOpen).not.toHaveBeenCalled();
+      idbOpen.mockRestore();
+    }
     lsSetItem.mockRestore();
   });
 

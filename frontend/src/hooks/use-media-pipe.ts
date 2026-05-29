@@ -212,6 +212,11 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
         } else {
           try {
             const tensor = cropAndNormalize(video, bbox);
+            // Enforce ring-buffer bound: never exceed expectedFramesPerCycle frames
+            // between cycle resets. Drops the oldest frame (shift) if timers drift.
+            if (frames.length >= PREPROCESS_CONTRACT.expectedFramesPerCycle) {
+              frames.shift();
+            }
             frames.push(tensor);
           } catch (err) {
             console.warn("[useMediaPipe] cropAndNormalize failed", err);

@@ -29,7 +29,17 @@ export function AffectDebugOverlay({ debugRef }: AffectDebugOverlayProps) {
     return () => clearInterval(id);
   }, [debugRef]);
 
-  if (!snapshot) return null;
+  if (!snapshot) {
+    // debugRef is null when NODE_ENV === "production" (metrics not computed per AC #11).
+    // Show a clear message rather than rendering nothing, so a NEXT_PUBLIC_AFFECT_DEBUG=1
+    // production deploy is obviously broken rather than silently missing.
+    return (
+      <div className="fixed bottom-4 right-4 z-50 rounded-lg border border-border bg-surface/90 backdrop-blur p-3 text-xs font-mono text-muted-foreground shadow-lg pointer-events-none">
+        <div className="text-foreground font-semibold mb-1">Affect debug</div>
+        <div>metrics unavailable in production build</div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed bottom-4 right-4 z-50 rounded-lg border border-border bg-surface/90 backdrop-blur p-3 text-xs font-mono text-muted-foreground shadow-lg pointer-events-none">
