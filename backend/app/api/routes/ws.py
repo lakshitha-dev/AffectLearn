@@ -35,6 +35,7 @@ from app.services.connection_manager import (
     connection_manager,
 )
 from app.services.research_logger import emit as emit_research_event
+from app.agents.nodes.affect_detection import detect_engagement
 
 logger = structlog.get_logger(__name__)
 
@@ -119,6 +120,55 @@ def _handle_heartbeat(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _handle_facial_features(
+    envelope: dict[str, Any], user_id: str, session_id: str
+) -> None:
+    """Run engagement inference for one `facial_features` cycle and emit a research event.
+
+    Errors in the affect path are logged + swallowed, never thrown (architecture
+    lines 632/647) — a bad cycle must not break the WebSocket. An empty cycle (no
+    face detected the whole window) is recorded so downstream can fall back to
+    behavioural-only weighting.
+    """
+    data = envelope.get("data") or {}
+    cycle = int(data.get("cycle_number", 0) or 0)
+    frames_captured = int(data.get("frames_captured", 0) or 0)
+    dropped = int(data.get("dropped_frames", 0) or 0)
+
+    result = None
+    error = None
+    try:
+        result = await detect_engagement(data)
+    except FileNotFoundError as exc:
+        error = "model_unavailable"
+        logger.warning("affect_model_unavailable", user_id=user_id, cycle=cycle, detail=str(exc))
+    except Exception:
+        error = "inference_error"
+        logger.exception("affect_inference_failed", user_id=user_id, cycle=cycle)
+
+    payload: dict[str, Any] = {"frames_captured": frames_captured, "dropped_frames": dropped}
+    if result is not None:
+        payload.update(
+            engagement_level=result["engagement_level"],
+            label=result["label"],
+            confidence=round(result["confidence"], 4),
+            frames_used=result.get("frames_used"),
+        )
+    elif error:
+        payload["error"] = error
+    else:
+        payload["empty_cycle"] = True  # no face all cycle -> behavioural-only fallback
+
+    await _safe_emit({
+        "event_type": "facial_affect_detected",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": cycle,
+        "timestamp": _now_ms(),
+        "payload": payload,
+    })
+
+
 @router.websocket("")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -195,6 +245,10 @@ async def websocket_endpoint(
 
             if msg_type == "client_hello":
                 # Reserved for future use; ack via a system.connected refresh is not required.
+                continue
+
+            if msg_type == "facial_features":
+                await _handle_facial_features(envelope, user_id, session_id)
                 continue
 
             # Unknown but well-formed types: log + drop (forward-compat).

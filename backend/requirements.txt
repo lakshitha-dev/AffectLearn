@@ -13,3 +13,7 @@ pytest
 pytest-asyncio
 httpx
 aiosqlite
+
+# Facial affect inference (Story 4.4) — runs the CNN-LSTM engagement ONNX model
+numpy
+onnxruntime
