@@ -12,9 +12,11 @@ import {
   BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
+import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
 import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
 import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
+import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -43,6 +45,10 @@ export default function LessonPage({ params }: PageProps) {
   // via the send function — do NOT open additional connections elsewhere.
   const { send } = useWebSocket();
   const { debug: affectDebug } = useMediaPipe({ send });
+  // Behavioral signals run in ALL non-error modes (incl. webcam-denied), so this
+  // is mounted unconditionally alongside the facial hook (Story 4.3). The debug
+  // ref surfaces NFR9 data-loss metrics in the dev overlay (AC #10).
+  const { debug: behavioralDebug } = useBehavioralSignals({ send });
 
   const completedSectionIds = new Set(progressQuery.data?.completedSectionIds ?? []);
   const lessonPercentage = progressQuery.data?.lessonPercentage ?? 0;
@@ -187,6 +193,7 @@ export default function LessonPage({ params }: PageProps) {
         ))
       )}
       {AFFECT_DEBUG_ENABLED && <AffectDebugOverlay debugRef={affectDebug} />}
+      {AFFECT_DEBUG_ENABLED && <BehavioralDebugOverlay debugRef={behavioralDebug} />}
     </div>
   );
 }

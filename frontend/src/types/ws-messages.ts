@@ -12,6 +12,8 @@
  * use-websocket.ts.
  */
 
+import type { BehavioralWindowPayload } from "@/types/behavioral-events";
+
 export interface WSMessage {
   type: string;
   ts: number;
@@ -59,10 +61,25 @@ export interface FacialFeaturesMessage extends WSMessage {
   };
 }
 
+/**
+ * Behavioral signal window (Story 4.3). One message per 30s cycle in any
+ * non-error webcam mode — sent even for an idle window (`summary.idle: true`,
+ * `events: []`) so the server treats silence as data, not absence.
+ *
+ * Carries RAW timed events; the backend (Story 4.4b) extracts the Bi-LSTM
+ * features. Field naming: snake_case (architecture.md line 489 — WS exception
+ * to the REST camelCase rule). See `behavioral-events.ts` for the schema.
+ */
+export interface BehavioralWindowMessage extends WSMessage {
+  type: "behavioral_window";
+  data: BehavioralWindowPayload;
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
-  | FacialFeaturesMessage;
+  | FacialFeaturesMessage
+  | BehavioralWindowMessage;
 
 // ---------- Downstream (server → client) ----------
 

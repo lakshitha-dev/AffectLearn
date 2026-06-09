@@ -52,3 +52,29 @@ The WASM bundle and the `blaze_face_short_range.tflite` model are loaded
 from CDN (jsdelivr + Google Cloud Storage) by default. To self-host, copy
 both to `public/mediapipe/` and update the two URL constants — no other
 code changes required.
+
+## Behavioral signal collection (Story 4.3)
+
+The `useBehavioralSignals` hook (`src/hooks/use-behavioral-signals.ts`)
+captures mouse, keyboard, scroll, and page-visibility interaction patterns,
+samples mouse position at **10 Hz**, batches everything into **30-second
+windows**, and ships the raw timed events over the same learner WebSocket. It
+runs in **every non-error webcam mode** — including webcam-denied
+(`behavioral`) sessions — so an affect signal is always available. Raw timed
+events are sent; the backend (Story 4.4b) extracts the Bi-LSTM features so
+training and serving share one feature-engineering implementation.
+
+**Privacy contract (read by ethics reviewers):**
+
+- Only event **timing** and **category** are captured. For keystrokes, the
+  hook reads `event.key` solely to compute a category bucket
+  (`alpha` / `digit` / `whitespace` / `backspace` / `enter` / `modifier` /
+  `navigation` / `other`) via `src/lib/key-category.ts` and immediately
+  discards it. **The actual character typed is never stored, logged, or sent**
+  — there is no toggle to expose it. This is enforced in the hook and verified
+  by unit tests (`key-category.test.ts`, `use-behavioral-signals.test.ts`) and
+  an end-to-end check (`e2e/behavioral-signal-collection.spec.ts`).
+- The hook never records DOM node ids/classes, `event.target`, focused-input
+  values, or URLs — nothing that could leak content.
+- Nothing behavioral is written to `localStorage`, `sessionStorage`,
+  `IndexedDB`, or cookies; the per-window buffer is cleared every 30 seconds.
