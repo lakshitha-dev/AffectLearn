@@ -1,0 +1,110 @@
+"""End-to-end graph execution tests (Story 4.4 AC2/AC4).
+
+Runs the compiled graph with `detect_engagement` faked, so no ONNX model is needed.
+Verifies the Phase A path logs without adapting and the Phase B path traverses the
+pedagogical stubs.
+"""
+
+import pytest
+
+import app.agents.graph as graph_mod
+import app.agents.nodes.affect_detection as ad
+from app.agents.graph import build_graph
+from app.agents.state import make_initial_state
+
+pytestmark = pytest.mark.asyncio
+
+# Branch nodes whose traversal we want to OBSERVE (they are pass-through stubs that
+# return {}, so without a spy the graph leaves no evidence of which path it took).
+_BRANCH_NODES = (
+    "log_only_node",
+    "pedagogical_node",
+    "content_adapter_node",
+    "deliver_node",
+)
+
+
+@pytest.fixture
+def traced(monkeypatch):
+    """Compile a graph whose branch nodes record visits, proving the routed path.
+
+    `build_graph` references these node functions as `graph` module globals, so
+    patching them in `app.agents.graph` BEFORE building makes the compiled graph use
+    the spies. Returns (compiled_graph, visited_list).
+    """
+    visited: list[str] = []
+
+    def spy(name, original):
+        async def _inner(state):
+            visited.append(name)
+            return await original(state)
+        return _inner
+
+    for attr in _BRANCH_NODES:
+        short = attr.removesuffix("_node")
+        monkeypatch.setattr(graph_mod, attr, spy(short, getattr(graph_mod, attr)))
+
+    return build_graph().compile(), visited
+
+
+@pytest.fixture
+def compiled():
+    # build a fresh graph per test (avoid the module singleton across tests)
+    return build_graph().compile()
+
+
+@pytest.fixture
+def fake_engaged(monkeypatch):
+    async def fake_detect(_data):
+        return {"engagement_level": 2, "label": "high", "confidence": 0.8,
+                "probs": [0.1, 0.1, 0.7, 0.1], "frames_used": 16}
+
+    monkeypatch.setattr(ad, "detect_engagement", fake_detect)
+
+
+async def test_phase_a_routes_to_log_only_no_adaptation(traced, fake_engaged):
+    compiled, visited = traced
+    state = make_initial_state(
+        learner_id="u1", session_id="s1", cycle_number=1,
+        facial_payload={"frames_b64": "x", "frames_captured": 30},
+    )  # defaults phase_a / control
+    out = await compiled.ainvoke(state)
+
+    assert out["affect_state"] == "engaged"          # affect detected + written
+    assert out["detection_mode"] == "facial_only"
+    assert out["should_adapt"] is False
+    # PROOF of routing: log_only was visited, the pedagogical branch was not.
+    assert visited == ["log_only"]
+    assert not out.get("strategy")                   # pedagogical branch NOT taken
+    assert not out.get("adaptation_content")
+
+
+async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engaged):
+    compiled, visited = traced
+    state = make_initial_state(
+        learner_id="u1", session_id="s1", cycle_number=1,
+        facial_payload={"frames_b64": "x", "frames_captured": 30},
+        phase="phase_b", group="adaptive",
+    )
+    out = await compiled.ainvoke(state)
+
+    assert out["affect_state"] == "engaged"
+    assert out["should_adapt"] is True
+    # PROOF of routing: the full Phase B branch ran in order; log_only did NOT.
+    assert visited == ["pedagogical", "content_adapter", "deliver"]
+    assert "log_only" not in visited
+
+
+async def test_empty_cycle_flows_to_end_without_affect(compiled, monkeypatch):
+    async def fake_detect(_data):
+        return None
+
+    monkeypatch.setattr(ad, "detect_engagement", fake_detect)
+    state = make_initial_state(
+        learner_id="u1", session_id="s1", cycle_number=1,
+        facial_payload={"frames_b64": "", "frames_captured": 0},
+    )
+    out = await compiled.ainvoke(state)
+
+    assert out.get("empty_cycle") is True
+    assert "affect_state" not in out

@@ -13,3 +13,14 @@ pytest
 pytest-asyncio
 httpx
 aiosqlite
+
+# Facial affect inference (Story 4.4) — runs the CNN-LSTM engagement ONNX model
+numpy
+onnxruntime
+
+# Behavioral affect inference (Story 4.4b) — pandas powers the shared feature
+# extractor ported verbatim from affectlearn-ml (train/serve parity).
+pandas
+
+# LangGraph agent pipeline (Story 4.4) — StateGraph 4-agent loop
+langgraph==1.2.4

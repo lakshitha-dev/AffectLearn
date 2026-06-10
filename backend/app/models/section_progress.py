@@ -1,7 +1,9 @@
 from sqlalchemy import (
+    JSON,
     Column,
     DateTime,
     ForeignKey,
+    Integer,
     UniqueConstraint,
     func,
 )
@@ -40,6 +42,9 @@ class SectionProgress(BaseModel):
     completed_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Story 4.6 — richer completion record (nullable; back-compatible)
+    time_spent_seconds = Column(Integer, nullable=True)
+    affect_states = Column(JSON, nullable=True)  # list of affect labels observed in-section
 
     user = relationship("User", back_populates="section_progress")
     section = relationship("Section", back_populates="user_progress")
