@@ -7,6 +7,7 @@ from app.api.routes import (
     auth,
     courses,
     enrollments,
+    learner_profiles,
     learners,
     section_progress,
     surveys,
@@ -24,4 +25,5 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["analytic
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(surveys.router, prefix="/surveys", tags=["surveys"])
 api_router.include_router(section_progress.router)
+api_router.include_router(learner_profiles.router, tags=["learner-profiles"])
 api_router.include_router(ws.router, prefix="/ws", tags=["websocket"])

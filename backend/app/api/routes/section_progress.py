@@ -52,7 +52,11 @@ async def mark_section_complete(
     Returns 201 on first completion; 200 on subsequent (already complete) calls.
     """
     progress, created = await section_progress_service.mark_section_complete(
-        db, user_id=current_user.id, section_id=body.section_id
+        db,
+        user_id=current_user.id,
+        section_id=body.section_id,
+        time_spent_seconds=body.time_spent_seconds,
+        affect_states=body.affect_states,
     )
     response.status_code = (
         status.HTTP_201_CREATED if created else status.HTTP_200_OK

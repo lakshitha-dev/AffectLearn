@@ -13,6 +13,9 @@ from app.models.base import Base
 from app.models.course import Course, Module, Lesson, Section
 from app.models.enrollment import Enrollment
 from app.models.user import Role, User
+# Imported so create_all builds their tables (registered on Base):
+from app.models.learner_profile import LearnerProfile  # noqa: F401  (Story 4.5)
+from app.models.research_event import ResearchEvent  # noqa: F401  (Story 4.7)
 
 DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -27,6 +30,17 @@ async def setup_database():
     yield
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture(autouse=True)
+def _reset_fusion_buffer():
+    """Story 4.4c: the fusion pairing buffer is module-global; reset it between tests
+    so a unimodal result from one test never pairs into another's cycle."""
+    from app.services import fusion_buffer
+
+    fusion_buffer._reset()
+    yield
+    fusion_buffer._reset()
 
 
 @pytest_asyncio.fixture

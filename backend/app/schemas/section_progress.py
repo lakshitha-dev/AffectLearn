@@ -3,13 +3,19 @@
 import uuid
 from datetime import datetime
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from app.schemas.base import CamelModel
+
+# Upper bound: one section can't legitimately span more than a day of focused time;
+# bounding guards the profiler/analytics from corrupt client-supplied values (M1).
+_MAX_SECTION_SECONDS = 86_400
 
 
 class SectionProgressCreate(CamelModel):
     section_id: uuid.UUID
+    time_spent_seconds: int | None = Field(default=None, ge=0, le=_MAX_SECTION_SECONDS)
+    affect_states: list[str] | None = None
 
 
 class SectionProgressResponse(CamelModel):
@@ -18,6 +24,8 @@ class SectionProgressResponse(CamelModel):
     section_id: uuid.UUID
     enrollment_id: uuid.UUID
     completed_at: datetime
+    time_spent_seconds: int | None = None
+    affect_states: list[str] | None = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

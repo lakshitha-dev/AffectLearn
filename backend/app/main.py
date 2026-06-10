@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,8 +18,27 @@ async def lifespan(app: FastAPI):
 
         async with async_session() as db:
             await seed_accounts(db)
+
+    # Start the research-event worker (Story 4.7) — best-effort; no-op if Redis is down.
+    stop_event = asyncio.Event()
+    worker_task = None
+    try:
+        from app.services.research_worker import run_worker
+
+        worker_task = asyncio.create_task(run_worker(stop_event))
+    except Exception:  # never block startup on the durability worker
+        worker_task = None
+
     yield
-    # Shutdown: Close connections
+
+    # Shutdown: stop the worker, close connections
+    stop_event.set()
+    if worker_task is not None:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 app = FastAPI(
