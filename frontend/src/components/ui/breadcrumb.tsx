@@ -1,4 +1,5 @@
 import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
 import { ChevronRight, MoreHorizontal } from "lucide-react"
 
 import { cn } from "@/lib/cn"
@@ -39,9 +40,13 @@ BreadcrumbItem.displayName = "BreadcrumbItem"
 const BreadcrumbLink = React.forwardRef<
   HTMLAnchorElement,
   React.ComponentPropsWithoutRef<"a"> & { asChild?: boolean }
->(({ className, ...props }, ref) => {
+>(({ asChild, className, ...props }, ref) => {
+  // When asChild is set, render the single child (e.g. a Next.js <Link>) as the
+  // element via Slot instead of wrapping it in our own <a> — wrapping would
+  // produce an invalid <a> nested inside <a> and leak the asChild prop to the DOM.
+  const Comp = asChild ? Slot : "a"
   return (
-    <a
+    <Comp
       ref={ref}
       className={cn("transition-colors hover:text-foreground", className)}
       {...props}
