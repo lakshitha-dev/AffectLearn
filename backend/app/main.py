@@ -47,6 +47,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Middleware added LAST is OUTERMOST in Starlette. CORS must wrap the error handler
+# so that 500 responses it generates still carry Access-Control-Allow-Origin —
+# otherwise a backend error surfaces in the browser as a misleading CORS failure.
+app.add_middleware(ErrorHandlerMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -59,8 +64,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.add_middleware(ErrorHandlerMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
 

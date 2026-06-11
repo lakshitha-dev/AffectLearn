@@ -36,6 +36,15 @@ export default function LearnerLayout({
     }
   }, [user, router]);
 
+  // The immersive lesson route supplies its own full shell (top bar, course-outline
+  // sidebar, webcam indicator, focus mode) via its nested layout. Wrapping it in the
+  // standard learner chrome too would render a page-within-a-page — two top bars and
+  // two sidebars — so step aside and let that layout own the screen.
+  const isLessonView = pathname.includes("/lessons/");
+  if (isLessonView) {
+    return <>{children}</>;
+  }
+
   return (
     <AuthGuard allowedRoles={["learner"]}>
       <TopBar />
