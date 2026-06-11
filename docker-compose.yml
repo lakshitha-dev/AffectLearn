@@ -20,12 +20,20 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/app:/app/app     # Hot reload for uvicorn
+      - ./backend/app:/app/app           # Hot reload for uvicorn
+      - ./backend/models:/app/models     # ML model artifacts (behavioral ONNX + stats; facial drop-in)
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/affectlearn
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=dev-secret-change-in-production
       - VLLM_ENDPOINT=http://vllm:8080
+      # Affect models (defaults resolve to /app/models). Facial uses the engagement
+      # stand-in until the 4-category CNN-LSTM is exported (AFFECT_MODEL_KIND=category).
+      - AFFECT_MODEL_PATH=models/cnn_lstm_best.onnx
+      - AFFECT_MODEL_KIND=engagement
+      - BEHAVIORAL_MODEL_PATH=models/behavioral_bilstm.onnx
+      - BEHAVIORAL_STATS_PATH=models/behavioral_feature_stats.json
+      - AFFECT_DETECTION_MODE=auto
       - ENVIRONMENT=development
       - SEED_ON_STARTUP=true
       - EXPOSE_DEV_CREDENTIALS=true
