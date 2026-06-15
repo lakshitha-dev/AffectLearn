@@ -9,6 +9,7 @@ from app.api.routes import (
     enrollments,
     learner_profiles,
     learners,
+    monitor,
     section_progress,
     surveys,
     ws,
@@ -27,3 +28,4 @@ api_router.include_router(surveys.router, prefix="/surveys", tags=["surveys"])
 api_router.include_router(section_progress.router)
 api_router.include_router(learner_profiles.router, tags=["learner-profiles"])
 api_router.include_router(ws.router, prefix="/ws", tags=["websocket"])
+api_router.include_router(monitor.router, prefix="/monitor", tags=["monitor"])
