@@ -27,7 +27,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
+          data-* attributes onto <body> before hydration; this avoids a benign
+          dev-only mismatch warning. */}
+      <body
+        suppressHydrationWarning
+        className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
+      >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <QueryProvider>
             {children}
