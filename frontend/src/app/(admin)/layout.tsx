@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 const NAV_ITEMS = [
   { label: "Users", href: "/users" },
   { label: "A/B Groups", href: "/ab-groups" },
+  { label: "Pipeline Monitor", href: "/monitor" },
   { label: "System Health", href: "/system-health" },
   { label: "Data Export", href: "/data-export" },
   { label: "Settings", href: "/admin-settings" },
