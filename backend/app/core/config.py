@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     EXPOSE_DEV_CREDENTIALS: bool = False
 
+    # Observability dashboard (Monitor)
+    MONITOR_ENABLED: bool = True
+    MONITOR_RING_SIZE: int = 500
+
     SEED_ON_STARTUP: bool = False
     SEED_LEARNER_PASSWORD: str = "Learner123!"
     SEED_DESIGNER_PASSWORD: str = "Designer123!"

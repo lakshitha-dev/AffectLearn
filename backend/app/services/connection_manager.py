@@ -93,5 +93,12 @@ class ConnectionManager:
     def active_user_ids(self) -> list[str]:
         return list(self._sockets.keys())
 
+    def active_sessions(self) -> list[dict[str, str | None]]:
+        """Currently-connected learners paired with their stable session id (Monitor)."""
+        return [
+            {"user_id": uid, "session_id": self._session_ids.get(uid)}
+            for uid in self._sockets
+        ]
+
 
 connection_manager = ConnectionManager()

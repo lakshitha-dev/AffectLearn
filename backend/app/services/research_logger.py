@@ -17,6 +17,7 @@ from typing import Any
 import structlog
 
 from app.services import redis_service
+from app.services.monitor_bus import monitor_bus
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +43,9 @@ async def emit(event: dict[str, Any]) -> None:
     """
     try:
         event = {**event, "sequence_number": _next_sequence(event.get("session_id"))}
+        # Live observability fan-out (Redis-independent) before the durable path, so the
+        # dashboard sees the event even when Redis is down. Best-effort, never raises.
+        monitor_bus.publish({**event, "category": "domain"})
         await redis_service.stream_add(_STREAM, event)  # best-effort durable path
         logger.info("research_event", **event)
     except Exception:
