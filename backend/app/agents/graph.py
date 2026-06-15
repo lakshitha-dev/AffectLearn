@@ -36,7 +36,8 @@ from app.services.trace import emit_trace
 
 # Nodes whose bodies are pass-through stubs today (Story 5.x). Surfaced on the dashboard
 # so the flow diagram can mark them rather than implying real work happens.
-STUB_NODES: tuple[str, ...] = ("pedagogical", "content_adapter", "deliver")
+# `pedagogical` became active in Story 5.1 (real vLLM strategy call).
+STUB_NODES: tuple[str, ...] = ("content_adapter", "deliver")
 
 # State keys whose values are safe + useful to echo into a node_completed trace.
 _TRACE_OUTPUT_KEYS: tuple[str, ...] = (
@@ -83,8 +84,17 @@ def instrument(
             raise
         outputs = {k: update[k] for k in _TRACE_OUTPUT_KEYS if k in update}
         for k in ("strategy", "adaptation_content"):
-            if k in update:
-                outputs[k] = bool(update.get(k))  # presence only (stub outputs)
+            if k in update and update[k]:
+                val = update[k]
+                if k == "strategy" and isinstance(val, dict):
+                    # Surface key decision fields for active pedagogical node
+                    outputs[k] = {
+                        "action_type": val.get("action_type"),
+                        "urgency": val.get("urgency"),
+                        "fallback": val.get("fallback"),
+                    }
+                else:
+                    outputs[k] = True  # presence only (stub outputs)
         emit_trace(
             "node_completed",
             node=name,

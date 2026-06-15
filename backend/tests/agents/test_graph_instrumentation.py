@@ -45,7 +45,9 @@ async def test_instrument_marks_stub_nodes():
     async def noop(state):
         return {}
 
-    wrapped = instrument("pedagogical", noop)
+    # `content_adapter` is still a pass-through stub (Story 5.2); `pedagogical` went
+    # active in Story 5.1, so it is no longer marked here.
+    wrapped = instrument("content_adapter", noop)
     await wrapped({"session_id": "sess-stub", "cycle_number": 1})
     started = next(
         e for e in monitor_bus.recent(session_id="sess-stub") if e["event_type"] == "node_started"

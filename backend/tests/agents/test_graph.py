@@ -9,10 +9,36 @@ import pytest
 
 import app.agents.graph as graph_mod
 import app.agents.nodes.affect_detection as ad
+import app.agents.nodes.pedagogical as ped
 from app.agents.graph import build_graph
 from app.agents.state import make_initial_state
 
 pytestmark = pytest.mark.asyncio
+
+
+class _FakeResp:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeChatClient:
+    """Stand-in for the vLLM client so the Phase B branch needs no GPU/network."""
+
+    async def ainvoke(self, messages):
+        return _FakeResp('{"action_type": "no_action", "reason": "ok", "urgency": "low"}')
+
+
+@pytest.fixture
+def fake_vllm(monkeypatch):
+    """Mock the strategist's LLM call (Story 5.1) — node is real now, not a stub."""
+    captured_events: list[dict] = []
+
+    async def capture_emit(event):
+        captured_events.append(event)
+
+    monkeypatch.setattr(ped, "get_chat_client", lambda: _FakeChatClient())
+    monkeypatch.setattr(ped, "emit_research_event", capture_emit)
+    return captured_events
 
 # Branch nodes whose traversal we want to OBSERVE (they are pass-through stubs that
 # return {}, so without a spy the graph leaves no evidence of which path it took).
@@ -79,8 +105,9 @@ async def test_phase_a_routes_to_log_only_no_adaptation(traced, fake_engaged):
     assert not out.get("adaptation_content")
 
 
-async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engaged):
+async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engaged, fake_vllm):
     compiled, visited = traced
+    captured_events = fake_vllm
     state = make_initial_state(
         learner_id="u1", session_id="s1", cycle_number=1,
         facial_payload={"frames_b64": "x", "frames_captured": 30},
@@ -93,6 +120,14 @@ async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engage
     # PROOF of routing: the full Phase B branch ran in order; log_only did NOT.
     assert visited == ["pedagogical", "content_adapter", "deliver"]
     assert "log_only" not in visited
+    # Story 5.1: the strategist now writes a real strategy on this branch.
+    assert out["strategy"]["action_type"] == "no_action"
+    assert out["strategy"]["fallback"] is False
+    # AC7: strategy_decided research event must be emitted (AC5).
+    strategy_events = [e for e in captured_events if e["event_type"] == "strategy_decided"]
+    assert len(strategy_events) == 1
+    assert strategy_events[0]["payload"]["action_type"] == "no_action"
+    assert strategy_events[0]["payload"]["fallback"] is False
 
 
 async def test_empty_cycle_flows_to_end_without_affect(compiled, monkeypatch):
