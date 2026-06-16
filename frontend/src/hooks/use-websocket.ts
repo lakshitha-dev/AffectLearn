@@ -16,15 +16,31 @@
  *     downstream by callers — the hook just sets `connectionState: "auth_failed"`).
  *
  * Handled inbound messages: `heartbeat_ack`; `system.connected` / `system.session_restored`
- * / `system.error` / `system.mode_switch` (flips the webcam indicator) / `system.reconnected`
- * (clears reconnecting state); `adaptation` (routed into the `adaptation-store` queue); and
- * `notification` (groundwork seam for Story 5.7). Stories 4.2 (facial_features) / 4.3
- * (behavioral window) send on this same connection — DO NOT open a second connection from
- * another hook.
+ * / `system.error` (sets connection error AND — Story 5.7 — surfaces a persistent error toast)
+ * / `system.mode_switch` (flips the webcam indicator AND — 5.7 — surfaces an info toast)
+ * / `system.reconnected` (clears reconnecting state AND — 5.7 — surfaces a brief success toast);
+ * `adaptation` (routed into the `adaptation-store` queue); and `notification` (Story 5.7 —
+ * enqueued as a governed toast). Stories 4.2 (facial_features) / 4.3 (behavioral window) send
+ * on this same connection — DO NOT open a second connection from another hook.
  *
  * Story 5.3 scope: this hook only ROUTES adaptations into the queue. The VISUAL rendering
- * (hint callout, break card, skip UI, notification toasts) is Stories 5.4–5.7, which
- * consume `useAdaptationStore`.
+ * (hint callout, break card, skip UI) is Stories 5.4–5.6, which consume `useAdaptationStore`.
+ *
+ * Story 5.7 (the LAST of Epic 5) completes the per-notification-type routing matrix and adds
+ * the TOAST surface for SYSTEM/operational messages only (it does NOT touch the 5.4–5.6
+ * adaptive consumers):
+ *   - show_hint / show_alternative / show_breakdown → inline callout (5.4)
+ *   - show_encouragement                           → subtle inline text (5.4)
+ *   - suggest_break                                → overlay card (5.5)
+ *   - skip_ahead / increase_difficulty             → skip/difficulty UI (5.6)
+ *   - notification + system.{mode_switch|error|reconnected} → toast (5.7, bottom-right,
+ *     max-2-visible / 500ms-queued / success-info-warning auto-dismiss 3s / error persists,
+ *     via `enqueueToast` → `lib/toast-controller` → `sonner`). The 5.3 store updates
+ *     (`setMode`/`setError`/`resetReconnect`) are RETAINED — the toast is ADDITIVE.
+ * The `superseded`/`auth_failed` close-code `toast.error(...)` calls are LEFT as direct
+ * `sonner` calls (they are terminal — the connection is giving up — so the max-2/500ms
+ * governor adds no value there; routing them through the governor was considered and
+ * declined, Open Question #5).
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -37,6 +53,7 @@ import { useConnectionStore } from "@/stores/connection-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useWebcamStore, type WebcamMode } from "@/stores/webcam-store";
 import { useAdaptationStore, type Adaptation } from "@/stores/adaptation-store";
+import { enqueueToast, makeToastId } from "@/lib/toast-controller";
 import { refreshAccessToken } from "@/lib/api-client";
 import {
   isAdaptation,
@@ -94,6 +111,19 @@ function mapMode(mode: string): WebcamMode {
       return "error";
     case "behavioral":
     case "behavioral_only":
+    default:
+      return "behavioral";
+  }
+}
+
+/** Human-readable label for the `system.mode_switch` info toast (UX spec line 1117 copy). */
+function humanMode(mode: WebcamMode): string {
+  switch (mode) {
+    case "adaptive":
+      return "adaptive";
+    case "error":
+      return "webcam error";
+    case "behavioral":
     default:
       return "behavioral";
   }
@@ -289,13 +319,29 @@ export function useWebSocket(
         useConnectionStore
           .getState()
           .setError(msg.data?.message ?? msg.data?.code ?? "ws_error");
+        // Story 5.7: ADDITIVE — also surface a persistent error toast. Honest,
+        // recovery-oriented copy (UX spec line 1106 — never "Something went wrong").
+        enqueueToast({
+          id: makeToastId(),
+          level: "error",
+          message:
+            msg.data?.message ??
+            "Something interrupted your session. Your progress is safe.",
+        });
         return;
       }
 
       // Story 5.3: `system.mode_switch` flips the webcam indicator (no backend emitter
       // yet — protocol groundwork; the real emitter is a later story).
       if (isSystemModeSwitch(msg)) {
-        useWebcamStore.getState().setMode(mapMode(msg.data.mode));
+        const mode = mapMode(msg.data.mode);
+        useWebcamStore.getState().setMode(mode);
+        // Story 5.7: ADDITIVE — info toast (UX spec line 1117 copy). Store update retained.
+        enqueueToast({
+          id: makeToastId(),
+          level: "info",
+          message: `Switched to ${humanMode(mode)} mode — your learning continues uninterrupted.`,
+        });
         return;
       }
 
@@ -304,6 +350,8 @@ export function useWebSocket(
         const s = useConnectionStore.getState();
         s.setError(null);
         s.resetReconnect();
+        // Story 5.7: ADDITIVE — brief success toast (3s auto-dismiss). Store updates retained.
+        enqueueToast({ id: makeToastId(), level: "success", message: "Reconnected." });
         return;
       }
 
@@ -314,9 +362,16 @@ export function useWebSocket(
         return;
       }
 
-      // Story 5.3: `notification` parses through the same seam (groundwork for 5.7's
-      // toast UX — no toast is built here).
+      // Story 5.7: `notification` ({ level?, message }) → a governed toast. `level` defaults
+      // to "info" when absent (the 5.3 union is info|success|warning — no error here; error
+      // toasts come only from the `system.error` path above). Enqueued via the controller
+      // (max-2 visible / 500ms-queued), NOT a raw `toast(...)` call.
       if (isNotification(msg)) {
+        enqueueToast({
+          id: makeToastId(),
+          level: msg.data.level ?? "info",
+          message: msg.data.message,
+        });
         return;
       }
 

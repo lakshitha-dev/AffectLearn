@@ -65,6 +65,9 @@ const mocks = vi.hoisted(() => {
   const toastErrorSpy = vi.fn();
   const toastSuccessSpy = vi.fn();
   const refreshAccessTokenSpy = vi.fn();
+  // Story 5.7: capture toasts enqueued through the governor (not raw sonner). The
+  // close-code `toast.error` calls still go through the mocked `sonner` above.
+  const enqueueToastSpy = vi.fn();
 
   return {
     MockReconnectingWebSocket,
@@ -73,6 +76,7 @@ const mocks = vi.hoisted(() => {
     toastErrorSpy,
     toastSuccessSpy,
     refreshAccessTokenSpy,
+    enqueueToastSpy,
   };
 });
 
@@ -82,6 +86,14 @@ vi.mock("reconnecting-websocket", () => ({
 
 vi.mock("sonner", () => ({
   toast: { error: mocks.toastErrorSpy, success: mocks.toastSuccessSpy },
+}));
+
+// Story 5.7: the WS handlers enqueue through the controller. Mock it so wiring tests assert
+// the controller was invoked with the mapped spec (the controller↔sonner mapping + max-2/
+// 500ms governor are unit-tested separately in toast-controller.test.ts).
+vi.mock("@/lib/toast-controller", () => ({
+  enqueueToast: mocks.enqueueToastSpy,
+  makeToastId: () => "test-toast-id",
 }));
 
 const routerPushSpy = vi.fn();
@@ -119,6 +131,7 @@ beforeEach(() => {
   mocks.closeSpy.mockReset();
   mocks.toastErrorSpy.mockReset();
   mocks.toastSuccessSpy.mockReset();
+  mocks.enqueueToastSpy.mockReset();
   mocks.MockReconnectingWebSocket.instance = null;
   routerPushSpy.mockReset();
   mocks.refreshAccessTokenSpy.mockReset();
@@ -358,6 +371,168 @@ describe("useWebSocket", () => {
 
     expect(useConnectionStore.getState().lastError).toBeNull();
     expect(useConnectionStore.getState().reconnectAttempts).toBe(0);
+    unmount();
+  });
+
+  // ---------- Story 5.7: toast wiring (additive) ----------
+
+  it("enqueues a toast for an inbound notification message (Story 5.7)", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      ws.emitMessage(
+        JSON.stringify({
+          type: "notification",
+          ts: 5000,
+          data: { level: "info", message: "Heads up." },
+        }),
+      );
+    });
+
+    expect(mocks.enqueueToastSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.enqueueToastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ level: "info", message: "Heads up." }),
+    );
+    unmount();
+  });
+
+  it("defaults a notification with no level to info (Story 5.7)", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      ws.emitMessage(
+        JSON.stringify({ type: "notification", ts: 5000, data: { message: "No level." } }),
+      );
+    });
+
+    expect(mocks.enqueueToastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ level: "info", message: "No level." }),
+    );
+    unmount();
+  });
+
+  it("mode_switch still flips the webcam mode AND enqueues an info toast (additive, Story 5.7)", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      ws.emitMessage(
+        JSON.stringify({
+          type: "system",
+          action: "mode_switch",
+          ts: 3000,
+          data: { mode: "behavioral_only" },
+        }),
+      );
+    });
+
+    // 5.3 store effect retained.
+    expect(useWebcamStore.getState().mode).toBe("behavioral");
+    // 5.7 additive toast.
+    expect(mocks.enqueueToastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: "info",
+        message: expect.stringContaining("behavioral mode"),
+      }),
+    );
+    unmount();
+  });
+
+  it("system.error still sets the connection error AND enqueues a persistent error toast (additive, Story 5.7)", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      ws.emitMessage(
+        JSON.stringify({
+          type: "system",
+          action: "error",
+          ts: 1,
+          data: { code: "X", message: "boom" },
+        }),
+      );
+    });
+
+    // 5.3 store effect retained.
+    expect(useConnectionStore.getState().lastError).toBe("boom");
+    // 5.7 additive error toast (level error → persists).
+    expect(mocks.enqueueToastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ level: "error", message: "boom" }),
+    );
+    unmount();
+  });
+
+  it("system.error with no message uses recovery-oriented fallback copy (Story 5.7)", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      ws.emitMessage(JSON.stringify({ type: "system", action: "error", ts: 1, data: {} }));
+    });
+
+    expect(mocks.enqueueToastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: "error",
+        message: expect.stringContaining("Your progress is safe"),
+      }),
+    );
+    unmount();
+  });
+
+  it("system.reconnected still clears reconnect state AND enqueues a success toast (additive, Story 5.7)", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      useConnectionStore.getState().setError("blip");
+      useConnectionStore.getState().incrementReconnect();
+      ws.emitMessage(JSON.stringify({ type: "system", action: "reconnected", ts: 4000 }));
+    });
+
+    // 5.3 store effects retained.
+    expect(useConnectionStore.getState().lastError).toBeNull();
+    expect(useConnectionStore.getState().reconnectAttempts).toBe(0);
+    // 5.7 additive success toast.
+    expect(mocks.enqueueToastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ level: "success", message: "Reconnected." }),
+    );
+    unmount();
+  });
+
+  it("an inbound adaptation message does NOT enqueue a toast (scope boundary, Story 5.7)", () => {
+    authenticate();
+    const { unmount } = renderHook(() => useWebSocket());
+
+    const ws = mocks.MockReconnectingWebSocket.instance!;
+    act(() => {
+      ws.emitOpen();
+      ws.emitMessage(
+        JSON.stringify({
+          type: "adaptation",
+          action: "show_hint",
+          ts: 2000,
+          content: { text: "Here's a hint.", variant: "show_hint" },
+        }),
+      );
+    });
+
+    // Adaptations go to the queue, never the toast surface.
+    expect(useAdaptationStore.getState().adaptationQueue).toHaveLength(1);
+    expect(mocks.enqueueToastSpy).not.toHaveBeenCalled();
     unmount();
   });
 
