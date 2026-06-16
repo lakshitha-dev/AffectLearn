@@ -14,7 +14,9 @@ import {
 import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
 import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
+import { IncreaseDifficulty } from "@/components/learning/IncreaseDifficulty";
 import { InlineAdaptations } from "@/components/learning/InlineAdaptations";
+import { SkipAheadSuggestion, type SkipInteraction } from "@/components/learning/SkipAheadSuggestion";
 import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
 import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
@@ -102,6 +104,59 @@ export default function LessonPage({ params }: PageProps) {
     const el = document.getElementById("section-" + section.id);
     if (el) { el.scrollIntoView({ behavior: "smooth" }); history.replaceState(null, "", "#section-" + section.id); }
   };
+
+  // Story 5.6: advance the content view to the NEXT section when the learner accepts a
+  // skip_ahead suggestion. Reuses the SAME scroll-based mechanism as the prev/next buttons
+  // (handleSectionNav → scrollIntoView + hash). Because the lesson page tracks no "current
+  // section" cursor, we derive the in-view section from the URL hash (set by handleSectionNav
+  // / the prev-next buttons) and advance to the one after it; falling back to the first
+  // un-completed section, then to section 0→1. "harder section / challenge exercise" degrades
+  // to "next section" until the content-variant catalog lands (Open Question #1, deferred from
+  // 5.2 — we do NOT fabricate a challenge exercise). Graceful no-op when already at the last
+  // section (handleSectionNav guards the out-of-range index).
+  const handleSkipAhead = useCallback(() => {
+    if (sections.length === 0) return;
+    const hashId = window.location.hash.replace(/^#section-/, "");
+    let baseIdx = sections.findIndex((s) => s.id === hashId);
+    if (baseIdx < 0) {
+      baseIdx = sections.findIndex((s) => !completedSectionIds.has(s.id));
+    }
+    if (baseIdx < 0) baseIdx = 0;
+    handleSectionNav(baseIdx + 1);
+  // handleSectionNav + the section/completed snapshots are recomputed each render; this
+  // callback intentionally reads the latest values without re-subscribing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections, completedSectionIds]);
+
+  // Story 5.6 (FR22): log an adaptation accept/dismiss upstream so the backend emits a
+  // research event for the Learner Profiler (4.5) to refine future decisions. Rides the
+  // EXISTING WS `send` channel — no second connection, no store mutation.
+  const logAdaptationInteraction = useCallback(
+    (adaptationId: string, action: "skip_ahead", interaction: SkipInteraction) => {
+      send({
+        type: "adaptation_interaction",
+        ts: Date.now(),
+        data: { adaptation_id: adaptationId, action, interaction },
+      });
+    },
+    [send],
+  );
+
+  // Story 5.6 (FR22): stable callback for the increase_difficulty applied acknowledgement.
+  // Wrapped in useCallback so IncreaseDifficulty's useEffect does not re-run on every
+  // lesson-page re-render (the inline arrow would create a new reference each render,
+  // causing the effect to fire unnecessarily — the appliedRef guard prevents double-logs
+  // but the extra runs waste CPU in a real-time WS context).
+  const logIncreaseDifficultyApplied = useCallback(
+    (id: string) => {
+      send({
+        type: "adaptation_interaction",
+        ts: Date.now(),
+        data: { adaptation_id: id, action: "increase_difficulty", interaction: "applied" },
+      });
+    },
+    [send],
+  );
 
   const course = courseQuery.data;
   const currentModuleIdx = course?.modules.findIndex((m) => m.id === moduleId) ?? -1;
@@ -204,6 +259,19 @@ export default function LessonPage({ params }: PageProps) {
           left in the queue for 5.4/5.6/5.7. Its JSX position is not layout-sensitive
           since it is a fixed overlay. */}
       <BreakSuggestion />
+      {/* Skip-ahead suggestion (Story 5.6) — renders the latest skip_ahead adaptation as an
+          accept/dismiss inline suggestion. Accept advances to the next section via the same
+          scroll-based nav as the prev/next buttons; accept/dismiss are logged upstream (FR22).
+          Non-skip_ahead actions are left in the queue for 5.4/5.5/5.7. */}
+      <SkipAheadSuggestion
+        onSkip={handleSkipAhead}
+        onInteraction={(id, interaction) => logAdaptationInteraction(id, "skip_ahead", interaction)}
+      />
+      {/* Difficulty increase (Story 5.6) — UI-LESS invisible swap (UX spec line 675). Renders
+          nothing; the durable log is the server-side adaptation_delivered event. The optional
+          client ack rides the same FR22 channel. The real harder-variant swap is deferred
+          (content-variant catalog, Open Question #1). */}
+      <IncreaseDifficulty onApplied={logIncreaseDifficultyApplied} />
       {AFFECT_DEBUG_ENABLED && <AffectDebugOverlay debugRef={affectDebug} />}
       {AFFECT_DEBUG_ENABLED && <BehavioralDebugOverlay debugRef={behavioralDebug} />}
     </div>

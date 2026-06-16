@@ -75,11 +75,34 @@ export interface BehavioralWindowMessage extends WSMessage {
   data: BehavioralWindowPayload;
 }
 
+/**
+ * Adaptation interaction (Story 5.6, FR22). A client→server upstream message recording
+ * that the learner accepted/dismissed/applied a delivered adaptation, so the backend can
+ * emit a research event for the Learner Profiler (4.5) to refine future decisions. Rides
+ * the existing generic `send(msg: WSMessage)` — there is NO downstream counterpart and no
+ * `ws-protocol.ts` guard change (those guards are inbound-only).
+ *
+ *   - `dismissed` — the learner declined the suggestion (skip_ahead "Not now" / X / Escape)
+ *   - `accepted`  — the learner accepted the suggestion (skip_ahead "Skip ahead")
+ *   - `applied`   — an invisible adaptation was applied client-side (increase_difficulty,
+ *                   observability-only; the durable record is the server `adaptation_delivered`)
+ */
+export interface AdaptationInteractionMessage extends WSMessage {
+  type: "adaptation_interaction";
+  data: {
+    adaptation_id: string;
+    action: AdaptationAction;
+    interaction: "dismissed" | "accepted" | "applied";
+    cycle_number?: number;
+  };
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
   | FacialFeaturesMessage
-  | BehavioralWindowMessage;
+  | BehavioralWindowMessage
+  | AdaptationInteractionMessage;
 
 // ---------- Downstream (server → client) ----------
 

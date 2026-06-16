@@ -13,6 +13,12 @@ Architecture references:
 Close codes (custom, RFC 6455 4000-4999 range):
   - 4001  superseded_by_new_connection  (second tab supersedes first)
   - 4401  authentication_failed         (missing/invalid/expired token, wrong role)
+
+Inbound message types handled by the loop: `heartbeat`, `client_hello`, `facial_features`,
+`behavioral_window`, and (Story 5.6, FR22) `adaptation_interaction` — the client records that
+the learner accepted/dismissed/applied a delivered adaptation, which is emitted as a research
+event for the Learner Profiler to refine future decisions. Malformed inbound is logged + dropped
+without ever crashing the loop (NFR22).
 """
 
 import json
@@ -383,6 +389,54 @@ async def _deliver_adaptation(
     })
 
 
+_VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
+
+
+async def _handle_adaptation_interaction(
+    envelope: dict[str, Any], user_id: str, session_id: str
+) -> None:
+    """Emit a research event for an inbound `adaptation_interaction` message (Story 5.6, FR22).
+
+    The client sends this when the learner accepts/dismisses/applies a delivered adaptation
+    (e.g. dismissing a `skip_ahead` suggestion). It is turned into a durable, sequence-numbered
+    `adaptation_interaction` research event via `_safe_emit` so the Learner Profiler (4.5) can
+    refine future decisions. Follows the standard envelope exactly (snake_case, `_now_ms()`).
+
+    Never raises (NFR22): a malformed/partial message (missing `data`, unknown `interaction`)
+    is logged via `ws_invalid_message` and dropped — it must never crash the WS loop.
+    """
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        logger.warning(
+            "ws_invalid_message",
+            user_id=user_id,
+            reason="adaptation_interaction_missing_data",
+        )
+        return
+
+    interaction = data.get("interaction")
+    if interaction not in _VALID_INTERACTIONS:
+        logger.warning(
+            "ws_invalid_message",
+            user_id=user_id,
+            reason="adaptation_interaction_invalid_interaction",
+        )
+        return
+
+    await _safe_emit({
+        "event_type": "adaptation_interaction",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": int(data.get("cycle_number", 0) or 0),
+        "timestamp": _now_ms(),
+        "payload": {
+            "adaptation_id": data.get("adaptation_id"),
+            "action": data.get("action"),
+            "interaction": interaction,
+        },
+    })
+
+
 @router.websocket("")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -467,6 +521,12 @@ async def websocket_endpoint(
 
             if msg_type == "behavioral_window":
                 await _handle_behavioral_window(envelope, user_id, session_id, db)
+                continue
+
+            if msg_type == "adaptation_interaction":
+                # Story 5.6 (FR22): record the learner's accept/dismiss/apply of a delivered
+                # adaptation as a research event for the Learner Profiler. Never raises.
+                await _handle_adaptation_interaction(envelope, user_id, session_id)
                 continue
 
             # Unknown but well-formed types: log + drop (forward-compat).
