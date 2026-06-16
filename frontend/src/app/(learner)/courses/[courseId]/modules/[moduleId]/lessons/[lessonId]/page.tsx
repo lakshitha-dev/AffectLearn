@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
+import { InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
 import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
@@ -192,6 +193,10 @@ export default function LessonPage({ params }: PageProps) {
           />
         ))
       )}
+      {/* Inline adaptive hints (Story 5.4) — renders the latest show_* adaptation
+          inline at a natural content break; non-inline actions are left in the
+          queue for Stories 5.5–5.7. */}
+      <InlineAdaptations />
       {AFFECT_DEBUG_ENABLED && <AffectDebugOverlay debugRef={affectDebug} />}
       {AFFECT_DEBUG_ENABLED && <BehavioralDebugOverlay debugRef={behavioralDebug} />}
     </div>
