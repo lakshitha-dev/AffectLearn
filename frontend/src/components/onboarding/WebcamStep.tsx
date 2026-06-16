@@ -32,13 +32,17 @@ export function WebcamStep({ onDecision, currentStep, totalSteps }: WebcamStepPr
     };
   }, []);
 
+  // Attach the stream once the <video> is mounted (it only renders when active).
+  useEffect(() => {
+    if (webcamState === "active" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [webcamState]);
+
   const requestWebcam = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
       setWebcamState("active");
     } catch {
       setWebcamState("denied");
@@ -69,18 +73,18 @@ export function WebcamStep({ onDecision, currentStep, totalSteps }: WebcamStepPr
       </div>
 
       {/* Camera preview */}
-      <div className="aspect-video rounded-xl border border-border bg-surface overflow-hidden flex items-center justify-center">
+      <div className="relative aspect-video rounded-xl border border-border bg-surface overflow-hidden">
         {webcamState === "active" ? (
           <video
             ref={videoRef}
             autoPlay
             muted
             playsInline
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
           />
         ) : (
-          <div className="text-muted-foreground text-sm text-center space-y-2 p-6">
-            <div className="w-12 h-12 mx-auto rounded-full bg-border flex items-center justify-center text-2xl">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground text-sm text-center space-y-2 p-6">
+            <div className="w-12 h-12 rounded-full bg-border flex items-center justify-center text-2xl">
               📷
             </div>
             <p>Camera preview will appear here</p>
