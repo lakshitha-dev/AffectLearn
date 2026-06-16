@@ -56,6 +56,10 @@ class AgentState(TypedDict, total=False):
     strategy: dict | None
     # Agent 4 — Content Adapter output
     adaptation_content: dict | None
+    # Terminal — `deliver` node output (Story 5.3). Transient deliver->WS-handler hand-off:
+    # the built `adaptation` wire payload the socket-owning handler sends verbatim after
+    # `ainvoke`. Not persisted; `make_initial_state` does not seed it (it is an output).
+    delivery_message: dict | None
     # Control flags
     phase: str                   # one of PHASES
     group: str                   # one of GROUPS
@@ -64,6 +68,7 @@ class AgentState(TypedDict, total=False):
     facial_payload: dict
     behavioral_payload: dict
     db: Any              # transient WS-connection AsyncSession for the profiler cold store (Story 4.5)
+    content_context: dict  # transient: current section topic/difficulty for the strategist (Story 5.1)
 
 
 def make_initial_state(
@@ -74,6 +79,7 @@ def make_initial_state(
     facial_payload: dict[str, Any] | None = None,
     behavioral_payload: dict[str, Any] | None = None,
     db: Any = None,
+    content_context: dict[str, Any] | None = None,
     phase: str = "phase_a",
     group: str = "control",
 ) -> AgentState:
@@ -95,4 +101,5 @@ def make_initial_state(
         facial_payload=facial_payload or {},
         behavioral_payload=behavioral_payload or {},
         db=db,
+        content_context=content_context or {},
     )

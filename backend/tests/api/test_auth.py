@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from httpx import AsyncClient
 from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +13,8 @@ from app.core.security import create_access_token, create_refresh_token
 # --- Registration Tests ---
 
 
-async def test_register_success(test_client: AsyncClient):
-    response = await test_client.post(
+async def test_register_success(client: AsyncClient):
+    response = await client.post(
         "/api/v1/auth/register",
         json={
             "emailAddress": "new@example.com",
@@ -32,8 +31,8 @@ async def test_register_success(test_client: AsyncClient):
     assert data["expiresIn"] == 1800  # 30 min * 60
 
 
-async def test_register_duplicate_email(test_client: AsyncClient, test_user):
-    response = await test_client.post(
+async def test_register_duplicate_email(client: AsyncClient, test_user):
+    response = await client.post(
         "/api/v1/auth/register",
         json={
             "emailAddress": "learner@test.com",
@@ -47,8 +46,8 @@ async def test_register_duplicate_email(test_client: AsyncClient, test_user):
     assert data["detail"]["error"]["code"] == "DUPLICATE_EMAIL"
 
 
-async def test_register_invalid_email(test_client: AsyncClient):
-    response = await test_client.post(
+async def test_register_invalid_email(client: AsyncClient):
+    response = await client.post(
         "/api/v1/auth/register",
         json={
             "emailAddress": "not-an-email",
@@ -60,8 +59,8 @@ async def test_register_invalid_email(test_client: AsyncClient):
     assert response.status_code == 422
 
 
-async def test_register_weak_password(test_client: AsyncClient):
-    response = await test_client.post(
+async def test_register_weak_password(client: AsyncClient):
+    response = await client.post(
         "/api/v1/auth/register",
         json={
             "emailAddress": "weak@example.com",
@@ -73,9 +72,9 @@ async def test_register_weak_password(test_client: AsyncClient):
     assert response.status_code == 422
 
 
-async def test_register_password_missing_complexity(test_client: AsyncClient):
+async def test_register_password_missing_complexity(client: AsyncClient):
     # Long enough but missing uppercase, digit, and special character
-    response = await test_client.post(
+    response = await client.post(
         "/api/v1/auth/register",
         json={
             "emailAddress": "nocomplexity@example.com",
@@ -90,12 +89,12 @@ async def test_register_password_missing_complexity(test_client: AsyncClient):
 # --- Login Tests ---
 
 
-async def test_login_success(test_client: AsyncClient, test_user):
-    response = await test_client.post(
+async def test_login_success(client: AsyncClient, test_user):
+    response = await client.post(
         "/api/v1/auth/login",
         json={
             "emailAddress": "learner@test.com",
-            "password": "TestPass123!",
+            "password": "Password1!",  # matches the test_user fixture hash
         },
     )
     assert response.status_code == 200
@@ -105,8 +104,8 @@ async def test_login_success(test_client: AsyncClient, test_user):
     assert data["tokenType"] == "bearer"
 
 
-async def test_login_invalid_credentials(test_client: AsyncClient, test_user):
-    response = await test_client.post(
+async def test_login_invalid_credentials(client: AsyncClient, test_user):
+    response = await client.post(
         "/api/v1/auth/login",
         json={
             "emailAddress": "learner@test.com",
@@ -118,8 +117,8 @@ async def test_login_invalid_credentials(test_client: AsyncClient, test_user):
     assert data["detail"]["error"]["code"] == "INVALID_CREDENTIALS"
 
 
-async def test_login_user_not_found(test_client: AsyncClient):
-    response = await test_client.post(
+async def test_login_user_not_found(client: AsyncClient):
+    response = await client.post(
         "/api/v1/auth/login",
         json={
             "emailAddress": "noone@example.com",
@@ -131,7 +130,7 @@ async def test_login_user_not_found(test_client: AsyncClient):
     assert data["detail"]["error"]["code"] == "INVALID_CREDENTIALS"
 
 
-async def test_login_inactive_user_rejected(test_client: AsyncClient, db_session: AsyncSession):
+async def test_login_inactive_user_rejected(client: AsyncClient, db: AsyncSession):
     from app.models.user import Role, User
     from app.core.security import hash_password
 
@@ -143,10 +142,10 @@ async def test_login_inactive_user_rejected(test_client: AsyncClient, db_session
         role=Role.learner,
         is_active=False,
     )
-    db_session.add(inactive_user)
-    await db_session.commit()
+    db.add(inactive_user)
+    await db.commit()
 
-    response = await test_client.post(
+    response = await client.post(
         "/api/v1/auth/login",
         json={
             "emailAddress": "inactive@test.com",
@@ -161,9 +160,9 @@ async def test_login_inactive_user_rejected(test_client: AsyncClient, db_session
 # --- Token Refresh Tests ---
 
 
-async def test_token_refresh(test_client: AsyncClient, test_user):
+async def test_token_refresh(client: AsyncClient, test_user):
     refresh_token = create_refresh_token(str(test_user.id))
-    response = await test_client.post(
+    response = await client.post(
         "/api/v1/auth/refresh",
         json={"refreshToken": refresh_token},
     )
@@ -178,17 +177,17 @@ async def test_token_refresh(test_client: AsyncClient, test_user):
     assert payload["type"] == "refresh"
 
 
-async def test_wrong_token_type_rejected(test_client: AsyncClient):
+async def test_wrong_token_type_rejected(client: AsyncClient):
     # Use an access token as refresh token — should be rejected (wrong type)
     fake_token = create_access_token("some-user-id")
-    response = await test_client.post(
+    response = await client.post(
         "/api/v1/auth/refresh",
         json={"refreshToken": fake_token},
     )
     assert response.status_code == 401
 
 
-async def test_expired_token_rejected(test_client: AsyncClient):
+async def test_expired_token_rejected(client: AsyncClient):
     expired_payload = {
         "sub": "some-user-id",
         "exp": datetime.now(timezone.utc) - timedelta(hours=1),
@@ -196,7 +195,7 @@ async def test_expired_token_rejected(test_client: AsyncClient):
         "type": "refresh",
     }
     expired_token = jwt.encode(expired_payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-    response = await test_client.post(
+    response = await client.post(
         "/api/v1/auth/refresh",
         json={"refreshToken": expired_token},
     )
@@ -205,17 +204,17 @@ async def test_expired_token_rejected(test_client: AsyncClient):
     assert data["detail"]["error"]["code"] == "INVALID_TOKEN"
 
 
-async def test_protected_route_without_token(test_client: AsyncClient):
-    response = await test_client.get("/api/v1/auth/me")
+async def test_protected_route_without_token(client: AsyncClient):
+    response = await client.get("/api/v1/auth/me")
     assert response.status_code == 401
 
 
 # --- Me Endpoint Tests ---
 
 
-async def test_me_endpoint_returns_current_user(test_client: AsyncClient, test_user):
+async def test_me_endpoint_returns_current_user(client: AsyncClient, test_user):
     token = create_access_token(str(test_user.id))
-    response = await test_client.get(
+    response = await client.get(
         "/api/v1/auth/me",
         headers={"Authorization": f"Bearer {token}"},
     )

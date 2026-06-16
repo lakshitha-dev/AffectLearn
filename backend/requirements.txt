@@ -24,3 +24,8 @@ pandas
 
 # LangGraph agent pipeline (Story 4.4) — StateGraph 4-agent loop
 langgraph==1.2.4
+
+# Story 5.1 — vLLM OpenAI-compatible client for the pedagogical strategist + content
+# adapter nodes (fine-tuned Llama 3 8B). Pulls openai, tiktoken, jiter, distro;
+# bumps langchain-core (compatible with langgraph==1.2.4).
+langchain-openai>=1,<2

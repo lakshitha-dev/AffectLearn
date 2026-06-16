@@ -13,6 +13,12 @@ Architecture references:
 Close codes (custom, RFC 6455 4000-4999 range):
   - 4001  superseded_by_new_connection  (second tab supersedes first)
   - 4401  authentication_failed         (missing/invalid/expired token, wrong role)
+
+Inbound message types handled by the loop: `heartbeat`, `client_hello`, `facial_features`,
+`behavioral_window`, and (Story 5.6, FR22) `adaptation_interaction` — the client records that
+the learner accepted/dismissed/applied a delivered adaptation, which is emitted as a research
+event for the Learner Profiler to refine future decisions. Malformed inbound is logged + dropped
+without ever crashing the loop (NFR22).
 """
 
 import json
@@ -194,6 +200,10 @@ async def _handle_facial_features(
         await _maybe_fuse("facial", result_state.get("facial_inference") or {},
                           user_id, session_id, cycle)
 
+    # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
+    # Phase A — `result_state` then carries no `delivery_message`).
+    await _deliver_adaptation(result_state, user_id, session_id, cycle)
+
 
 async def _handle_behavioral_window(
     envelope: dict[str, Any], user_id: str, session_id: str, db: AsyncSession | None = None
@@ -272,6 +282,10 @@ async def _handle_behavioral_window(
         await _maybe_fuse("behavioral", result_state.get("behavioral_inference") or {},
                           user_id, session_id, cycle)
 
+    # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
+    # Phase A — `result_state` then carries no `delivery_message`).
+    await _deliver_adaptation(result_state, user_id, session_id, cycle)
+
 
 async def _maybe_fuse(
     modality: str, inference: dict[str, Any], user_id: str, session_id: str, cycle: int
@@ -317,6 +331,108 @@ async def _maybe_fuse(
             "behavioral_confidence": round(fused["behavioral_confidence"], 4),
             "weights": {k: round(v, 4) for k, v in fused["weights"].items()},
             "forced_mode": mode,
+        },
+    })
+
+
+async def _deliver_adaptation(
+    result_state: dict[str, Any] | None, user_id: str, session_id: str, cycle: int
+) -> None:
+    """Push the cycle's `adaptation` message to the learner socket (Story 5.3).
+
+    Reads the wire payload the socket-free `deliver_node` built into
+    `result_state["delivery_message"]` and sends it verbatim over the SAME learner
+    socket via `connection_manager.send_to` — a single direct push, no DB hop, no
+    intermediary (NFR2 <100ms). `send_to` returns False when either the socket is
+    gone (user disconnected mid-cycle) or a send_json exception was raised + swallowed
+    internally; on exception it logs at ERROR level. Either way a dead socket never
+    crashes the cycle or the WS loop (architecture lines 335, 647; NFR22).
+
+    A `no_action` / Phase A / control / log_only / empty cycle carries no
+    `delivery_message`, so this early-returns: no send, no `adaptation_delivered`
+    event (AC3). On a successful push it emits a non-blocking `adaptation_delivered`
+    research event via `_safe_emit` (sourced from `adaptation_content.metadata`).
+    """
+    if result_state is None:
+        return
+    delivery_message = result_state.get("delivery_message")
+    if not delivery_message:
+        return
+
+    sent = await connection_manager.send_to(user_id, delivery_message)
+    if not sent:
+        # Socket gone or send failed — degrade gracefully. Log at debug level so
+        # the delivery attempt is visible in traces without flooding normal operation.
+        logger.debug(
+            "adaptation_delivery_skipped",
+            user_id=user_id,
+            session_id=session_id,
+            cycle=cycle,
+            action=delivery_message.get("action"),
+            reason="socket_unavailable_or_send_failed",
+        )
+        return
+
+    metadata = (result_state.get("adaptation_content") or {}).get("metadata") or {}
+    await _safe_emit({
+        "event_type": "adaptation_delivered",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": cycle,
+        "timestamp": _now_ms(),
+        "payload": {
+            "action": delivery_message.get("action"),
+            "variant": (delivery_message.get("content") or {}).get("variant"),
+            "generated": bool(metadata.get("generated")),
+            "fallback": bool(metadata.get("fallback")),
+        },
+    })
+
+
+_VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
+
+
+async def _handle_adaptation_interaction(
+    envelope: dict[str, Any], user_id: str, session_id: str
+) -> None:
+    """Emit a research event for an inbound `adaptation_interaction` message (Story 5.6, FR22).
+
+    The client sends this when the learner accepts/dismisses/applies a delivered adaptation
+    (e.g. dismissing a `skip_ahead` suggestion). It is turned into a durable, sequence-numbered
+    `adaptation_interaction` research event via `_safe_emit` so the Learner Profiler (4.5) can
+    refine future decisions. Follows the standard envelope exactly (snake_case, `_now_ms()`).
+
+    Never raises (NFR22): a malformed/partial message (missing `data`, unknown `interaction`)
+    is logged via `ws_invalid_message` and dropped — it must never crash the WS loop.
+    """
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        logger.warning(
+            "ws_invalid_message",
+            user_id=user_id,
+            reason="adaptation_interaction_missing_data",
+        )
+        return
+
+    interaction = data.get("interaction")
+    if interaction not in _VALID_INTERACTIONS:
+        logger.warning(
+            "ws_invalid_message",
+            user_id=user_id,
+            reason="adaptation_interaction_invalid_interaction",
+        )
+        return
+
+    await _safe_emit({
+        "event_type": "adaptation_interaction",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": int(data.get("cycle_number", 0) or 0),
+        "timestamp": _now_ms(),
+        "payload": {
+            "adaptation_id": data.get("adaptation_id"),
+            "action": data.get("action"),
+            "interaction": interaction,
         },
     })
 
@@ -405,6 +521,12 @@ async def websocket_endpoint(
 
             if msg_type == "behavioral_window":
                 await _handle_behavioral_window(envelope, user_id, session_id, db)
+                continue
+
+            if msg_type == "adaptation_interaction":
+                # Story 5.6 (FR22): record the learner's accept/dismiss/apply of a delivered
+                # adaptation as a research event for the Learner Profiler. Never raises.
+                await _handle_adaptation_interaction(envelope, user_id, session_id)
                 continue
 
             # Unknown but well-formed types: log + drop (forward-compat).

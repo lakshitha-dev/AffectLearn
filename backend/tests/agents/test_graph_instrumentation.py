@@ -41,16 +41,28 @@ async def test_instrument_emits_error_and_reraises():
     assert errs and errs[0]["error"] == "kaboom"
 
 
-async def test_instrument_marks_stub_nodes():
-    async def noop(state):
-        return {}
+async def test_no_nodes_are_stubs_after_5_3():
+    from app.agents.graph import STUB_NODES
 
-    wrapped = instrument("pedagogical", noop)
-    await wrapped({"session_id": "sess-stub", "cycle_number": 1})
-    started = next(
-        e for e in monitor_bus.recent(session_id="sess-stub") if e["event_type"] == "node_started"
-    )
-    assert started["node_kind"] == "stub"
+    # Story 5.3: `deliver` went active (builds the WS wire payload), so no node is a
+    # stub. `pedagogical` (5.1) and `content_adapter` (5.2) were already active.
+    assert STUB_NODES == ()
+
+
+async def test_instrument_marks_deliver_active_and_surfaces_delivery():
+    async def fake_deliver(state):
+        return {"delivery_message": {"type": "adaptation", "action": "show_hint",
+                                     "content": {"text": "hi", "variant": "show_hint"},
+                                     "ts": 1}}
+
+    wrapped = instrument("deliver", fake_deliver)
+    await wrapped({"session_id": "sess-deliver", "cycle_number": 1, "learner_id": "L"})
+    evs = monitor_bus.recent(session_id="sess-deliver")
+    started = next(e for e in evs if e["event_type"] == "node_started")
+    assert started["node_kind"] == "active"  # deliver is no longer a stub
+    completed = next(e for e in evs if e["event_type"] == "node_completed")
+    # Surfaces the delivery decision (queued + action), not presence-only.
+    assert completed["outputs"]["delivery_message"] == {"queued": True, "action": "show_hint"}
 
 
 def test_router_emits_decision_with_reason():

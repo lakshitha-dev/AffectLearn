@@ -75,11 +75,34 @@ export interface BehavioralWindowMessage extends WSMessage {
   data: BehavioralWindowPayload;
 }
 
+/**
+ * Adaptation interaction (Story 5.6, FR22). A client→server upstream message recording
+ * that the learner accepted/dismissed/applied a delivered adaptation, so the backend can
+ * emit a research event for the Learner Profiler (4.5) to refine future decisions. Rides
+ * the existing generic `send(msg: WSMessage)` — there is NO downstream counterpart and no
+ * `ws-protocol.ts` guard change (those guards are inbound-only).
+ *
+ *   - `dismissed` — the learner declined the suggestion (skip_ahead "Not now" / X / Escape)
+ *   - `accepted`  — the learner accepted the suggestion (skip_ahead "Skip ahead")
+ *   - `applied`   — an invisible adaptation was applied client-side (increase_difficulty,
+ *                   observability-only; the durable record is the server `adaptation_delivered`)
+ */
+export interface AdaptationInteractionMessage extends WSMessage {
+  type: "adaptation_interaction";
+  data: {
+    adaptation_id: string;
+    action: AdaptationAction;
+    interaction: "dismissed" | "accepted" | "applied";
+    cycle_number?: number;
+  };
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
   | FacialFeaturesMessage
-  | BehavioralWindowMessage;
+  | BehavioralWindowMessage
+  | AdaptationInteractionMessage;
 
 // ---------- Downstream (server → client) ----------
 
@@ -118,11 +141,74 @@ export interface HeartbeatAckMessage extends WSMessage {
   data: { seq: number | null; server_ts: number };
 }
 
+/**
+ * Adaptation action vocabulary (Story 5.3). These are the backend `ACTION_TYPES`
+ * (5.1's `fallbacks.py`) MINUS `no_action` — `no_action` never produces an
+ * `adaptation` message on the wire, so it is not a valid delivered action. Keep this
+ * union in lockstep with the backend vocabulary (do not invent action strings).
+ */
+export type AdaptationAction =
+  | "show_hint"
+  | "show_alternative"
+  | "show_breakdown"
+  | "show_encouragement"
+  | "simplify"
+  | "suggest_break"
+  | "skip_ahead"
+  | "increase_difficulty";
+
+/**
+ * Delivered adaptation (Story 5.3). The backend WS handler pushes one of these after a
+ * Phase B cycle produces content. `content` is intentionally permissive — `text`/`variant`
+ * for generative/selective actions, and `message` so Story 5.5's `suggest_break` variant
+ * (architecture line 323) can use it without a type change. The visual rendering of these
+ * is Stories 5.4–5.7; this story only routes the message into the `adaptation-store` queue.
+ */
+export interface AdaptationMessage extends WSMessage {
+  type: "adaptation";
+  action: AdaptationAction;
+  content: { text?: string; variant?: string; message?: string };
+}
+
+/**
+ * Notification (Story 5.7 owns the toast UX). Typed minimally here so 5.7 can extend the
+ * payload without a breaking change; 5.3 only routes it through the same parsing seam.
+ */
+export interface NotificationMessage extends WSMessage {
+  type: "notification";
+  data: { level?: "info" | "success" | "warning"; message: string; [extra: string]: unknown };
+}
+
+/**
+ * `system` mode_switch (Story 5.3 protocol groundwork). Flips the webcam indicator. No
+ * backend code emits this yet — the real emitter is a later story; 5.3 only handles it
+ * client-side. `data.mode` is the server detection-mode string mapped to a `WebcamMode`.
+ */
+export interface SystemModeSwitchMessage extends WSMessage {
+  type: "system";
+  action: "mode_switch";
+  data: { mode: string };
+}
+
+/**
+ * `system` reconnected (Story 5.3). Signals connection recovery so the client can clear
+ * the reconnecting state / surface a brief recovery toast.
+ */
+export interface SystemReconnectedMessage extends WSMessage {
+  type: "system";
+  action: "reconnected";
+  data?: Record<string, unknown>;
+}
+
 export type DownstreamMessage =
   | SystemConnectedMessage
   | SystemSessionRestoredMessage
   | SystemErrorMessage
-  | HeartbeatAckMessage;
+  | SystemModeSwitchMessage
+  | SystemReconnectedMessage
+  | HeartbeatAckMessage
+  | AdaptationMessage
+  | NotificationMessage;
 
 // ---------- Close codes (application-defined RFC 6455 range) ----------
 
