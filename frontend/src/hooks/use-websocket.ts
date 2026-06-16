@@ -15,10 +15,16 @@
  *     retrying and routes the user back to /login after a 2s grace toast (handled
  *     downstream by callers — the hook just sets `connectionState: "auth_failed"`).
  *
- * Forward-compat: only `system.connected`, `system.session_restored`, `system.error`,
- * and `heartbeat_ack` are handled here. Stories 4.2 (facial_features), 4.3 (behavioral
- * window), 5.x (adaptation, notification) will add their own listeners by consuming
- * the same connection — DO NOT open a second connection from another hook.
+ * Handled inbound messages: `heartbeat_ack`; `system.connected` / `system.session_restored`
+ * / `system.error` / `system.mode_switch` (flips the webcam indicator) / `system.reconnected`
+ * (clears reconnecting state); `adaptation` (routed into the `adaptation-store` queue); and
+ * `notification` (groundwork seam for Story 5.7). Stories 4.2 (facial_features) / 4.3
+ * (behavioral window) send on this same connection — DO NOT open a second connection from
+ * another hook.
+ *
+ * Story 5.3 scope: this hook only ROUTES adaptations into the queue. The VISUAL rendering
+ * (hint callout, break card, skip UI, notification toasts) is Stories 5.4–5.7, which
+ * consume `useAdaptationStore`.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -29,11 +35,17 @@ import type { CloseEvent as RWSCloseEvent } from "reconnecting-websocket/dist/ev
 
 import { useConnectionStore } from "@/stores/connection-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useWebcamStore, type WebcamMode } from "@/stores/webcam-store";
+import { useAdaptationStore, type Adaptation } from "@/stores/adaptation-store";
 import { refreshAccessToken } from "@/lib/api-client";
 import {
+  isAdaptation,
   isHeartbeatAck,
+  isNotification,
   isSystemConnected,
   isSystemError,
+  isSystemModeSwitch,
+  isSystemReconnected,
   isSystemSessionRestored,
   parse,
   serialize,
@@ -41,8 +53,51 @@ import {
 import {
   WS_CLOSE_AUTH_FAILED,
   WS_CLOSE_SUPERSEDED,
+  type AdaptationMessage,
   type WSMessage,
 } from "@/types/ws-messages";
+
+/** Stable id for a queued adaptation; falls back to a counter if crypto is unavailable. */
+let _adaptationSeq = 0;
+function _adaptationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  _adaptationSeq += 1;
+  return `adaptation-${Date.now()}-${_adaptationSeq}`;
+}
+
+/** Map an inbound `adaptation` message to a queue item (no rendering — Stories 5.4–5.7). */
+function mapToAdaptation(msg: AdaptationMessage): Adaptation {
+  return {
+    id: _adaptationId(),
+    action: msg.action,
+    text: msg.content?.text,
+    variant: msg.content?.variant,
+    receivedAt: Date.now(),
+  };
+}
+
+/**
+ * Map the server `system.mode_switch` mode string to a client `WebcamMode`. The server
+ * may send either a `WebcamMode` directly (`adaptive`/`behavioral`/`error`) or its
+ * detection-mode vocabulary (`multimodal`/`facial_only` → adaptive; `behavioral_only` →
+ * behavioral). Unknown values fall back to `behavioral` (the safe non-webcam mode).
+ */
+function mapMode(mode: string): WebcamMode {
+  switch (mode) {
+    case "adaptive":
+    case "multimodal":
+    case "facial_only":
+      return "adaptive";
+    case "error":
+      return "error";
+    case "behavioral":
+    case "behavioral_only":
+    default:
+      return "behavioral";
+  }
+}
 
 const HEARTBEAT_INTERVAL_MS = 25_000;
 const HEARTBEAT_TIMEOUT_MS = 5_000;
@@ -234,6 +289,34 @@ export function useWebSocket(
         useConnectionStore
           .getState()
           .setError(msg.data?.message ?? msg.data?.code ?? "ws_error");
+        return;
+      }
+
+      // Story 5.3: `system.mode_switch` flips the webcam indicator (no backend emitter
+      // yet — protocol groundwork; the real emitter is a later story).
+      if (isSystemModeSwitch(msg)) {
+        useWebcamStore.getState().setMode(mapMode(msg.data.mode));
+        return;
+      }
+
+      // Story 5.3: `system.reconnected` clears reconnecting state / surfaces a recovery.
+      if (isSystemReconnected(msg)) {
+        const s = useConnectionStore.getState();
+        s.setError(null);
+        s.resetReconnect();
+        return;
+      }
+
+      // Story 5.3: route a delivered adaptation into the queue. NO visual component
+      // renders here — Stories 5.4–5.7 consume `useAdaptationStore`.
+      if (isAdaptation(msg)) {
+        useAdaptationStore.getState().pushAdaptation(mapToAdaptation(msg));
+        return;
+      }
+
+      // Story 5.3: `notification` parses through the same seam (groundwork for 5.7's
+      // toast UX — no toast is built here).
+      if (isNotification(msg)) {
         return;
       }
 

@@ -12,9 +12,11 @@ reused per 30-second cycle via `get_graph()` (mirrors the lazy-singleton pattern
 in-memory and the per-cycle state (including raw facial frames) is discarded after
 `ainvoke`, satisfying the no-video-storage privacy rule (NFR10).
 
-Downstream nodes (pedagogical / content_adapter / deliver) are pass-through stubs in
-Story 4.4 so the graph compiles to its final shape; later stories swap their bodies
-without touching this topology.
+Downstream nodes were pass-through stubs in Story 4.4 so the graph compiled to its
+final shape; later stories swapped their bodies without touching this topology:
+`pedagogical` (5.1) and `content_adapter` (5.2) call vLLM, and `deliver` (5.3) builds
+the WebSocket `adaptation` wire payload into `AgentState.delivery_message` for the WS
+handler to transport. As of Story 5.3 no node is a stub (`STUB_NODES = ()`).
 """
 
 from __future__ import annotations
@@ -34,12 +36,13 @@ from app.agents.nodes.terminal import deliver_node, log_only_node
 from app.agents.state import AgentState
 from app.services.trace import emit_trace
 
-# Nodes whose bodies are pass-through stubs today (Story 5.x). Surfaced on the dashboard
-# so the flow diagram can mark them rather than implying real work happens.
-# `pedagogical` became active in Story 5.1 (real vLLM strategy call); `content_adapter`
-# became active in Story 5.2 (real vLLM content generation). `deliver` remains a stub
-# until Story 5.3.
-STUB_NODES: tuple[str, ...] = ("deliver",)
+# Nodes whose bodies are pass-through stubs. Surfaced on the dashboard so the flow
+# diagram can mark them rather than implying real work happens. As of Story 5.3 NO
+# nodes are stubs: `pedagogical` went active in Story 5.1 (vLLM strategy), `content_adapter`
+# in Story 5.2 (vLLM content), and `deliver` in Story 5.3 (builds the WS `adaptation`
+# wire payload). The set is kept (empty) so the instrumentation / dashboard contract is
+# unchanged and a future stub can re-populate it.
+STUB_NODES: tuple[str, ...] = ()
 
 # State keys whose values are safe + useful to echo into a node_completed trace.
 _TRACE_OUTPUT_KEYS: tuple[str, ...] = (
@@ -106,6 +109,15 @@ def instrument(
                     }
                 else:
                     outputs[k] = True  # presence only (remaining stub outputs)
+        # Surface the delivery decision for the active `deliver` node (Story 5.3):
+        # whether a message was queued for send + its action, not presence-only.
+        if "delivery_message" in update:
+            dm = update.get("delivery_message")
+            outputs["delivery_message"] = (
+                {"queued": True, "action": dm.get("action")}
+                if isinstance(dm, dict)
+                else {"queued": bool(dm)}
+            )
         emit_trace(
             "node_completed",
             node=name,

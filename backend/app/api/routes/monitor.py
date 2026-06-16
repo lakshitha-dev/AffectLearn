@@ -51,8 +51,8 @@ _GRAPH_TOPOLOGY: dict = {
          "desc": "vLLM strategy decision → rule-based fallback (Story 5.1)"},
         {"id": "content_adapter", "label": "Content Adapter", "kind": "active",
          "desc": "vLLM content generation → rule-based fallback (Story 5.2)"},
-        {"id": "deliver", "label": "Deliver", "kind": "stub",
-         "desc": "Push adaptation to client (Story 5.3 — stub)"},
+        {"id": "deliver", "label": "Deliver", "kind": "active",
+         "desc": "Build adaptation wire payload → WS handler pushes to client (Story 5.3)"},
     ],
     "edges": [
         {"from": "START", "to": "affect_detection"},

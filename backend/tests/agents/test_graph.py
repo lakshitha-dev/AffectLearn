@@ -125,6 +125,9 @@ async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engage
     # Story 5.1: the strategist now writes a real strategy on this branch.
     assert out["strategy"]["action_type"] == "no_action"
     assert out["strategy"]["fallback"] is False
+    # Story 5.3 / AC3: no_action produces no content and thus no delivery payload.
+    assert not out.get("adaptation_content")
+    assert not out.get("delivery_message")
     # AC7: strategy_decided research event must be emitted (AC5).
     strategy_events = [e for e in captured_events if e["event_type"] == "strategy_decided"]
     assert len(strategy_events) == 1
@@ -179,6 +182,15 @@ async def test_phase_b_generative_populates_adaptation_content(
     assert content["variant"] == "show_hint"
     assert content["metadata"]["generated"] is True
     assert content["metadata"]["fallback"] is False
+    # Story 5.3: the deliver node builds the WS wire payload into result_state.
+    delivery = out["delivery_message"]
+    assert delivery["type"] == "adaptation"
+    assert delivery["action"] == "show_hint"
+    assert delivery["content"] == {
+        "text": "Here's a gentler way to think about it.",
+        "variant": "show_hint",
+    }
+    assert isinstance(delivery["ts"], int)
     llm_mod._reset()
 
 

@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  isAdaptation,
   isHeartbeatAck,
+  isNotification,
   isSystemConnected,
   isSystemError,
   isSystemMessage,
+  isSystemModeSwitch,
+  isSystemReconnected,
   isSystemSessionRestored,
   parse,
   serialize,
@@ -91,5 +95,52 @@ describe("type guards", () => {
   it("isSystemError matches error only", () => {
     expect(isSystemError({ type: "system", action: "error", ts: 1, data: { message: "x" } } as never)).toBe(true);
     expect(isSystemError({ type: "system", action: "connected", ts: 1, data: { welcome: true } } as never)).toBe(false);
+  });
+
+  it("isSystemModeSwitch matches mode_switch only", () => {
+    expect(isSystemModeSwitch({ type: "system", action: "mode_switch", ts: 1, data: { mode: "behavioral_only" } } as never)).toBe(true);
+    expect(isSystemModeSwitch({ type: "system", action: "error", ts: 1, data: {} } as never)).toBe(false);
+    expect(isSystemModeSwitch({ type: "adaptation", action: "show_hint", ts: 1 } as never)).toBe(false);
+  });
+
+  it("isSystemReconnected matches reconnected only", () => {
+    expect(isSystemReconnected({ type: "system", action: "reconnected", ts: 1 } as never)).toBe(true);
+    expect(isSystemReconnected({ type: "system", action: "connected", ts: 1, data: {} } as never)).toBe(false);
+  });
+
+  it("isAdaptation requires type adaptation with a string action", () => {
+    expect(isAdaptation({ type: "adaptation", action: "show_hint", ts: 1, content: { text: "hi" } } as never)).toBe(true);
+    // malformed: missing action -> dropped by the guard (AC #4)
+    expect(isAdaptation({ type: "adaptation", ts: 1, content: {} } as never)).toBe(false);
+    // wrong type
+    expect(isAdaptation({ type: "system", action: "error", ts: 1 } as never)).toBe(false);
+  });
+
+  it("isNotification matches notification only", () => {
+    expect(isNotification({ type: "notification", ts: 1, data: { message: "hello" } } as never)).toBe(true);
+    expect(isNotification({ type: "adaptation", action: "show_hint", ts: 1 } as never)).toBe(false);
+  });
+});
+
+describe("parse + guard integration", () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it("preserves action/content on an adaptation envelope through parse", () => {
+    const msg = parse('{"type":"adaptation","action":"show_hint","ts":5,"content":{"text":"hi","variant":"show_hint"}}');
+    expect(msg).not.toBeNull();
+    expect(isAdaptation(msg!)).toBe(true);
+  });
+
+  it("a malformed adaptation (no action) parses but the guard rejects it", () => {
+    const msg = parse('{"type":"adaptation","ts":5,"content":{}}');
+    // Envelope is valid (type + ts), so parse keeps it; the guard drops it.
+    expect(msg).not.toBeNull();
+    expect(isAdaptation(msg!)).toBe(false);
   });
 });

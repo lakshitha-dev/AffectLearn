@@ -81,3 +81,30 @@ export function isSystemError(
 ): msg is Extract<DownstreamMessage, { type: "system"; action: "error" }> {
   return isSystemMessage(msg) && msg.action === "error";
 }
+
+export function isSystemModeSwitch(
+  msg: WSMessage,
+): msg is Extract<DownstreamMessage, { type: "system"; action: "mode_switch" }> {
+  return isSystemMessage(msg) && msg.action === "mode_switch";
+}
+
+export function isSystemReconnected(
+  msg: WSMessage,
+): msg is Extract<DownstreamMessage, { type: "system"; action: "reconnected" }> {
+  return isSystemMessage(msg) && msg.action === "reconnected";
+}
+
+// Story 5.3: `adaptation` requires a string `action` (a malformed one missing `action`
+// is dropped here without breaking the connection — AC #4). The visual rendering of the
+// queued adaptation is Stories 5.4–5.7; this guard only feeds the routing seam.
+export function isAdaptation(
+  msg: WSMessage,
+): msg is Extract<DownstreamMessage, { type: "adaptation" }> {
+  return msg.type === "adaptation" && typeof (msg as { action?: unknown }).action === "string";
+}
+
+export function isNotification(
+  msg: WSMessage,
+): msg is Extract<DownstreamMessage, { type: "notification" }> {
+  return msg.type === "notification";
+}

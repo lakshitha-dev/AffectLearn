@@ -56,6 +56,10 @@ class AgentState(TypedDict, total=False):
     strategy: dict | None
     # Agent 4 — Content Adapter output
     adaptation_content: dict | None
+    # Terminal — `deliver` node output (Story 5.3). Transient deliver->WS-handler hand-off:
+    # the built `adaptation` wire payload the socket-owning handler sends verbatim after
+    # `ainvoke`. Not persisted; `make_initial_state` does not seed it (it is an output).
+    delivery_message: dict | None
     # Control flags
     phase: str                   # one of PHASES
     group: str                   # one of GROUPS
