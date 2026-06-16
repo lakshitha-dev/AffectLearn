@@ -14,9 +14,11 @@ async def test_graph_topology_requires_admin(client, admin_headers, auth_headers
     node_ids = {n["id"] for n in body["nodes"]}
     assert {"affect_detection", "learner_profiler", "log_only"} <= node_ids
     stubs = {n["id"] for n in body["nodes"] if n["kind"] == "stub"}
-    # Story 5.1: `pedagogical` is now an active node (real vLLM strategy call).
-    assert stubs == {"content_adapter", "deliver"}
+    # Story 5.1: `pedagogical` went active (vLLM strategy). Story 5.2: `content_adapter`
+    # went active (vLLM content generation). `deliver` is the only remaining stub.
+    assert stubs == {"deliver"}
     assert "pedagogical" in node_ids
+    assert "content_adapter" in node_ids
 
     # learner forbidden
     r = await client.get("/api/v1/monitor/graph", headers=auth_headers)

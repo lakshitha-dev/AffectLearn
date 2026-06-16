@@ -61,3 +61,117 @@ def rule_based_strategy(affect_state: Any, profile: dict | None = None) -> dict[
         "reason": f"rule-based response to {affect_state or 'unknown'} affect",
         "urgency": urgency,
     }
+
+
+# ── Content Adapter partition + pre-written copy (Story 5.2) ───────────────────
+#
+# The Content Adapter (Agent 4) splits the locked ACTION_TYPES into two execution
+# paths plus a no-op (epics 942-952):
+#   - GENERATIVE_ACTIONS  -> call vLLM to produce warm, conversational learner-facing
+#                            text. When vLLM is slow/absent/unusable the node falls
+#                            back to the pre-written copy below (NFR22, NFR5).
+#   - SELECTIVE_ACTIONS   -> do NOT generate prose; SELECT an existing content variant
+#                            (harder section / challenge exercise) by reference. Because
+#                            no course-content variant catalog exists in AgentState/DB
+#                            yet (Open Question #3), we emit a *selection descriptor*
+#                            (`metadata.select`) the later catalog lookup will resolve.
+#   - no_action           -> neither; produces NO content (the cycle ends cleanly).
+GENERATIVE_ACTIONS: tuple[str, ...] = (
+    "show_hint",
+    "show_alternative",
+    "show_breakdown",
+    "show_encouragement",
+    "suggest_break",
+    "simplify",
+)
+SELECTIVE_ACTIONS: tuple[str, ...] = ("skip_ahead", "increase_difficulty")
+
+# Module-level invariant: every action is classified exactly once, except `no_action`
+# which is deliberately in neither set (it produces no content). This keeps the
+# partition a true single source of truth and fails loudly if ACTION_TYPES drifts.
+assert set(GENERATIVE_ACTIONS) | set(SELECTIVE_ACTIONS) | {"no_action"} == set(ACTION_TYPES)
+assert not (set(GENERATIVE_ACTIONS) & set(SELECTIVE_ACTIONS))
+
+# Pre-written, warm/conversational fallback copy per generative action (epics 948 —
+# tone is NEVER clinical: "Here's another way to think about this...", not "Difficulty
+# reduced"). Used verbatim when vLLM cannot be reached or returns nothing usable.
+_GENERATIVE_COPY: dict[str, str] = {
+    "show_hint": (
+        "Here's another way to think about this: try connecting it to something you "
+        "already know well, and see if the pieces start to line up."
+    ),
+    "show_alternative": (
+        "Let's look at this from a different angle. Sometimes the same idea makes a lot "
+        "more sense when we approach it a new way — give this version a read and see if "
+        "it clicks better for you."
+    ),
+    "show_breakdown": (
+        "Let's take this one step at a time:\n"
+        "1. Start with the core idea and make sure that part feels solid.\n"
+        "2. Add the next piece, checking how it connects to the first.\n"
+        "3. Put it together and try a quick example to see it in action."
+    ),
+    "show_encouragement": (
+        "You're doing great — sticking with the tricky parts is exactly how this starts "
+        "to click. Keep going!"
+    ),
+    "suggest_break": (
+        "You've been working hard for a while. How about a short break to stretch and "
+        "rest your eyes? A few minutes away can make the next part feel much easier."
+    ),
+    "simplify": (
+        "Let's slow down and take this more gently. Here's the same idea in simpler "
+        "terms — no rush, we'll build it back up once this part feels comfortable."
+    ),
+}
+
+# Selection descriptors for selective actions: what an existing-variant lookup should
+# fetch (`metadata.select`), plus a brief warm framing line (no generated prose).
+_SELECTIVE_COPY: dict[str, tuple[str, str]] = {
+    # action_type -> (brief framing text, select target)
+    "skip_ahead": (
+        "You've got a good handle on this — let's move ahead to something new.",
+        "next_section",
+    ),
+    "increase_difficulty": (
+        "You're ready for more of a challenge. Here's something with a bit more bite.",
+        "challenge_exercise",
+    ),
+}
+
+
+def rule_based_content(action_type: Any, context: dict | None = None) -> dict[str, Any]:
+    """Deterministic learner-facing content for an action. Pure; never raises.
+
+    Returns a well-formed ``{text, variant, metadata}`` dict for every input:
+
+    * Generative action -> pre-written warm/conversational ``text`` (the fallback when
+      vLLM is unavailable), ``variant`` == the action type, ``metadata.action_type``.
+    * Selective action  -> a brief framing ``text`` plus a *selection descriptor*
+      (``metadata.select``); no prose is required to satisfy the action.
+    * ``no_action`` or any unknown/junk input -> a safe empty descriptor
+      (``variant="no_action"``, empty ``text``) so the caller can detect "no content".
+
+    ``context`` is accepted for signature parity with the LLM path (and so future
+    rules can ground the copy in topic/difficulty); the baseline copy ignores it.
+    The function performs NO I/O and never raises, so it is the loop's safety net.
+    """
+    if isinstance(action_type, str) and action_type in _GENERATIVE_COPY:
+        return {
+            "text": _GENERATIVE_COPY[action_type],
+            "variant": action_type,
+            "metadata": {"action_type": action_type},
+        }
+    if isinstance(action_type, str) and action_type in _SELECTIVE_COPY:
+        text, select = _SELECTIVE_COPY[action_type]
+        return {
+            "text": text,
+            "variant": action_type,
+            "metadata": {"action_type": action_type, "select": select},
+        }
+    # no_action or anything out of vocabulary -> safe empty result (no intervention).
+    return {
+        "text": "",
+        "variant": "no_action",
+        "metadata": {"action_type": "no_action"},
+    }

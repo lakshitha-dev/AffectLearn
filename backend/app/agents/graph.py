@@ -36,8 +36,10 @@ from app.services.trace import emit_trace
 
 # Nodes whose bodies are pass-through stubs today (Story 5.x). Surfaced on the dashboard
 # so the flow diagram can mark them rather than implying real work happens.
-# `pedagogical` became active in Story 5.1 (real vLLM strategy call).
-STUB_NODES: tuple[str, ...] = ("content_adapter", "deliver")
+# `pedagogical` became active in Story 5.1 (real vLLM strategy call); `content_adapter`
+# became active in Story 5.2 (real vLLM content generation). `deliver` remains a stub
+# until Story 5.3.
+STUB_NODES: tuple[str, ...] = ("deliver",)
 
 # State keys whose values are safe + useful to echo into a node_completed trace.
 _TRACE_OUTPUT_KEYS: tuple[str, ...] = (
@@ -87,14 +89,23 @@ def instrument(
             if k in update and update[k]:
                 val = update[k]
                 if k == "strategy" and isinstance(val, dict):
-                    # Surface key decision fields for active pedagogical node
+                    # Surface key decision fields for the active pedagogical node.
                     outputs[k] = {
                         "action_type": val.get("action_type"),
                         "urgency": val.get("urgency"),
                         "fallback": val.get("fallback"),
                     }
+                elif k == "adaptation_content" and isinstance(val, dict):
+                    # Surface key content fields for the active content_adapter node
+                    # (Story 5.2) instead of presence-only.
+                    md = val.get("metadata") or {}
+                    outputs[k] = {
+                        "variant": val.get("variant"),
+                        "generated": md.get("generated"),
+                        "fallback": md.get("fallback"),
+                    }
                 else:
-                    outputs[k] = True  # presence only (stub outputs)
+                    outputs[k] = True  # presence only (remaining stub outputs)
         emit_trace(
             "node_completed",
             node=name,

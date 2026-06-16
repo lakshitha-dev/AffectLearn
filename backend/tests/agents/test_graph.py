@@ -8,7 +8,9 @@ pedagogical stubs.
 import pytest
 
 import app.agents.graph as graph_mod
+import app.agents.llm as llm_mod
 import app.agents.nodes.affect_detection as ad
+import app.agents.nodes.content_adapter as ca
 import app.agents.nodes.pedagogical as ped
 from app.agents.graph import build_graph
 from app.agents.state import make_initial_state
@@ -128,6 +130,56 @@ async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engage
     assert len(strategy_events) == 1
     assert strategy_events[0]["payload"]["action_type"] == "no_action"
     assert strategy_events[0]["payload"]["fallback"] is False
+
+
+class _GenerativeChatClient:
+    """vLLM stand-in returning a generative strategy then generative content."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        if self.calls == 1:  # pedagogical strategist (expects JSON)
+            return _FakeResp('{"action_type": "show_hint", "reason": "mild", "urgency": "medium"}')
+        return _FakeResp("Here's a gentler way to think about it.")  # content adapter (plain text)
+
+
+async def test_phase_b_generative_populates_adaptation_content(
+    traced, fake_engaged, monkeypatch
+):
+    """A Phase B generative strategy reaches content_adapter and sets adaptation_content.
+
+    Both LLM-calling nodes share the singleton client, so mocking `llm.get_chat_client`
+    covers pedagogical + content_adapter; events are silenced. Topology/router unchanged.
+    """
+    llm_mod._reset()
+    client = _GenerativeChatClient()
+    monkeypatch.setattr(ped, "get_chat_client", lambda: client)
+    monkeypatch.setattr(ca, "get_chat_client", lambda: client)
+
+    async def noop_emit(event):
+        return None
+
+    monkeypatch.setattr(ped, "emit_research_event", noop_emit)
+    monkeypatch.setattr(ca, "emit_research_event", noop_emit)
+
+    compiled, visited = traced
+    state = make_initial_state(
+        learner_id="u1", session_id="s1", cycle_number=1,
+        facial_payload={"frames_b64": "x", "frames_captured": 30},
+        phase="phase_b", group="adaptive",
+    )
+    out = await compiled.ainvoke(state)
+
+    assert visited == ["pedagogical", "content_adapter", "deliver"]
+    assert out["strategy"]["action_type"] == "show_hint"
+    content = out["adaptation_content"]
+    assert content["text"] == "Here's a gentler way to think about it."
+    assert content["variant"] == "show_hint"
+    assert content["metadata"]["generated"] is True
+    assert content["metadata"]["fallback"] is False
+    llm_mod._reset()
 
 
 async def test_empty_cycle_flows_to_end_without_affect(compiled, monkeypatch):
