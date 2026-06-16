@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
+import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
 import { InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
 import { SectionView } from "@/components/learning/SectionView";
@@ -197,6 +198,12 @@ export default function LessonPage({ params }: PageProps) {
           inline at a natural content break; non-inline actions are left in the
           queue for Stories 5.5–5.7. */}
       <InlineAdaptations />
+      {/* Break suggestion overlay (Story 5.5) — renders the latest suggest_break
+          adaptation as a fixed-position, semi-transparent overlay card (not a true
+          modal; content stays visible, no scroll-lock). Non-suggest_break actions are
+          left in the queue for 5.4/5.6/5.7. Its JSX position is not layout-sensitive
+          since it is a fixed overlay. */}
+      <BreakSuggestion />
       {AFFECT_DEBUG_ENABLED && <AffectDebugOverlay debugRef={affectDebug} />}
       {AFFECT_DEBUG_ENABLED && <BehavioralDebugOverlay debugRef={behavioralDebug} />}
     </div>
