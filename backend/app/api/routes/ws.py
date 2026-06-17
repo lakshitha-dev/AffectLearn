@@ -15,9 +15,11 @@ Close codes (custom, RFC 6455 4000-4999 range):
   - 4401  authentication_failed         (missing/invalid/expired token, wrong role)
 
 Inbound message types handled by the loop: `heartbeat`, `client_hello`, `facial_features`,
-`behavioral_window`, and (Story 5.6, FR22) `adaptation_interaction` — the client records that
+`behavioral_window`, (Story 5.6, FR22) `adaptation_interaction` — the client records that
 the learner accepted/dismissed/applied a delivered adaptation, which is emitted as a research
-event for the Learner Profiler to refine future decisions. Malformed inbound is logged + dropped
+event for the Learner Profiler to refine future decisions — and (Story 6.2) `self_report` —
+the learner's ground-truth affect label (or a deliberate skip) at a natural pause point,
+emitted as a research event for model validation. Malformed inbound is logged + dropped
 without ever crashing the loop (NFR22).
 """
 
@@ -480,6 +482,76 @@ async def _handle_adaptation_interaction(
     })
 
 
+# Story 6.2: the 5-value self-report ground-truth vocabulary. This is `AFFECT_STATES`
+# (`app.agents.state`, the 4 MODEL categories: bored/confused/engaged/frustrated) PLUS
+# `neutral` — a deliberate ground-truth SUPERSET. Neutral is a self-report-only label, NOT a
+# model output; do NOT import/mutate `AFFECT_STATES` (a learner who feels none of the 4 has a
+# real, researchable state). The 5↔4 reconciliation is a downstream research-analysis concern.
+_SELF_REPORT_AFFECTS = {"engaged", "confused", "bored", "frustrated", "neutral"}
+
+
+async def _handle_self_report(
+    envelope: dict[str, Any], user_id: str, session_id: str
+) -> None:
+    """Emit a research event for an inbound `self_report` message (Story 6.2).
+
+    The self-report twin of `_handle_adaptation_interaction`. The client sends this at a
+    natural pause point with the learner's GROUND-TRUTH affect label, so the research team can
+    validate (and, in Phase A, train) the facial CNN-LSTM / behavioral Bi-LSTM models against
+    the learner's own report. It is turned into a durable, sequence-numbered `self_report`
+    research event via `_safe_emit` (standard envelope, snake_case, `_now_ms()`). No
+    synchronous DB write is added — the Story 4.7 worker drains the event to `research_events`;
+    there is NO dedicated `self_reports` table (the research event IS the durable record).
+
+    Vocabulary: `affect` ∈ `_SELF_REPORT_AFFECTS` (the 4 model `AFFECT_STATES` + `neutral`),
+    a deliberate 5-value superset. Neutral is self-report-only ground truth, never a model
+    output.
+
+    Skip vs missing data: a DELIBERATE skip is `{skipped: true, affect: null}` — the learner
+    chose not to answer. A prompt the learner never reached emits NOTHING. Downstream
+    (6.5 / 8.6) can therefore separate "chose not to answer" from "was never prompted".
+
+    Never raises (NFR22): a malformed/partial message (missing `data`, an out-of-vocab
+    `affect` on a non-skip) is logged via `ws_invalid_message` and dropped — it must never
+    crash the WS loop or be persisted.
+    """
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        logger.warning(
+            "ws_invalid_message",
+            user_id=user_id,
+            reason="self_report_missing_data",
+        )
+        return
+
+    skipped = bool(data.get("skipped"))
+    affect = data.get("affect")
+
+    # A valid message is EITHER a deliberate skip (then `affect` is normalized to None) OR a
+    # real selection whose `affect` is in the 5-value vocabulary. Anything else is dropped.
+    if not skipped and affect not in _SELF_REPORT_AFFECTS:
+        logger.warning(
+            "ws_invalid_message",
+            user_id=user_id,
+            reason="self_report_invalid_affect",
+        )
+        return
+
+    await _safe_emit({
+        "event_type": "self_report",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": int(data.get("cycle_number", 0) or 0),
+        "timestamp": _now_ms(),
+        "payload": {
+            "affect": None if skipped else affect,
+            "skipped": skipped,
+            "prompt_index": data.get("prompt_index"),
+            "section_id": data.get("section_id"),
+        },
+    })
+
+
 @router.websocket("")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -582,6 +654,13 @@ async def websocket_endpoint(
                 # Story 5.6 (FR22): record the learner's accept/dismiss/apply of a delivered
                 # adaptation as a research event for the Learner Profiler. Never raises.
                 await _handle_adaptation_interaction(envelope, user_id, session_id)
+                continue
+
+            if msg_type == "self_report":
+                # Story 6.2: record the learner's ground-truth affect label (or deliberate
+                # skip) at a natural pause point as a research event for model validation.
+                # Never raises.
+                await _handle_self_report(envelope, user_id, session_id)
                 continue
 
             # Unknown but well-formed types: log + drop (forward-compat).
