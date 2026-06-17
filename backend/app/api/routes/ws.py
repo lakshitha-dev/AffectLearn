@@ -41,7 +41,7 @@ from app.services.connection_manager import (
     connection_manager,
 )
 from app.services.research_logger import emit as emit_research_event
-from app.services import fusion_buffer
+from app.services import fusion_buffer, study_service
 from app.agents.fusion import forced_mode, fuse_modalities
 from app.agents.graph import get_graph
 from app.agents.state import make_initial_state
@@ -109,6 +109,35 @@ async def _resolve_learner(token: str, db: AsyncSession) -> tuple[User | None, s
     return user, ""
 
 
+async def _resolve_phase_group(db: AsyncSession | None, user_id: str) -> tuple[str, str]:
+    """Resolve the learner's (phase, group) ONCE per connection (Story 6.1 — keystone).
+
+    The current global study `phase` and the account-level A/B `group` are read here, at
+    handshake, and reused for the connection's lifetime — NOT per cycle — so the hot path
+    keeps no extra DB round-trip and stays within the latency budget. The freshness
+    trade-off is intentional: a coordinator-driven phase toggle takes effect on the
+    learner's NEXT session/reconnect, which is acceptable for a scheduled pilot.
+
+    These real values flow into `make_initial_state(phase=, group=)`, so `AgentState.phase`
+    /`AgentState.group` carry real values every cycle and the existing `should_adapt`
+    router selects the correct branch — without any router/topology change. This is the
+    wiring that finally turns Epic 5's adaptive branch on in production.
+
+    Resolution failure (DB error / no session) degrades SAFELY to `("phase_a","control")` —
+    the non-adaptive, never-cross-contaminating default — and is logged (NFR22). A glitch
+    must never accidentally route a learner onto the adaptive branch.
+    """
+    if db is None:
+        return ("phase_a", "control")
+    try:
+        group = await study_service.get_group(db, user_id)
+        phase = await study_service.get_phase(db)
+        return (phase, group)
+    except Exception:
+        logger.exception("phase_group_resolution_failed", user_id=user_id)
+        return ("phase_a", "control")
+
+
 async def _load_session_state(user_id: str) -> dict[str, Any] | None:
     """Look up session state for restoration on reconnect.
 
@@ -130,7 +159,12 @@ def _handle_heartbeat(envelope: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _handle_facial_features(
-    envelope: dict[str, Any], user_id: str, session_id: str, db: AsyncSession | None = None
+    envelope: dict[str, Any],
+    user_id: str,
+    session_id: str,
+    db: AsyncSession | None = None,
+    phase: str = "phase_a",
+    group: str = "control",
 ) -> None:
     """Drive the LangGraph cycle for one `facial_features` message and emit an event.
 
@@ -155,6 +189,8 @@ async def _handle_facial_features(
             cycle_number=cycle,
             facial_payload=data,
             db=db,
+            phase=phase,
+            group=group,
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:
@@ -206,7 +242,12 @@ async def _handle_facial_features(
 
 
 async def _handle_behavioral_window(
-    envelope: dict[str, Any], user_id: str, session_id: str, db: AsyncSession | None = None
+    envelope: dict[str, Any],
+    user_id: str,
+    session_id: str,
+    db: AsyncSession | None = None,
+    phase: str = "phase_a",
+    group: str = "control",
 ) -> None:
     """Drive the LangGraph cycle for one `behavioral_window` message and emit an event.
 
@@ -231,6 +272,8 @@ async def _handle_behavioral_window(
             cycle_number=cycle,
             behavioral_payload=data,
             db=db,
+            phase=phase,
+            group=group,
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:
@@ -456,6 +499,14 @@ async def websocket_endpoint(
 
     superseded, session_id = await connection_manager.connect(user_id, websocket)
 
+    # Story 6.1 (keystone): resolve the learner's real A/B group + the current global study
+    # phase ONCE here, at handshake, and reuse them for every cycle this connection runs.
+    # This is what feeds real values into `make_initial_state` so the existing router can
+    # select the adaptive branch in production (vs the phase_a/control defaults). A toggle
+    # therefore takes effect on the learner's next reconnect (acceptable freshness trade-off
+    # for a coordinator-driven pilot; protects the per-cycle latency budget — see AC6).
+    phase, group = await _resolve_phase_group(db, user_id)
+
     # Send connected or session_restored
     prior_state = await _load_session_state(user_id)
     if prior_state is not None:
@@ -516,11 +567,15 @@ async def websocket_endpoint(
                 continue
 
             if msg_type == "facial_features":
-                await _handle_facial_features(envelope, user_id, session_id, db)
+                await _handle_facial_features(
+                    envelope, user_id, session_id, db, phase, group
+                )
                 continue
 
             if msg_type == "behavioral_window":
-                await _handle_behavioral_window(envelope, user_id, session_id, db)
+                await _handle_behavioral_window(
+                    envelope, user_id, session_id, db, phase, group
+                )
                 continue
 
             if msg_type == "adaptation_interaction":

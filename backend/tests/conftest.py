@@ -16,6 +16,8 @@ from app.models.user import Role, User
 # Imported so create_all builds their tables (registered on Base):
 from app.models.learner_profile import LearnerProfile  # noqa: F401  (Story 4.5)
 from app.models.research_event import ResearchEvent  # noqa: F401  (Story 4.7)
+from app.models.study_group import StudyGroup  # noqa: F401  (Story 6.1)
+from app.models.study_phase import StudyPhase  # noqa: F401  (Story 6.1)
 
 DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
