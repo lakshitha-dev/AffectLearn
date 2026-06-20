@@ -8,6 +8,7 @@ import { AuthGuard } from "@/components/shared/auth-guard";
 import { TopBar } from "@/components/shared/TopBar";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { useWebcamStore } from "@/stores/webcam-store";
 import { cn } from "@/lib/cn";
 
 const NAV_ITEMS = [
@@ -25,6 +26,7 @@ export default function LearnerLayout({
   const router = useRouter();
   const { sidebarCollapsed: collapsed, toggleSidebar } = useUiStore();
   const user = useSessionStore((s) => s.user);
+  const initWebcamMode = useWebcamStore((s) => s.initFromUser);
   const [hydrated, setHydrated] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -48,6 +50,16 @@ export default function LearnerLayout({
       router.replace("/onboarding");
     }
   }, [user, router]);
+
+  // Restore the webcam capture mode from the learner's saved preference. The
+  // webcam store is in-memory and defaults to "behavioral"; without this, the
+  // "adaptive" mode set during onboarding is lost on navigation/reload and the
+  // facial-capture hook (useMediaPipe) never opens the camera on the lesson page.
+  useEffect(() => {
+    if (user && user.role === "learner") {
+      initWebcamMode(user.webcamEnabled ?? false);
+    }
+  }, [user, initWebcamMode]);
 
   // The immersive lesson route supplies its own full shell (top bar, course-outline
   // sidebar, webcam indicator, focus mode) via its nested layout. Wrapping it in the
@@ -81,15 +93,9 @@ export default function LearnerLayout({
             collapsed ? "lg:w-12" : "lg:w-60"
           )}
         >
-          <div className="flex items-center justify-between p-4">
-            <span
-              className={cn(
-                "text-sm font-semibold text-foreground",
-                collapsed && "lg:hidden"
-              )}
-            >
-              AffectLearn
-            </span>
+          <div className="flex items-center justify-end p-4">
+            {/* Brand lives in the top bar; the sidebar header only holds the toggles
+                to avoid a duplicate "AffectLearn" wordmark. */}
             {/* Collapse toggle — desktop only */}
             <button
               onClick={toggleSidebar}
