@@ -234,7 +234,7 @@ export default function LessonPage({ params }: PageProps) {
   const lesson = lessonQuery.data;
 
   return (
-    <div className="max-w-3xl mx-auto px-8 pb-16">
+    <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-16">
       <LessonProgressBar value={lessonPercentage} />
       <header className="flex items-center justify-between py-4">
         <Breadcrumb>
@@ -325,7 +325,7 @@ export default function LessonPage({ params }: PageProps) {
 
 function LessonSkeleton() {
   return (
-    <div className="max-w-3xl mx-auto px-8 pb-16 animate-pulse">
+    <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-16 animate-pulse">
       <div className="h-1 w-full bg-border mb-4" />
       <div className="flex justify-between py-4">
         <div className="h-4 w-64 bg-border rounded" />
