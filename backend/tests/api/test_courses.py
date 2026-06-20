@@ -92,9 +92,9 @@ async def _build_hierarchy(client: AsyncClient, headers: dict):
 # --- Test 1: Create course as designer ---
 
 
-async def test_create_course_as_designer(test_client: AsyncClient, test_designer):
+async def test_create_course_as_designer(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
+    course = await _create_course(client, headers)
     assert "id" in course
     assert course["title"] == "Intro to Python"
     assert course["description"] == "A beginner course"
@@ -104,18 +104,18 @@ async def test_create_course_as_designer(test_client: AsyncClient, test_designer
 # --- Test 2: Create course missing title (422) ---
 
 
-async def test_create_course_missing_title(test_client: AsyncClient, test_designer):
+async def test_create_course_missing_title(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    resp = await test_client.post(BASE, json={}, headers=headers)
+    resp = await client.post(BASE, json={}, headers=headers)
     assert resp.status_code == 422
 
 
 # --- Test 3: Create course as learner (403) ---
 
 
-async def test_create_course_as_learner_forbidden(test_client: AsyncClient, test_user):
+async def test_create_course_as_learner_forbidden(client: AsyncClient, test_user):
     headers = learner_headers(test_user)
-    resp = await test_client.post(BASE, json={"title": "Test"}, headers=headers)
+    resp = await client.post(BASE, json={"title": "Test"}, headers=headers)
     assert resp.status_code == 403
     data = resp.json()
     assert data["detail"]["error"]["code"] == "FORBIDDEN"
@@ -124,22 +124,22 @@ async def test_create_course_as_learner_forbidden(test_client: AsyncClient, test
 # --- Test 4: Create course unauthenticated (401) ---
 
 
-async def test_create_course_unauthenticated(test_client: AsyncClient):
-    resp = await test_client.post(BASE, json={"title": "Test"})
+async def test_create_course_unauthenticated(client: AsyncClient):
+    resp = await client.post(BASE, json={"title": "Test"})
     assert resp.status_code == 401
 
 
 # --- Test 5: List courses as learner ---
 
 
-async def test_list_courses_as_learner(test_client: AsyncClient, test_designer, test_user):
+async def test_list_courses_as_learner(client: AsyncClient, test_designer, test_user):
     headers_d = designer_headers(test_designer)
     # Learners only see published courses (AC1 of story 2.2).
-    await _create_course(test_client, headers_d, title="Course A", isPublished=True)
-    await _create_course(test_client, headers_d, title="Course B", isPublished=True)
+    await _create_course(client, headers_d, title="Course A", isPublished=True)
+    await _create_course(client, headers_d, title="Course B", isPublished=True)
 
     headers_l = learner_headers(test_user)
-    resp = await test_client.get(BASE, headers=headers_l)
+    resp = await client.get(BASE, headers=headers_l)
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] == 2
@@ -151,11 +151,11 @@ async def test_list_courses_as_learner(test_client: AsyncClient, test_designer, 
 # --- Test 6: Get course detail with nested modules ---
 
 
-async def test_get_course_detail(test_client: AsyncClient, test_designer):
+async def test_get_course_detail(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course, module, lesson, section, block = await _build_hierarchy(test_client, headers)
+    course, module, lesson, section, block = await _build_hierarchy(client, headers)
 
-    resp = await test_client.get(f"{BASE}/{course['id']}", headers=headers)
+    resp = await client.get(f"{BASE}/{course['id']}", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == course["id"]
@@ -168,10 +168,10 @@ async def test_get_course_detail(test_client: AsyncClient, test_designer):
 # --- Test 7: Get course not found (404) ---
 
 
-async def test_get_course_not_found(test_client: AsyncClient, test_designer):
+async def test_get_course_not_found(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
     fake_id = str(uuid.uuid4())
-    resp = await test_client.get(f"{BASE}/{fake_id}", headers=headers)
+    resp = await client.get(f"{BASE}/{fake_id}", headers=headers)
     assert resp.status_code == 404
     data = resp.json()
     assert data["detail"]["error"]["code"] == "NOT_FOUND"
@@ -180,11 +180,11 @@ async def test_get_course_not_found(test_client: AsyncClient, test_designer):
 # --- Test 8: Update course as designer ---
 
 
-async def test_update_course_as_designer(test_client: AsyncClient, test_designer):
+async def test_update_course_as_designer(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
+    course = await _create_course(client, headers)
 
-    resp = await test_client.put(
+    resp = await client.put(
         f"{BASE}/{course['id']}",
         json={"title": "Advanced Python", "isPublished": True},
         headers=headers,
@@ -198,24 +198,24 @@ async def test_update_course_as_designer(test_client: AsyncClient, test_designer
 # --- Test 9: Delete course as designer ---
 
 
-async def test_delete_course_as_designer(test_client: AsyncClient, test_designer):
+async def test_delete_course_as_designer(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
+    course = await _create_course(client, headers)
 
-    resp = await test_client.delete(f"{BASE}/{course['id']}", headers=headers)
+    resp = await client.delete(f"{BASE}/{course['id']}", headers=headers)
     assert resp.status_code == 204
 
-    resp = await test_client.get(f"{BASE}/{course['id']}", headers=headers)
+    resp = await client.get(f"{BASE}/{course['id']}", headers=headers)
     assert resp.status_code == 404
 
 
 # --- Test 10: Create module in course ---
 
 
-async def test_create_module_in_course(test_client: AsyncClient, test_designer):
+async def test_create_module_in_course(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
 
     assert "id" in module
     assert module["title"] == "Module 1"
@@ -225,10 +225,10 @@ async def test_create_module_in_course(test_client: AsyncClient, test_designer):
 # --- Test 11: Create module in invalid course (404) ---
 
 
-async def test_create_module_invalid_course(test_client: AsyncClient, test_designer):
+async def test_create_module_invalid_course(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
     fake_id = str(uuid.uuid4())
-    resp = await test_client.post(
+    resp = await client.post(
         f"{BASE}/{fake_id}/modules",
         json={"title": "Module", "sortOrder": 0},
         headers=headers,
@@ -239,11 +239,11 @@ async def test_create_module_invalid_course(test_client: AsyncClient, test_desig
 # --- Test 12: Create lesson in module ---
 
 
-async def test_create_lesson_in_module(test_client: AsyncClient, test_designer):
+async def test_create_lesson_in_module(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
 
     assert "id" in lesson
     assert lesson["title"] == "Lesson 1"
@@ -253,12 +253,12 @@ async def test_create_lesson_in_module(test_client: AsyncClient, test_designer):
 # --- Test 13: Create section in lesson ---
 
 
-async def test_create_section_in_lesson(test_client: AsyncClient, test_designer):
+async def test_create_section_in_lesson(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
-    section = await _create_section(test_client, headers, lesson["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
+    section = await _create_section(client, headers, lesson["id"])
 
     assert "id" in section
     assert section["title"] == "Section 1"
@@ -268,13 +268,13 @@ async def test_create_section_in_lesson(test_client: AsyncClient, test_designer)
 # --- Test 14: Create content block in section ---
 
 
-async def test_create_content_block_in_section(test_client: AsyncClient, test_designer):
+async def test_create_content_block_in_section(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
-    section = await _create_section(test_client, headers, lesson["id"])
-    block = await _create_content_block(test_client, headers, section["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
+    section = await _create_section(client, headers, lesson["id"])
+    block = await _create_content_block(client, headers, section["id"])
 
     assert "id" in block
     assert block["blockType"] == "text"
@@ -285,13 +285,13 @@ async def test_create_content_block_in_section(test_client: AsyncClient, test_de
 # --- Test 15: Content block variant fields ---
 
 
-async def test_content_block_variant_fields(test_client: AsyncClient, test_designer):
+async def test_content_block_variant_fields(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
-    section = await _create_section(test_client, headers, lesson["id"])
-    block = await _create_content_block(test_client, headers, section["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
+    section = await _create_section(client, headers, lesson["id"])
+    block = await _create_content_block(client, headers, section["id"])
 
     assert block["variantKey"] == "original"
     assert block["variantGroup"] is not None
@@ -302,33 +302,33 @@ async def test_content_block_variant_fields(test_client: AsyncClient, test_desig
 # --- Test 16: Cascade delete course removes all children ---
 
 
-async def test_cascade_delete_course(test_client: AsyncClient, test_designer):
+async def test_cascade_delete_course(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course, module, lesson, section, block = await _build_hierarchy(test_client, headers)
+    course, module, lesson, section, block = await _build_hierarchy(client, headers)
 
     # Delete the course
-    resp = await test_client.delete(f"{BASE}/{course['id']}", headers=headers)
+    resp = await client.delete(f"{BASE}/{course['id']}", headers=headers)
     assert resp.status_code == 204
 
     # Verify course is gone
-    resp = await test_client.get(f"{BASE}/{course['id']}", headers=headers)
+    resp = await client.get(f"{BASE}/{course['id']}", headers=headers)
     assert resp.status_code == 404
 
     # Verify modules listing for deleted course also 404s
-    resp = await test_client.get(f"{BASE}/{course['id']}/modules", headers=headers)
+    resp = await client.get(f"{BASE}/{course['id']}/modules", headers=headers)
     assert resp.status_code == 404
 
 
 # --- Test 17: Sort order conflict (409) ---
 
 
-async def test_sort_order_conflict(test_client: AsyncClient, test_designer):
+async def test_sort_order_conflict(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    await _create_module(test_client, headers, course["id"], sort_order=0)
+    course = await _create_course(client, headers)
+    await _create_module(client, headers, course["id"], sort_order=0)
 
     # Create second module with same sort_order
-    resp = await test_client.post(
+    resp = await client.post(
         f"{BASE}/{course['id']}/modules",
         json={"title": "Module 2", "sortOrder": 0},
         headers=headers,
@@ -341,15 +341,15 @@ async def test_sort_order_conflict(test_client: AsyncClient, test_designer):
 # --- Test 18: List modules ordered by sort_order ---
 
 
-async def test_list_modules_ordered(test_client: AsyncClient, test_designer):
+async def test_list_modules_ordered(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
+    course = await _create_course(client, headers)
 
-    await _create_module(test_client, headers, course["id"], sort_order=2)
-    await _create_module(test_client, headers, course["id"], sort_order=0)
-    await _create_module(test_client, headers, course["id"], sort_order=1)
+    await _create_module(client, headers, course["id"], sort_order=2)
+    await _create_module(client, headers, course["id"], sort_order=0)
+    await _create_module(client, headers, course["id"], sort_order=1)
 
-    resp = await test_client.get(f"{BASE}/{course['id']}/modules", headers=headers)
+    resp = await client.get(f"{BASE}/{course['id']}/modules", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     sort_orders = [m["sortOrder"] for m in data]
@@ -359,11 +359,11 @@ async def test_list_modules_ordered(test_client: AsyncClient, test_designer):
 # --- Test 19: CamelCase response ---
 
 
-async def test_camel_case_response(test_client: AsyncClient, test_designer):
+async def test_camel_case_response(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers, estimatedDurationMinutes=120)
+    await _create_course(client, headers, estimatedDurationMinutes=120)
 
-    resp = await test_client.get(BASE, headers=headers)
+    resp = await client.get(BASE, headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     item = data["items"][0]
@@ -384,12 +384,12 @@ async def test_camel_case_response(test_client: AsyncClient, test_designer):
 # --- Additional coverage ---
 
 
-async def test_update_module(test_client: AsyncClient, test_designer):
+async def test_update_module(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
 
-    resp = await test_client.put(
+    resp = await client.put(
         f"{BASE}/modules/{module['id']}",
         json={"title": "Updated Module"},
         headers=headers,
@@ -398,22 +398,22 @@ async def test_update_module(test_client: AsyncClient, test_designer):
     assert resp.json()["title"] == "Updated Module"
 
 
-async def test_delete_module(test_client: AsyncClient, test_designer):
+async def test_delete_module(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
 
-    resp = await test_client.delete(f"{BASE}/modules/{module['id']}", headers=headers)
+    resp = await client.delete(f"{BASE}/modules/{module['id']}", headers=headers)
     assert resp.status_code == 204
 
 
-async def test_update_lesson(test_client: AsyncClient, test_designer):
+async def test_update_lesson(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
 
-    resp = await test_client.put(
+    resp = await client.put(
         f"{BASE}/lessons/{lesson['id']}",
         json={"title": "Updated Lesson"},
         headers=headers,
@@ -422,24 +422,24 @@ async def test_update_lesson(test_client: AsyncClient, test_designer):
     assert resp.json()["title"] == "Updated Lesson"
 
 
-async def test_delete_lesson(test_client: AsyncClient, test_designer):
+async def test_delete_lesson(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
 
-    resp = await test_client.delete(f"{BASE}/lessons/{lesson['id']}", headers=headers)
+    resp = await client.delete(f"{BASE}/lessons/{lesson['id']}", headers=headers)
     assert resp.status_code == 204
 
 
-async def test_update_section(test_client: AsyncClient, test_designer):
+async def test_update_section(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
-    section = await _create_section(test_client, headers, lesson["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
+    section = await _create_section(client, headers, lesson["id"])
 
-    resp = await test_client.put(
+    resp = await client.put(
         f"{BASE}/sections/{section['id']}",
         json={"title": "Updated Section"},
         headers=headers,
@@ -448,22 +448,22 @@ async def test_update_section(test_client: AsyncClient, test_designer):
     assert resp.json()["title"] == "Updated Section"
 
 
-async def test_delete_section(test_client: AsyncClient, test_designer):
+async def test_delete_section(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
-    module = await _create_module(test_client, headers, course["id"])
-    lesson = await _create_lesson(test_client, headers, module["id"])
-    section = await _create_section(test_client, headers, lesson["id"])
+    course = await _create_course(client, headers)
+    module = await _create_module(client, headers, course["id"])
+    lesson = await _create_lesson(client, headers, module["id"])
+    section = await _create_section(client, headers, lesson["id"])
 
-    resp = await test_client.delete(f"{BASE}/sections/{section['id']}", headers=headers)
+    resp = await client.delete(f"{BASE}/sections/{section['id']}", headers=headers)
     assert resp.status_code == 204
 
 
-async def test_update_content_block(test_client: AsyncClient, test_designer):
+async def test_update_content_block(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course, module, lesson, section, block = await _build_hierarchy(test_client, headers)
+    course, module, lesson, section, block = await _build_hierarchy(client, headers)
 
-    resp = await test_client.put(
+    resp = await client.put(
         f"{BASE}/content-blocks/{block['id']}",
         json={"content": {"body": "Updated text"}},
         headers=headers,
@@ -472,61 +472,61 @@ async def test_update_content_block(test_client: AsyncClient, test_designer):
     assert resp.json()["content"] == {"body": "Updated text"}
 
 
-async def test_delete_content_block(test_client: AsyncClient, test_designer):
+async def test_delete_content_block(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course, module, lesson, section, block = await _build_hierarchy(test_client, headers)
+    course, module, lesson, section, block = await _build_hierarchy(client, headers)
 
-    resp = await test_client.delete(f"{BASE}/content-blocks/{block['id']}", headers=headers)
+    resp = await client.delete(f"{BASE}/content-blocks/{block['id']}", headers=headers)
     assert resp.status_code == 204
 
 
-async def test_learner_cannot_delete_course(test_client: AsyncClient, test_designer, test_user):
+async def test_learner_cannot_delete_course(client: AsyncClient, test_designer, test_user):
     headers_d = designer_headers(test_designer)
     headers_l = learner_headers(test_user)
-    course = await _create_course(test_client, headers_d)
+    course = await _create_course(client, headers_d)
 
-    resp = await test_client.delete(f"{BASE}/{course['id']}", headers=headers_l)
+    resp = await client.delete(f"{BASE}/{course['id']}", headers=headers_l)
     assert resp.status_code == 403
 
 
-async def test_learner_can_read_modules(test_client: AsyncClient, test_designer, test_user):
+async def test_learner_can_read_modules(client: AsyncClient, test_designer, test_user):
     headers_d = designer_headers(test_designer)
     headers_l = learner_headers(test_user)
-    course = await _create_course(test_client, headers_d)
-    await _create_module(test_client, headers_d, course["id"])
+    course = await _create_course(client, headers_d)
+    await _create_module(client, headers_d, course["id"])
 
-    resp = await test_client.get(f"{BASE}/{course['id']}/modules", headers=headers_l)
+    resp = await client.get(f"{BASE}/{course['id']}/modules", headers=headers_l)
     assert resp.status_code == 200
 
 
 # --- Admin role write tests (M4: admin has same write access as designer) ---
 
 
-async def test_create_course_as_admin(test_client: AsyncClient, test_admin):
+async def test_create_course_as_admin(client: AsyncClient, test_admin):
     headers = admin_headers(test_admin)
-    course = await _create_course(test_client, headers, title="Admin Course")
+    course = await _create_course(client, headers, title="Admin Course")
     assert "id" in course
     assert course["title"] == "Admin Course"
 
 
-async def test_delete_course_as_admin(test_client: AsyncClient, test_designer, test_admin):
+async def test_delete_course_as_admin(client: AsyncClient, test_designer, test_admin):
     headers_d = designer_headers(test_designer)
     headers_a = admin_headers(test_admin)
-    course = await _create_course(test_client, headers_d)
+    course = await _create_course(client, headers_d)
 
-    resp = await test_client.delete(f"{BASE}/{course['id']}", headers=headers_a)
+    resp = await client.delete(f"{BASE}/{course['id']}", headers=headers_a)
     assert resp.status_code == 204
 
 
 # --- H1 regression: nullable fields can be cleared via PUT ---
 
 
-async def test_update_course_clears_nullable_description(test_client: AsyncClient, test_designer):
+async def test_update_course_clears_nullable_description(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course = await _create_course(test_client, headers)
+    course = await _create_course(client, headers)
     assert course["description"] == "A beginner course"
 
-    resp = await test_client.put(
+    resp = await client.put(
         f"{BASE}/{course['id']}",
         json={"description": None},
         headers=headers,
@@ -538,11 +538,11 @@ async def test_update_course_clears_nullable_description(test_client: AsyncClien
 # --- H2 regression: invalid block_type returns 422, not 500 ---
 
 
-async def test_create_content_block_invalid_type(test_client: AsyncClient, test_designer):
+async def test_create_content_block_invalid_type(client: AsyncClient, test_designer):
     headers = designer_headers(test_designer)
-    course, module, lesson, section, _ = await _build_hierarchy(test_client, headers)
+    course, module, lesson, section, _ = await _build_hierarchy(client, headers)
 
-    resp = await test_client.post(
+    resp = await client.post(
         f"{BASE}/sections/{section['id']}/content-blocks",
         json={"blockType": "video", "content": {"body": "x"}, "sortOrder": 99},
         headers=headers,

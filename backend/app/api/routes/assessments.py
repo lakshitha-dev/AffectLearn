@@ -1,8 +1,17 @@
-"""Assessment API endpoints."""
+"""Assessment API endpoints.
 
+Story 6.5: `submit_attempt` now emits a best-effort `exercise_attempted` research event via the
+non-blocking `_safe_emit` wrapper (mirroring `questionnaire.py` / `section_progress.py`). The
+payload carries only research-safe fields (assessment/module ids, score/max_score, type), never
+raw answer content. Emission NEVER blocks or crashes the learner's request (NFR22) — the durable
+record is the attempt row. `phase`/`group` are resolved best-effort via `study_service`.
+"""
+
+import time
 import uuid
 from typing import Literal
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,9 +22,26 @@ from app.schemas.assessment import (
     AssessmentResponse, AssessmentWithQuestionsResponse,
     AttemptCreate, AttemptResponse,
 )
-from app.services import assessment_service
+from app.services import assessment_service, study_service
+from app.services.research_logger import emit as emit_research_event
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+async def _safe_emit(event: dict) -> None:
+    """Emit a research event without ever propagating exceptions to the caller (NFR22)."""
+    try:
+        await emit_research_event(event)
+    except Exception:
+        logger.exception(
+            "research_event_emit_swallowed", event_type=event.get("event_type")
+        )
 
 
 @router.post("", response_model=AssessmentResponse, status_code=status.HTTP_201_CREATED)
@@ -83,9 +109,34 @@ async def submit_attempt(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.learner)),
 ):
-    return await assessment_service.submit_attempt(
+    result = await assessment_service.submit_attempt(
         db,
         user_id=current_user.id,
         assessment_id=assessment_id,
         answers=body.answers,
     )
+
+    # Story 6.5: best-effort `exercise_attempted` research event (research-safe fields only —
+    # ids + score, never raw answers). Never blocks the response.
+    try:
+        phase = await study_service.get_phase(db)
+        group = await study_service.get_group(db, current_user.id)
+    except Exception:
+        logger.exception("research_phase_group_resolution_failed")
+        phase = group = None
+    await _safe_emit({
+        "event_type": "exercise_attempted",
+        "learner_id": str(current_user.id),
+        "session_id": None,
+        "cycle_number": 0,
+        "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
+        "payload": {
+            "assessment_id": str(assessment_id),
+            "score": getattr(result, "score", None),
+            "max_score": getattr(result, "max_score", None),
+            "attempt": int(getattr(result, "attempt_number", 0) or 0),
+        },
+    })
+    return result

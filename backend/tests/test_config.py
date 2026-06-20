@@ -1,6 +1,5 @@
 """Tests for Pydantic Settings configuration."""
 
-import pytest
 
 
 async def test_config_all_fields_present():
@@ -17,14 +16,21 @@ async def test_config_all_fields_present():
 
 
 async def test_config_default_values():
-    """Verify config defaults are set correctly."""
-    from app.core.config import settings
+    """Verify the declared code defaults, independent of any local `.env` override.
 
-    assert settings.JWT_ALGORITHM == "HS256"
-    assert settings.ACCESS_TOKEN_EXPIRE_MINUTES == 30
-    assert settings.REFRESH_TOKEN_EXPIRE_DAYS == 7
-    assert settings.REDIS_URL == "redis://redis:6379"
-    assert settings.VLLM_ENDPOINT == "http://vllm:8080"
+    `settings` is the live instance loaded from `.env`, so asserting against it makes
+    this test environment-dependent (e.g. a dev `.env` may set REDIS_URL to localhost).
+    The defaults live on the model fields, so check those.
+    """
+    from app.core.config import Settings
+
+    defaults = {name: field.default for name, field in Settings.model_fields.items()}
+
+    assert defaults["JWT_ALGORITHM"] == "HS256"
+    assert defaults["ACCESS_TOKEN_EXPIRE_MINUTES"] == 30
+    assert defaults["REFRESH_TOKEN_EXPIRE_DAYS"] == 7
+    assert defaults["REDIS_URL"] == "redis://redis:6379"
+    assert defaults["VLLM_ENDPOINT"] == "http://vllm:8080"
 
 
 async def test_config_required_fields_loaded():

@@ -71,6 +71,8 @@ async def mark_section_complete(
     *,
     user_id: uuid.UUID,
     section_id: uuid.UUID,
+    time_spent_seconds: int | None = None,
+    affect_states: list | None = None,
 ) -> tuple[SectionProgress, bool]:
     """Idempotently record a section as completed by a user.
 
@@ -120,6 +122,8 @@ async def mark_section_complete(
         user_id=user_id,
         section_id=section_id,
         enrollment_id=enrollment.id,
+        time_spent_seconds=time_spent_seconds,
+        affect_states=affect_states,
     )
     db.add(progress)
     try:

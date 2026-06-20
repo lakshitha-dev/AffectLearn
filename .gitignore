@@ -26,3 +26,13 @@ pgdata/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large facial affect model (46MB ResNet18 CNN-LSTM) — fetch from Google Drive into
+# backend/models/, not committed. See backend/models/README.md.
+# (behavioral_bilstm.onnx is small and stays tracked.)
+backend/models/cnn_lstm_best.onnx
+backend/models/*.onnx.data
+
+# Azure deploy local secrets/names
+deploy/azure/.deploy-secrets
+deploy/azure/.deploy-names

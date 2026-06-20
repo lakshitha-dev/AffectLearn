@@ -8,10 +8,20 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # vLLM (self-hosted fine-tuned Llama 3 8B, OpenAI-compatible API) — consumed by the
+    # pedagogical strategist (Story 5.1) and content adapter (Story 5.2) agent nodes.
     VLLM_ENDPOINT: str = "http://vllm:8080"
+    VLLM_MODEL: str = "affectlearn/llama-3-8b-pedagogical"
+    VLLM_API_KEY: str = "not-needed"  # vLLM ignores the key; OpenAI client requires a non-empty value
+    VLLM_TIMEOUT_SECONDS: float = 3.0  # NFR5/architecture line 632 — fall back to rules past this
+    VLLM_MAX_TOKENS: int = 256  # strategy output is compact; cap protects the latency budget
 
     ENVIRONMENT: str = "development"
     EXPOSE_DEV_CREDENTIALS: bool = False
+
+    # Observability dashboard (Monitor)
+    MONITOR_ENABLED: bool = True
+    MONITOR_RING_SIZE: int = 500
 
     SEED_ON_STARTUP: bool = False
     SEED_LEARNER_PASSWORD: str = "Learner123!"

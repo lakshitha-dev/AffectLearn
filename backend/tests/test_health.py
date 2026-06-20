@@ -4,15 +4,15 @@ async def test_app_starts():
     assert app.title == "AffectLearn API"
 
 
-async def test_docs_endpoint(test_client):
+async def test_docs_endpoint(client):
     """Verify Swagger UI is accessible."""
-    response = await test_client.get("/docs")
+    response = await client.get("/docs")
     assert response.status_code == 200
 
 
-async def test_health_endpoint(test_client):
+async def test_health_endpoint(client):
     """Verify health check endpoint responds."""
-    response = await test_client.get("/health")
+    response = await client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
 
