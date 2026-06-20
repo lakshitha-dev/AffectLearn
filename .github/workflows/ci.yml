@@ -1,10 +1,10 @@
-# CI/CD Pipeline - placeholder
+# CI - runs ONLY on push to main (no pull_request trigger, so branch pushes / PRs
+# from develop or feature branches do not trigger it).
 name: CI
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 jobs:
   placeholder:
     runs-on: ubuntu-latest
