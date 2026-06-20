@@ -40,6 +40,11 @@ async def emit(event: dict[str, Any]) -> None:
 
     Expected shape: {event_type, learner_id, session_id, cycle_number, timestamp(ms), payload}.
     A monotonic `sequence_number` is added per session for gap detection (NFR23).
+
+    Story 6.5: any top-level `phase`/`group` already on the event are PRESERVED here (the
+    `{**event, ...}` spread keeps them at the top level — they must NOT be buried inside
+    `payload`), so the worker's `research_event_service._row` persists them as filterable
+    columns. The signature is unchanged and emit still never raises.
     """
     try:
         event = {**event, "sequence_number": _next_sequence(event.get("session_id"))}

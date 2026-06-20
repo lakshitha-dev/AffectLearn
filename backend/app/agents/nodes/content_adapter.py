@@ -216,6 +216,9 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
         "session_id": state.get("session_id"),
         "cycle_number": state.get("cycle_number") or 0,
         "timestamp": int(time.time() * 1000),
+        # Story 6.5: top-level phase/group so the event is filterable by study phase/cohort.
+        "phase": state.get("phase"),
+        "group": state.get("group"),
         "payload": {
             "action_type": action_type,
             "variant": content["variant"],

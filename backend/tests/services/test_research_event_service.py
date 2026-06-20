@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from app.models.research_event import ResearchEvent
 from app.services import research_event_service as svc
 
+TS0 = 1_700_000_000_000
+
 
 def _event(seq, session="s1", etype="affect_classified"):
     return {
@@ -47,3 +49,50 @@ def test_detect_gaps_finds_missing_sequences():
 def test_detect_gaps_ignores_missing_seq():
     events = [{"session_id": "s1", "sequence_number": None}, {"session_id": "s1"}]
     assert svc.detect_gaps(events) == {}
+
+
+# ── Story 6.5: top-level phase/group persistence ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_row_maps_top_level_phase_group():
+    row = svc._row({
+        "event_type": "self_report",
+        "learner_id": "u1",
+        "session_id": "s1",
+        "cycle_number": 1,
+        "timestamp": TS0,
+        "sequence_number": 1,
+        "phase": "phase_b",
+        "group": "adaptive",
+        "payload": {"affect": "engaged"},
+    })
+    assert row.phase == "phase_b"
+    assert row.group == "adaptive"
+
+
+@pytest.mark.asyncio
+async def test_row_tolerates_missing_phase_group():
+    row = svc._row({"event_type": "x", "session_id": "s1", "timestamp": TS0})
+    assert row.phase is None
+    assert row.group is None
+
+
+@pytest.mark.asyncio
+async def test_persist_batch_persists_phase_group(db):
+    events = [{
+        "event_type": "behavioral_affect_detected",
+        "learner_id": "u1",
+        "session_id": "s1",
+        "cycle_number": 1,
+        "timestamp": TS0,
+        "sequence_number": 1,
+        "phase": "phase_a",
+        "group": "control",
+        "payload": {},
+    }]
+    assert await svc.persist_batch(db, events) == 1
+    row = (
+        await db.execute(select(ResearchEvent).where(ResearchEvent.session_id == "s1"))
+    ).scalar_one()
+    assert row.phase == "phase_a"
+    assert row.group == "control"

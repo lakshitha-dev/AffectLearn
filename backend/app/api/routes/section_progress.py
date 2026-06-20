@@ -1,7 +1,18 @@
-"""Section progress and quiz response API endpoints."""
+"""Section progress and quiz response API endpoints.
 
+Story 6.5: these learner-interaction endpoints now emit best-effort research events
+(`section_started` / `section_completed` on the section-progress route, `quiz_submitted` on the
+quiz-response route) via the non-blocking `_safe_emit` wrapper — mirroring `questionnaire.py` /
+`ws.py`. Emission NEVER blocks or crashes the learner's request (NFR22): the durable record is
+always the DB row; the research event is fire-and-forget. Payloads carry only research-safe,
+non-PII fields (ids + correctness), never raw answer content. `phase`/`group` are resolved
+best-effort via `study_service` (these routes are not in the latency-critical agent loop).
+"""
+
+import time
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import ConfigDict
 from sqlalchemy import select
@@ -18,9 +29,37 @@ from app.schemas.section_progress import (
     SectionProgressCreate,
     SectionProgressResponse,
 )
-from app.services import section_progress_service
+from app.services import section_progress_service, study_service
+from app.services.research_logger import emit as emit_research_event
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+async def _safe_emit(event: dict) -> None:
+    """Emit a research event without ever propagating exceptions to the caller (NFR22)."""
+    try:
+        await emit_research_event(event)
+    except Exception:
+        logger.exception(
+            "research_event_emit_swallowed", event_type=event.get("event_type")
+        )
+
+
+async def _resolve_phase_group(db: AsyncSession, user_id) -> tuple[str | None, str | None]:
+    """Best-effort (phase, group) for a REST emit; never raises (→ (None, None) on failure)."""
+    try:
+        phase = await study_service.get_phase(db)
+        group = await study_service.get_group(db, user_id)
+        return phase, group
+    except Exception:
+        logger.exception("research_phase_group_resolution_failed")
+        return None, None
 
 
 class QuizResponseCreate(CamelModel):
@@ -61,6 +100,33 @@ async def mark_section_complete(
     response.status_code = (
         status.HTTP_201_CREATED if created else status.HTTP_200_OK
     )
+
+    # Story 6.5: best-effort research events. On the FIRST completion (`created`) the section's
+    # engagement is first recorded, so emit `section_started` then `section_completed`; an
+    # idempotent re-completion emits only `section_completed`. Never blocks the response.
+    phase, group = await _resolve_phase_group(db, current_user.id)
+    now = _now_ms()
+    base = {
+        "learner_id": str(current_user.id),
+        "session_id": None,
+        "cycle_number": 0,
+        "phase": phase,
+        "group": group,
+    }
+    payload = {
+        "section_id": str(body.section_id),
+        "time_spent_seconds": body.time_spent_seconds,
+    }
+    if created:
+        await _safe_emit({
+            **base, "event_type": "section_started", "timestamp": now, "payload": payload,
+        })
+    await _safe_emit({
+        **base,
+        "event_type": "section_completed",
+        "timestamp": _now_ms(),
+        "payload": {**payload, "created": created},
+    })
     return progress
 
 
@@ -142,4 +208,21 @@ async def record_quiz_response(
         response.status_code = status.HTTP_200_OK
         return existing
     await db.refresh(record)
+
+    # Story 6.5: best-effort `quiz_submitted` research event (research-safe fields only — the
+    # content-block id + correctness, never the raw selected answers). Never blocks the response.
+    phase, group = await _resolve_phase_group(db, current_user.id)
+    await _safe_emit({
+        "event_type": "quiz_submitted",
+        "learner_id": str(current_user.id),
+        "session_id": None,
+        "cycle_number": 0,
+        "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
+        "payload": {
+            "content_block_id": str(body.content_block_id),
+            "is_correct": bool(body.is_correct),
+        },
+    })
     return record

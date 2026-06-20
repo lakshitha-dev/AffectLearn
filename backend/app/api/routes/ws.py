@@ -231,16 +231,18 @@ async def _handle_facial_features(
         "session_id": session_id,
         "cycle_number": cycle,
         "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
         "payload": payload,
     })
 
     if result_state is not None and result_state.get("affect_state"):
         await _maybe_fuse("facial", result_state.get("facial_inference") or {},
-                          user_id, session_id, cycle)
+                          user_id, session_id, cycle, phase, group)
 
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
-    await _deliver_adaptation(result_state, user_id, session_id, cycle)
+    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group)
 
 
 async def _handle_behavioral_window(
@@ -320,20 +322,23 @@ async def _handle_behavioral_window(
         "session_id": session_id,
         "cycle_number": cycle,
         "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
         "payload": payload,
     })
 
     if result_state is not None and result_state.get("affect_state"):
         await _maybe_fuse("behavioral", result_state.get("behavioral_inference") or {},
-                          user_id, session_id, cycle)
+                          user_id, session_id, cycle, phase, group)
 
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
-    await _deliver_adaptation(result_state, user_id, session_id, cycle)
+    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group)
 
 
 async def _maybe_fuse(
-    modality: str, inference: dict[str, Any], user_id: str, session_id: str, cycle: int
+    modality: str, inference: dict[str, Any], user_id: str, session_id: str, cycle: int,
+    phase: str = "phase_a", group: str = "control",
 ) -> None:
     """Pair this modality's result with a recent counterpart and emit a fused event.
 
@@ -367,6 +372,8 @@ async def _maybe_fuse(
         "session_id": session_id,
         "cycle_number": cycle,
         "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
         "payload": {
             "affect_state": fused["affect_state"],
             "affect_confidence": round(fused["affect_confidence"], 4),
@@ -381,7 +388,8 @@ async def _maybe_fuse(
 
 
 async def _deliver_adaptation(
-    result_state: dict[str, Any] | None, user_id: str, session_id: str, cycle: int
+    result_state: dict[str, Any] | None, user_id: str, session_id: str, cycle: int,
+    phase: str = "phase_a", group: str = "control",
 ) -> None:
     """Push the cycle's `adaptation` message to the learner socket (Story 5.3).
 
@@ -425,6 +433,8 @@ async def _deliver_adaptation(
         "session_id": session_id,
         "cycle_number": cycle,
         "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
         "payload": {
             "action": delivery_message.get("action"),
             "variant": (delivery_message.get("content") or {}).get("variant"),
@@ -438,7 +448,8 @@ _VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
 
 
 async def _handle_adaptation_interaction(
-    envelope: dict[str, Any], user_id: str, session_id: str
+    envelope: dict[str, Any], user_id: str, session_id: str,
+    phase: str = "phase_a", group: str = "control",
 ) -> None:
     """Emit a research event for an inbound `adaptation_interaction` message (Story 5.6, FR22).
 
@@ -474,6 +485,8 @@ async def _handle_adaptation_interaction(
         "session_id": session_id,
         "cycle_number": int(data.get("cycle_number", 0) or 0),
         "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
         "payload": {
             "adaptation_id": data.get("adaptation_id"),
             "action": data.get("action"),
@@ -491,7 +504,8 @@ _SELF_REPORT_AFFECTS = {"engaged", "confused", "bored", "frustrated", "neutral"}
 
 
 async def _handle_self_report(
-    envelope: dict[str, Any], user_id: str, session_id: str
+    envelope: dict[str, Any], user_id: str, session_id: str,
+    phase: str = "phase_a", group: str = "control",
 ) -> None:
     """Emit a research event for an inbound `self_report` message (Story 6.2).
 
@@ -543,6 +557,8 @@ async def _handle_self_report(
         "session_id": session_id,
         "cycle_number": int(data.get("cycle_number", 0) or 0),
         "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
         "payload": {
             "affect": None if skipped else affect,
             "skipped": skipped,
@@ -589,6 +605,8 @@ async def websocket_endpoint(
             "session_id": session_id,
             "cycle_number": 0,
             "timestamp": _now_ms(),
+            "phase": phase,
+            "group": group,
             "payload": {"keys": list(prior_state.keys())},
         })
     else:
@@ -600,6 +618,8 @@ async def websocket_endpoint(
         "session_id": session_id,
         "cycle_number": 0,
         "timestamp": accept_ms,
+        "phase": phase,
+        "group": group,
         "payload": {"superseded_prior": superseded},
     })
 
@@ -653,14 +673,16 @@ async def websocket_endpoint(
             if msg_type == "adaptation_interaction":
                 # Story 5.6 (FR22): record the learner's accept/dismiss/apply of a delivered
                 # adaptation as a research event for the Learner Profiler. Never raises.
-                await _handle_adaptation_interaction(envelope, user_id, session_id)
+                await _handle_adaptation_interaction(
+                    envelope, user_id, session_id, phase, group
+                )
                 continue
 
             if msg_type == "self_report":
                 # Story 6.2: record the learner's ground-truth affect label (or deliberate
                 # skip) at a natural pause point as a research event for model validation.
                 # Never raises.
-                await _handle_self_report(envelope, user_id, session_id)
+                await _handle_self_report(envelope, user_id, session_id, phase, group)
                 continue
 
             # Unknown but well-formed types: log + drop (forward-compat).
@@ -689,6 +711,8 @@ async def websocket_endpoint(
             "session_id": session_id,
             "cycle_number": 0,
             "timestamp": _now_ms(),
+            "phase": phase,
+            "group": group,
             "payload": {
                 "reason": close_reason,
                 "duration_ms": _now_ms() - accept_ms,

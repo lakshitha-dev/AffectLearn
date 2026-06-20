@@ -223,6 +223,9 @@ async def set_phase(
             "session_id": None,
             "cycle_number": 0,
             "timestamp": _now_ms(),
+            # Story 6.5: top-level phase = the NEW phase; group is N/A for a global transition.
+            "phase": phase,
+            "group": None,
             "payload": {
                 "from": previous,
                 "to": phase,
