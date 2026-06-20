@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import { AuthGuard } from "@/components/shared/auth-guard";
 import { TopBar } from "@/components/shared/TopBar";
 import { useSessionStore } from "@/stores/session-store";
@@ -25,8 +26,20 @@ export default function LearnerLayout({
   const { sidebarCollapsed: collapsed, toggleSidebar } = useUiStore();
   const user = useSessionStore((s) => s.user);
   const [hydrated, setHydrated] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => setHydrated(true), []);
+
+  // Close the mobile drawer whenever the route changes.
+  useEffect(() => setMobileNavOpen(false), [pathname]);
+
+  // Close the mobile drawer on Escape.
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMobileNavOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileNavOpen]);
 
   // Force any learner without recorded consent through the onboarding wizard
   // before they can access learner-area pages.
@@ -47,27 +60,51 @@ export default function LearnerLayout({
 
   return (
     <AuthGuard allowedRoles={["learner"]}>
-      <TopBar />
+      <TopBar onMenuClick={() => setMobileNavOpen(true)} />
       <div className="flex min-h-[calc(100vh-3.5rem)]">
+        {/* Backdrop — mobile only, shown when the drawer is open */}
+        {mobileNavOpen && (
+          <div
+            className="fixed inset-0 top-14 z-40 bg-black/40 lg:hidden"
+            onClick={() => setMobileNavOpen(false)}
+            aria-hidden
+          />
+        )}
+
         <aside
           className={cn(
-            "shrink-0 border-r border-border bg-surface",
-            hydrated && "transition-all",
-            collapsed ? "w-12" : "w-60"
+            // Off-canvas drawer below lg; static in-flow sidebar at lg+
+            "fixed inset-y-0 left-0 top-14 z-50 w-64 border-r border-border bg-surface",
+            "lg:static lg:top-0 lg:z-auto lg:translate-x-0",
+            hydrated && "transition-all duration-200",
+            mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+            collapsed ? "lg:w-12" : "lg:w-60"
           )}
         >
           <div className="flex items-center justify-between p-4">
-            {!collapsed && (
-              <span className="text-sm font-semibold text-foreground">
-                AffectLearn
-              </span>
-            )}
+            <span
+              className={cn(
+                "text-sm font-semibold text-foreground",
+                collapsed && "lg:hidden"
+              )}
+            >
+              AffectLearn
+            </span>
+            {/* Collapse toggle — desktop only */}
             <button
               onClick={toggleSidebar}
-              className="rounded p-1 text-muted-foreground hover:bg-border"
+              className="hidden rounded p-1 text-muted-foreground hover:bg-border lg:block"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {collapsed ? ">" : "<"}
+            </button>
+            {/* Close drawer — mobile only */}
+            <button
+              onClick={() => setMobileNavOpen(false)}
+              className="rounded p-1 text-muted-foreground hover:bg-border lg:hidden"
+              aria-label="Close navigation menu"
+            >
+              <X className="h-4 w-4" />
             </button>
           </div>
           <nav className="mt-2">
@@ -75,23 +112,25 @@ export default function LearnerLayout({
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => setMobileNavOpen(false)}
                 className={cn(
                   "flex items-center px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-border/50",
                   pathname === item.href && "bg-primary-soft font-medium text-primary"
                 )}
                 title={collapsed ? item.label : undefined}
               >
-                {collapsed ? (
-                  <span className="mx-auto text-xs font-medium">{item.label[0]}</span>
-                ) : (
-                  item.label
+                <span className={cn(collapsed && "lg:hidden")}>{item.label}</span>
+                {collapsed && (
+                  <span className="mx-auto hidden text-xs font-medium lg:inline">
+                    {item.label[0]}
+                  </span>
                 )}
               </Link>
             ))}
           </nav>
         </aside>
         <main className="flex-1 bg-background">
-          <div className="mx-auto max-w-7xl p-8">{children}</div>
+          <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">{children}</div>
         </main>
       </div>
     </AuthGuard>
