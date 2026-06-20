@@ -328,8 +328,8 @@ function ShowcaseMock() {
         </div>
         <div className="app">
           <div className="lesson">
-            <div className="crumb">Subnetting · Exercise 4.3</div>
-            <h3>Calculate the subnet mask</h3>
+            <div className="crumb">Foundations of Agentic AI · Lesson 1.1</div>
+            <h3>Trace the agent loop</h3>
             <div className="lprog">
               <div className="ptrack">
                 <i style={{ width: "84%" }} />

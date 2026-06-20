@@ -3,6 +3,7 @@
 import { cn } from "@/lib/cn";
 import { QuizBlock } from "./QuizBlock";
 import { ExerciseBlock } from "./ExerciseBlock";
+import { MermaidDiagram } from "./MermaidDiagram";
 import type { ContentBlock } from "@/types/course";
 
 interface ContentBlockRendererProps {
@@ -37,6 +38,10 @@ export function ContentBlockRenderer({ block, onQuizSubmit, previewMode }: Conte
 
       case "code": {
         const c = block.content as CodeContent;
+        // Mermaid diagrams/charts are authored as code blocks with language "mermaid".
+        if (c.language === "mermaid") {
+          return <MermaidDiagram chart={c.code} />;
+        }
         return (
           <pre className={cn("rounded-md bg-surface p-4 overflow-x-auto", c.language && `language-${c.language}`)}>
             <code className="font-mono text-sm text-foreground">{c.code}</code>

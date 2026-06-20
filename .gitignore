@@ -36,3 +36,4 @@ backend/models/*.onnx.data
 # Azure deploy local secrets/names
 deploy/azure/.deploy-secrets
 deploy/azure/.deploy-names
+deploy/azure/DEPLOYMENT_STATUS.md
