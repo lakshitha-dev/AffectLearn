@@ -6,6 +6,7 @@ from app.models.assessment import (
     Assessment, AssessmentQuestion, AssessmentOption,
     AssessmentAttempt, QuestionResponse,
 )
+from app.models.questionnaire_response import QuestionnaireResponse
 from app.models.quiz_response import QuizBlockResponse
 from app.models.study_group import StudyGroup
 from app.models.study_phase import StudyPhase
@@ -19,6 +20,7 @@ __all__ = [
     "Assessment", "AssessmentQuestion", "AssessmentOption",
     "AssessmentAttempt", "QuestionResponse",
     "QuizBlockResponse",
+    "QuestionnaireResponse",
     "StudyGroup", "StudyPhase",
     "Role", "User",
 ]
