@@ -9,6 +9,7 @@ import {
 import { apiFetch, ApiRequestError } from "@/lib/api-client";
 import type {
   CourseProgressResponse,
+  LearnerProgressResponse,
   LessonProgressResponse,
   ResumeTarget,
   SectionProgress,
@@ -16,8 +17,24 @@ import type {
 
 export const COURSE_PROGRESS_KEY = "courseProgress";
 export const LESSON_PROGRESS_KEY = "lessonProgress";
+export const LEARNER_PROGRESS_KEY = "learnerProgress";
 
 const STALE_1_MIN = 60_000;
+
+/**
+ * Learner-progress aggregate (Story 4.6) — reused by the Story 6.4 achievements summary.
+ * Returns per-course completion %, the completed-section history, and the quiz tally for the
+ * given learner. The backend enforces that a learner may read only their own progress.
+ */
+export function useLearnerProgress(learnerId: string | undefined) {
+  return useQuery<LearnerProgressResponse>({
+    queryKey: [LEARNER_PROGRESS_KEY, learnerId],
+    queryFn: () =>
+      apiFetch<LearnerProgressResponse>(`/learner-profiles/${learnerId}/progress`),
+    enabled: Boolean(learnerId),
+    staleTime: STALE_1_MIN,
+  });
+}
 
 export function useCourseProgress(courseId: string | undefined) {
   return useQuery<CourseProgressResponse>({

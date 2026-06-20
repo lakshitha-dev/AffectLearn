@@ -10,6 +10,7 @@ from app.models.questionnaire_response import QuestionnaireResponse
 from app.models.quiz_response import QuizBlockResponse
 from app.models.study_group import StudyGroup
 from app.models.study_phase import StudyPhase
+from app.models.survey_response import SurveyResponse
 from app.models.user import Role, User
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "QuizBlockResponse",
     "QuestionnaireResponse",
     "StudyGroup", "StudyPhase",
+    "SurveyResponse",
     "Role", "User",
 ]
