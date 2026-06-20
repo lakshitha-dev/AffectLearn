@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -121,9 +122,14 @@ export default function RegisterPage() {
   };
 
   return (
-    <Card>
+    <Card className="rounded-none border-border shadow-sm">
       <CardHeader>
-        <CardTitle className="text-xl">Create your account</CardTitle>
+        <CardTitle className="text-2xl tracking-tight">Create your account</CardTitle>
+        <CardDescription>
+          {step === 1
+            ? "Start with your email and a password."
+            : "Tell us a little about you to personalize your learning."}
+        </CardDescription>
         <div className="flex justify-center gap-2 pt-2">
           <span
             className={`h-2 w-2 rounded-full ${step === 1 ? "bg-primary" : "bg-border"}`}

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -126,9 +127,12 @@ export default function LoginPage() {
   };
 
   return (
-    <Card>
+    <Card className="rounded-none border-border shadow-sm">
       <CardHeader>
-        <CardTitle className="text-xl">Sign in to your account</CardTitle>
+        <CardTitle className="text-2xl tracking-tight">Welcome back</CardTitle>
+        <CardDescription>
+          Sign in to continue adapting to how you learn.
+        </CardDescription>
       </CardHeader>
 
       <CardContent>
