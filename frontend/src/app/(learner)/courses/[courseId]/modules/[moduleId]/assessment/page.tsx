@@ -95,7 +95,7 @@ export default function AssessmentPage({ params }: PageProps) {
 
 function AssessmentSkeleton() {
   return (
-    <div className="max-w-2xl mx-auto px-8 py-12 animate-pulse space-y-8">
+    <div className="max-w-2xl mx-auto px-4 sm:px-8 py-12 animate-pulse space-y-8">
       <div className="space-y-2">
         <div className="h-8 w-3/4 bg-border rounded" />
         <div className="h-4 w-1/2 bg-border rounded" />

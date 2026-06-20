@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
-import { Sun, Moon, Monitor, LogOut, ChevronDown } from "lucide-react";
+import { Sun, Moon, Monitor, LogOut, ChevronDown, Menu } from "lucide-react";
 import { useSessionStore } from "@/stores/session-store";
 
 const THEME_CYCLE = ["light", "dark", "system"] as const;
@@ -87,7 +87,15 @@ function UserMenu() {
   );
 }
 
-export function TopBar() {
+interface TopBarProps {
+  /**
+   * When provided, a hamburger button is rendered (visible below `lg`) that
+   * invokes this callback — used by layouts with a collapsible mobile sidebar.
+   */
+  onMenuClick?: () => void;
+}
+
+export function TopBar({ onMenuClick }: TopBarProps = {}) {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -102,6 +110,15 @@ export function TopBar() {
   return (
     <header className="flex h-14 shrink-0 items-center border-b border-border bg-background px-4">
       <div className="flex items-center gap-2">
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="-ml-1 inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
         <span className="text-base font-semibold text-foreground">AffectLearn</span>
       </div>
 
