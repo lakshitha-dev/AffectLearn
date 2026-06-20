@@ -1,10 +1,40 @@
-# Deployment Pipeline - placeholder
+# Deploy AffectLearn backend to Azure App Service on push to main.
+# Secrets required (repo settings → Secrets and variables → Actions):
+#   AZURE_WEBAPP_PUBLISH_PROFILE  - App Service publish profile XML
+#   FACIAL_MODEL_URL              - read-SAS URL to cnn_lstm_best.onnx in Blob (gitignored, 46MB)
+# The backend is deployed as Python code; App Service (Oryx) installs requirements.txt
+# (SCM_DO_BUILD_DURING_DEPLOYMENT=true) and runs the startup command (alembic upgrade -> uvicorn).
 name: Deploy
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: true
+
+env:
+  AZURE_WEBAPP_NAME: affectlearn-api-4905
+
 jobs:
-  placeholder:
+  deploy-backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "Deploy pipeline - to be configured"
+
+      - name: Fetch facial model from Blob (gitignored, 46MB)
+        run: |
+          mkdir -p backend/models
+          curl -fsSL "${{ secrets.FACIAL_MODEL_URL }}" -o backend/models/cnn_lstm_best.onnx
+          echo "models present:"; ls -la backend/models
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: backend
+
+      - name: Summary
+        run: echo "Deployed backend -> https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
