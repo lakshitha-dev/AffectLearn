@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     EXPOSE_DEV_CREDENTIALS: bool = False
 
+    # Comma-separated list of allowed CORS origins. Defaults to local dev hosts;
+    # production sets this to the deployed frontend URL (App Service).
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,http://localhost:3001,"
+        "http://127.0.0.1:3000,http://127.0.0.1:3001"
+    )
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
     # Observability dashboard (Monitor)
     MONITOR_ENABLED: bool = True
     MONITOR_RING_SIZE: int = 500
