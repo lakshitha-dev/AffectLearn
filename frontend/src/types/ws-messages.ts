@@ -22,6 +22,21 @@ export interface WSMessage {
 
 // ---------- Upstream (client → server) ----------
 
+/**
+ * Self-report affect vocabulary (Story 6.2). A deliberate 5-value SUPERSET of the backend
+ * 4-value model `AFFECT_STATES` (`bored`/`confused`/`engaged`/`frustrated`) PLUS `neutral`.
+ * Neutral is a self-report-only GROUND-TRUTH label, NOT a model output — a learner who feels
+ * none of the 4 has a real, researchable state. Do NOT add `neutral` to the model vocabulary;
+ * the 5↔4 reconciliation is a downstream research-analysis concern (Epic 6.5 / 8.6). This is
+ * the single source of truth shared by `SelfReportBar` and the lesson-page consumer.
+ */
+export type SelfReportAffect =
+  | "engaged"
+  | "confused"
+  | "bored"
+  | "frustrated"
+  | "neutral";
+
 export interface ClientHelloMessage extends WSMessage {
   type: "client_hello";
   data?: { client_version?: string };
@@ -97,12 +112,37 @@ export interface AdaptationInteractionMessage extends WSMessage {
   };
 }
 
+/**
+ * Self-report affect (Story 6.2). The self-report twin of `adaptation_interaction`: a
+ * client→server upstream message recording the learner's GROUND-TRUTH affect label (or a
+ * deliberate skip) at a natural pause point, so the backend emits a `self_report` research
+ * event for model validation. Rides the existing generic `send(msg: WSMessage)` — there is
+ * NO downstream counterpart and no `ws-protocol.ts` guard change (those guards are
+ * inbound-only).
+ *
+ * `affect` is the 5-value `SelfReportAffect` union — a deliberate SUPERSET of the backend
+ * 4-value `AFFECT_STATES` (Neutral is a self-report-only ground-truth label, NOT a model
+ * category). A deliberate skip is `{ skipped: true, affect: null }` — distinguishable from
+ * missing data (a prompt the learner never reached emits NOTHING).
+ */
+export interface SelfReportMessage extends WSMessage {
+  type: "self_report";
+  data: {
+    affect: SelfReportAffect | null;
+    skipped: boolean;
+    prompt_index?: number;
+    section_id?: string;
+    cycle_number?: number;
+  };
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
   | FacialFeaturesMessage
   | BehavioralWindowMessage
-  | AdaptationInteractionMessage;
+  | AdaptationInteractionMessage
+  | SelfReportMessage;
 
 // ---------- Downstream (server → client) ----------
 

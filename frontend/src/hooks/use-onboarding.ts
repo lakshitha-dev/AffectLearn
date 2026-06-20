@@ -21,6 +21,16 @@ export function useGiveConsent() {
   });
 }
 
+export function useSubmitQuestionnaire() {
+  return useMutation({
+    mutationFn: (responses: Record<string, unknown>) =>
+      apiFetch("/onboarding/questionnaire", {
+        method: "POST",
+        body: JSON.stringify({ responses }),
+      }),
+  });
+}
+
 export function useSetWebcamMode() {
   const setUser = useSessionStore((s) => s.setUser);
   return useMutation({

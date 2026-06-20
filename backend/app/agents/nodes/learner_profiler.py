@@ -77,6 +77,9 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         "session_id": state.get("session_id"),
         "cycle_number": cycle or 0,
         "timestamp": now_ms,
+        # Story 6.5: top-level phase/group so the event is filterable by study phase/cohort.
+        "phase": state.get("phase"),
+        "group": state.get("group"),
         "payload": {
             "affect_state": profile.get("affect_state"),
             "skill_level": profile.get("skill_level"),

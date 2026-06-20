@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.research_event import ResearchEvent
 
 _FIELDS = ("event_type", "learner_id", "session_id", "cycle_number",
-           "timestamp", "sequence_number", "payload")
+           "timestamp", "sequence_number", "payload", "phase", "group")
 
 
 def _row(event: dict[str, Any]) -> ResearchEvent:
@@ -26,6 +26,9 @@ def _row(event: dict[str, Any]) -> ResearchEvent:
         timestamp=int(event.get("timestamp", 0) or 0),
         sequence_number=event.get("sequence_number"),
         payload=event.get("payload"),
+        # Story 6.5: top-level study phase / A/B group for dataset filtering (tolerate absence).
+        phase=(str(event["phase"]) if event.get("phase") is not None else None),
+        group=(str(event["group"]) if event.get("group") is not None else None),
     )
 
 

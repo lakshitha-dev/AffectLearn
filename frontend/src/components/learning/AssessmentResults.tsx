@@ -42,15 +42,22 @@ export function AssessmentResults({
         ))}
       </div>
 
-      <div className="pt-2">
+      <div className="pt-2 flex flex-wrap gap-3">
         {type === "pre" && firstLessonUrl ? (
           <Button asChild size="lg">
             <Link href={firstLessonUrl}>Continue to module</Link>
           </Button>
         ) : (
-          <Button asChild size="lg">
-            <Link href={"/courses/" + courseId}>See your progress</Link>
-          </Button>
+          <>
+            {/* Post-assessment is the end of the study → continue to the satisfaction survey
+                (Story 6.4). Keep "See your progress" available so the learner is not trapped. */}
+            <Button asChild size="lg">
+              <Link href="/study/survey">Continue to survey</Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <Link href={"/courses/" + courseId}>See your progress</Link>
+            </Button>
+          </>
         )}
       </div>
     </div>

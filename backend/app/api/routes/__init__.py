@@ -10,7 +10,10 @@ from app.api.routes import (
     learner_profiles,
     learners,
     monitor,
+    questionnaire,
+    research,
     section_progress,
+    study,
     surveys,
     ws,
 )
@@ -24,7 +27,10 @@ api_router.include_router(assessments.router, prefix="/assessments", tags=["asse
 
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
+api_router.include_router(study.router, prefix="/admin", tags=["study"])
+api_router.include_router(research.router, prefix="/admin", tags=["research"])
 api_router.include_router(surveys.router, prefix="/surveys", tags=["surveys"])
+api_router.include_router(questionnaire.router, tags=["onboarding"])
 api_router.include_router(section_progress.router)
 api_router.include_router(learner_profiles.router, tags=["learner-profiles"])
 api_router.include_router(ws.router, prefix="/ws", tags=["websocket"])

@@ -17,6 +17,7 @@ import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
 import { IncreaseDifficulty } from "@/components/learning/IncreaseDifficulty";
 import { InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { SkipAheadSuggestion, type SkipInteraction } from "@/components/learning/SkipAheadSuggestion";
+import { SelfReportBar, type SelfReport } from "@/components/learning/SelfReportBar";
 import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
 import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
@@ -24,6 +25,7 @@ import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { useSelfReportTrigger } from "@/hooks/use-self-report-trigger";
 import { useUiStore } from "@/stores/ui-store";
 import type { SectionDetail } from "@/types/course";
 
@@ -158,6 +160,35 @@ export default function LessonPage({ params }: PageProps) {
     [send],
   );
 
+  // Story 6.2: self-report pause-point trigger. Derived from distinct section completions
+  // (the page tracks no "sections viewed" counter; a scroll-spy is deliberately avoided —
+  // see use-self-report-trigger.ts). The widget shows once SECTIONS_PER_PROMPT completions
+  // accrue since the last prompt, then resets after a report/skip (never re-prompts
+  // immediately, never blocks scrolling/navigation).
+  const { showSelfReport, promptIndex, dismiss: dismissSelfReport } = useSelfReportTrigger(
+    completedSectionIds.size,
+  );
+
+  // Story 6.2: log the learner's ground-truth self-report (or deliberate skip) upstream so
+  // the backend emits a `self_report` research event for model validation. Mirrors
+  // logAdaptationInteraction: rides the EXISTING WS `send` channel — no second connection,
+  // no new hook, no store mutation. A deliberate skip is {affect:null, skipped:true};
+  // a prompt the learner never reaches emits nothing (missing data, not a skip).
+  const logSelfReport = useCallback(
+    (report: SelfReport, prompt_index: number) => {
+      send({
+        type: "self_report",
+        ts: Date.now(),
+        data: {
+          affect: report.affect,
+          skipped: report.skipped,
+          prompt_index,
+        },
+      });
+    },
+    [send],
+  );
+
   const course = courseQuery.data;
   const currentModuleIdx = course?.modules.findIndex((m) => m.id === moduleId) ?? -1;
   const currentModule = course?.modules[currentModuleIdx];
@@ -272,6 +303,20 @@ export default function LessonPage({ params }: PageProps) {
           client ack rides the same FR22 channel. The real harder-variant swap is deferred
           (content-variant catalog, Open Question #1). */}
       <IncreaseDifficulty onApplied={logIncreaseDifficultyApplied} />
+      {/* Self-report affect widget (Story 6.2) — the pilot's ground-truth label source.
+          Shown ONLY at a natural pause point (every ~3 section completions, derived by
+          useSelfReportTrigger). Selection/skip is logged upstream as a self_report research
+          event; on report the trigger resets so it never re-prompts immediately. Renders
+          nothing when not at a pause point (no empty bar, no layout shift). */}
+      {showSelfReport && (
+        <SelfReportBar
+          key={promptIndex}
+          onReport={(report) => {
+            logSelfReport(report, promptIndex);
+            dismissSelfReport();
+          }}
+        />
+      )}
       {AFFECT_DEBUG_ENABLED && <AffectDebugOverlay debugRef={affectDebug} />}
       {AFFECT_DEBUG_ENABLED && <BehavioralDebugOverlay debugRef={behavioralDebug} />}
     </div>

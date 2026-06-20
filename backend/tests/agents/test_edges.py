@@ -39,3 +39,18 @@ def test_route_after_profiler_matrix(phase, group, expected_route):
 
 def test_should_adapt_missing_fields_is_safe():
     assert should_adapt({}) is False
+
+
+@pytest.mark.parametrize(
+    "phase,group,expected_route",
+    [
+        # AC7 tri-modal contract (Story 6.1): the SAME router, fed REAL phase/group.
+        ("phase_a", "adaptive", ROUTE_LOG_ONLY),   # (a) Phase A suppresses adaptation for everyone (FR28)
+        ("phase_a", "control", ROUTE_LOG_ONLY),    # (b)
+        ("phase_b", "adaptive", ROUTE_PEDAGOGICAL),  # (c) only this reaches the adaptive branch
+        ("phase_b", "control", ROUTE_LOG_ONLY),    # (d) control stays a clean log-only cohort
+    ],
+)
+def test_ac7_trimodal_routing(phase, group, expected_route):
+    """Story 6.1 AC7: real (phase, group) values select the correct branch unchanged."""
+    assert route_after_profiler({"phase": phase, "group": group}) == expected_route
