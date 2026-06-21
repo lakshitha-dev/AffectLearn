@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSessionStore } from "@/stores/session-store";
-import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import "./landing.css";
 
 const ROLE_DASHBOARDS: Record<string, string> = {
@@ -553,7 +552,6 @@ export default function LandingPage() {
             <a className="link" href="#faq">FAQ</a>
           </nav>
           <div className="nav-cta">
-            <ThemeToggle className="nav-toggle" />
             <Link className="btn btn-quiet" href="/login">Sign in</Link>
             <Link className="btn btn-primary" href="/register">
               Start learning
