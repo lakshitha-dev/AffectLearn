@@ -47,7 +47,9 @@ const TRUST = [
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <GuestGuard>
-      <div className="grid min-h-screen lg:grid-cols-2">
+      {/* force-light: sign-in / sign-up always render in the light theme,
+          regardless of the app's global dark mode. */}
+      <div className="force-light grid min-h-screen lg:grid-cols-2">
         {/* ===== Brand panel (desktop) ===== */}
         <aside className="relative hidden overflow-hidden bg-secondary px-12 py-14 text-white lg:flex lg:flex-col lg:justify-between">
           <div
