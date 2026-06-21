@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
-import type { CourseOverview } from "@/types/analytics";
+import type { AffectHeatmapResponse, CourseOverview } from "@/types/analytics";
 
 /** Root query-key namespace for analytics caches (reused for invalidation by 7.3/7.4). */
 export const ANALYTICS_KEY = "analytics";
@@ -21,6 +21,25 @@ export function useCourseOverview(courseId: string | undefined) {
     queryKey: [ANALYTICS_KEY, "overview", courseId],
     queryFn: () =>
       apiFetch<CourseOverview>(`/analytics/courses/${courseId}/overview`),
+    enabled: Boolean(courseId),
+    staleTime: STALE_5_MIN,
+  });
+}
+
+/**
+ * Fetch the per-course affect heatmap (Story 7.1 contract → Story 7.3 consumer).
+ *
+ * Mirrors {@link useCourseOverview} exactly: react-query + centralized
+ * `apiFetch`, cached under {@link ANALYTICS_KEY}, 5-min stale time, disabled
+ * until a `courseId` is available. Sections arrive already course-ordered.
+ */
+export function useAffectHeatmap(courseId: string | undefined) {
+  return useQuery<AffectHeatmapResponse>({
+    queryKey: [ANALYTICS_KEY, "heatmap", courseId],
+    queryFn: () =>
+      apiFetch<AffectHeatmapResponse>(
+        `/analytics/courses/${courseId}/affect-heatmap`,
+      ),
     enabled: Boolean(courseId),
     staleTime: STALE_5_MIN,
   });

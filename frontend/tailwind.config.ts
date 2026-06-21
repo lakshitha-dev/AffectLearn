@@ -7,6 +7,28 @@ const config: Config = {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  // Affect-heatmap intensity classes (Story 7.3). These are emitted as full
+  // static strings from src/components/designer/heatmap-intensity.ts, but are
+  // safelisted as belt-and-suspenders against the Tailwind purge so the cell
+  // backgrounds always render.
+  safelist: [
+    "bg-affect-engaged/15",
+    "bg-affect-engaged/35",
+    "bg-affect-engaged/65",
+    "bg-affect-engaged/100",
+    "bg-affect-confused/15",
+    "bg-affect-confused/35",
+    "bg-affect-confused/65",
+    "bg-affect-confused/100",
+    "bg-affect-bored/15",
+    "bg-affect-bored/35",
+    "bg-affect-bored/65",
+    "bg-affect-bored/100",
+    "bg-affect-frustrated/15",
+    "bg-affect-frustrated/35",
+    "bg-affect-frustrated/65",
+    "bg-affect-frustrated/100",
+  ],
   theme: {
     extend: {
       colors: {

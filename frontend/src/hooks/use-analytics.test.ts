@@ -15,7 +15,7 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 import { apiFetch } from "@/lib/api-client";
-import { useCourseOverview } from "./use-analytics";
+import { useAffectHeatmap, useCourseOverview } from "./use-analytics";
 
 const mockApiFetch = apiFetch as ReturnType<typeof vi.fn>;
 
@@ -58,6 +58,53 @@ describe("useCourseOverview", () => {
   it("is disabled and does not fetch when courseId is undefined", async () => {
     const wrapper = makeWrapper();
     const { result } = renderHook(() => useCourseOverview(undefined), {
+      wrapper,
+    });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(mockApiFetch).not.toHaveBeenCalled();
+  });
+});
+
+const HEATMAP = {
+  courseId: "c1",
+  sections: [
+    {
+      sectionId: "s1",
+      sectionTitle: "Intro",
+      engagedPct: 70,
+      confusedPct: 10,
+      boredPct: 5,
+      frustratedPct: 2,
+      sampleCount: 90,
+      confidence: "high" as const,
+      insufficientData: false,
+    },
+  ],
+};
+
+describe("useAffectHeatmap", () => {
+  beforeEach(() => {
+    mockApiFetch.mockReset();
+    mockApiFetch.mockResolvedValue(HEATMAP);
+  });
+
+  it("calls apiFetch with the correct affect-heatmap URL", async () => {
+    const wrapper = makeWrapper();
+    const { result } = renderHook(() => useAffectHeatmap("c1"), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      "/analytics/courses/c1/affect-heatmap",
+    );
+    expect(result.current.data).toEqual(HEATMAP);
+  });
+
+  it("is disabled and does not fetch when courseId is undefined", async () => {
+    const wrapper = makeWrapper();
+    const { result } = renderHook(() => useAffectHeatmap(undefined), {
       wrapper,
     });
 

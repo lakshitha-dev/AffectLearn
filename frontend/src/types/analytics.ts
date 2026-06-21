@@ -32,3 +32,43 @@ export interface CourseOverview {
   confidence: Confidence;
   insufficientData: boolean;
 }
+
+/**
+ * The four affect states surfaced on the designer heatmap (Story 7.3). These are
+ * the DESIGNER palette only — never shown to learners (UX spec line 403).
+ */
+export type AffectState = "engaged" | "confused" | "bored" | "frustrated";
+
+/**
+ * One section row in the affect heatmap (Story 7.3).
+ *
+ * Mirrors the backend `HeatmapSectionRow` (`app/schemas/analytics.py`, camelCase
+ * via `CamelModel`) field-for-field. Each `*Pct` is a 0-100 float on a
+ * PER-LEARNER basis (the share of observed learners who showed that state), so
+ * the four values MAY sum to >100 — a learner can show multiple states. Do NOT
+ * normalize. Rows arrive already ordered by course position (module → lesson →
+ * section sortOrder); render top-to-bottom as received (do NOT re-sort).
+ */
+export interface HeatmapSectionRow {
+  sectionId: string;
+  sectionTitle: string;
+  engagedPct: number;
+  confusedPct: number;
+  boredPct: number;
+  frustratedPct: number;
+  sampleCount: number;
+  confidence: Confidence;
+  insufficientData: boolean;
+}
+
+/**
+ * `GET /analytics/courses/{courseId}/affect-heatmap` payload.
+ *
+ * Mirrors `AffectHeatmapResponse` (app/schemas/analytics.py). An empty course
+ * returns `sections: []`; a section with zero observed learners returns zeros +
+ * `insufficientData: true`.
+ */
+export interface AffectHeatmapResponse {
+  courseId: string;
+  sections: HeatmapSectionRow[];
+}
