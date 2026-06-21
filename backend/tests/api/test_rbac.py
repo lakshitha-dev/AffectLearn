@@ -47,40 +47,42 @@ async def test_admin_list_users_unauthorized_no_token(client: AsyncClient):
     assert response.status_code == 401
 
 
-# --- Analytics /courses endpoint ---
+# --- Analytics endpoint RBAC (course overview) ---
+# Role-gating only: a random course id is fine — the role check runs before the
+# 404, so designer/admin pass the gate (200/404) while a learner is rejected (403).
+
+_ANALYTICS_OVERVIEW = "/api/v1/analytics/courses/00000000-0000-0000-0000-000000000001/overview"
 
 
-async def test_analytics_courses_success_for_designer(client: AsyncClient, test_designer):
+async def test_analytics_overview_allowed_for_designer(client: AsyncClient, test_designer):
     token = create_access_token(str(test_designer.id))
     response = await client.get(
-        "/api/v1/analytics/courses",
+        _ANALYTICS_OVERVIEW,
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
+    assert response.status_code not in (401, 403)
 
 
-async def test_analytics_courses_success_for_admin(client: AsyncClient, test_admin):
+async def test_analytics_overview_allowed_for_admin(client: AsyncClient, test_admin):
     token = create_access_token(str(test_admin.id))
     response = await client.get(
-        "/api/v1/analytics/courses",
+        _ANALYTICS_OVERVIEW,
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert response.status_code == 200
+    assert response.status_code not in (401, 403)
 
 
-async def test_analytics_courses_forbidden_for_learner(client: AsyncClient, test_user):
+async def test_analytics_overview_forbidden_for_learner(client: AsyncClient, test_user):
     token = create_access_token(str(test_user.id))
     response = await client.get(
-        "/api/v1/analytics/courses",
+        _ANALYTICS_OVERVIEW,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 403
 
 
-async def test_analytics_courses_unauthorized_no_token(client: AsyncClient):
-    response = await client.get("/api/v1/analytics/courses")
+async def test_analytics_overview_unauthorized_no_token(client: AsyncClient):
+    response = await client.get(_ANALYTICS_OVERVIEW)
     assert response.status_code == 401
 
 
