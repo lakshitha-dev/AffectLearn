@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { GuestGuard } from "@/components/shared/guest-guard";
-import { ThemeToggle } from "@/components/shared/ThemeToggle";
 
 const iconProps = {
   fill: "none",
@@ -50,9 +49,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     <GuestGuard>
       <div className="grid min-h-screen lg:grid-cols-2">
         {/* ===== Brand panel (desktop) ===== */}
-        {/* Brand panel is a fixed dark surface in BOTH themes (white text + gradient).
-            Using bg-secondary would flip it to light in dark mode, so pin to slate-900. */}
-        <aside className="relative hidden overflow-hidden bg-slate-900 px-12 py-14 text-white lg:flex lg:flex-col lg:justify-between">
+        <aside className="relative hidden overflow-hidden bg-secondary px-12 py-14 text-white lg:flex lg:flex-col lg:justify-between">
           <div
             className="pointer-events-none absolute inset-0"
             style={{
@@ -99,15 +96,12 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="text-lg font-bold tracking-tight text-foreground lg:hidden">
               Affect<span className="text-primary">Learn</span>
             </Link>
-            <div className="ml-auto flex items-center gap-2">
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <span aria-hidden>←</span> Back to home
-              </Link>
-              <ThemeToggle />
-            </div>
+            <Link
+              href="/"
+              className="ml-auto inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <span aria-hidden>←</span> Back to home
+            </Link>
           </div>
 
           <div className="flex flex-1 items-center justify-center py-10">
