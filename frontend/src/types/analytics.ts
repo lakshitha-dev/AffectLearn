@@ -72,3 +72,81 @@ export interface AffectHeatmapResponse {
   courseId: string;
   sections: HeatmapSectionRow[];
 }
+
+/**
+ * Per-affect percentage breakdown (Story 7.4 section detail).
+ *
+ * Mirrors the backend `AffectDistribution` (`app/schemas/analytics.py`). Each
+ * `*Pct` is a 0-100 float on a PER-LEARNER basis (the share of observed learners
+ * who showed that state), so the four values MAY sum to >100 — a learner can show
+ * multiple states. Do NOT normalize to a single 100% stacked bar.
+ */
+export interface AffectDistribution {
+  engagedPct: number;
+  confusedPct: number;
+  boredPct: number;
+  frustratedPct: number;
+}
+
+/**
+ * One temporal bin of within-section confusion share (Story 7.4).
+ *
+ * Mirrors the backend `TemporalBin`. The temporal distribution is SECTION-LEVEL
+ * and best-effort (session-concatenated cycle order, NOT a true chronological
+ * timeline — see 7.1) — there is no per-paragraph temporal data.
+ */
+export interface TemporalBin {
+  binIndex: number;
+  confusedPct: number;
+}
+
+/**
+ * Best-effort key insights for a section (Story 7.4).
+ *
+ * Mirrors the backend `SectionInsights` field-for-field. ONLY these two fields
+ * are returned: the "% who needed hints" / "% who took breaks" insights from the
+ * original epic AC text were REMOVED from the backend schema during the 7.1
+ * Senior Developer Review (no honest section-scoped source existed). Do NOT add
+ * them. Both fields are nullable.
+ */
+export interface SectionInsights {
+  mostTriggeredAdaptationType: string | null;
+  averageConfusionDurationSeconds: number | null;
+}
+
+/**
+ * A content block rendered read-only with a (section-level) affect annotation
+ * (Story 7.4). Mirrors the backend `ParagraphAnnotation`.
+ *
+ * Paragraph-precise affect is NOT logged today: `affectDistribution` carries the
+ * SECTION-LEVEL distribution where derivable (`sampleCount > 0`), else `null`. So
+ * multiple hotspot blocks will share the same section-level numbers — surface
+ * this honestly, do NOT imply per-paragraph precision. `text` is the extracted
+ * block text only (NOT the full original `content` object).
+ */
+export interface ParagraphAnnotation {
+  blockId: string;
+  paragraphIndex: number;
+  blockType: string;
+  text: string | null;
+  affectDistribution: AffectDistribution | null;
+}
+
+/**
+ * `GET /analytics/sections/{sectionId}/detail` payload (Story 7.4).
+ *
+ * Mirrors `SectionDetailResponse` (`app/schemas/analytics.py`). Section-keyed
+ * only — it returns NO `moduleId`/`lessonId` for the section's parent lesson, so
+ * "Edit Content" cannot deep-link the exact lesson editor (see the page).
+ */
+export interface SectionDetailResponse {
+  sectionId: string;
+  sectionTitle: string;
+  affectDistribution: AffectDistribution;
+  temporalDistribution: TemporalBin[];
+  keyInsights: SectionInsights;
+  content: ParagraphAnnotation[];
+  sampleCount: number;
+  confidence: Confidence;
+  insufficientData: boolean;
+}

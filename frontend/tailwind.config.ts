@@ -28,6 +28,19 @@ const config: Config = {
     "bg-affect-frustrated/35",
     "bg-affect-frustrated/65",
     "bg-affect-frustrated/100",
+    // Story 7.4 — section-detail affect bars + content hotspots.
+    "bg-affect-engaged",
+    "bg-affect-confused",
+    "bg-affect-bored",
+    "bg-affect-frustrated",
+    "bg-affect-confused/10",
+    "bg-affect-confused/20",
+    "border-affect-confused",
+    "text-affect-engaged",
+    "text-affect-confused",
+    "text-affect-bored",
+    "text-affect-frustrated",
+    "focus-visible:ring-affect-confused",
   ],
   theme: {
     extend: {

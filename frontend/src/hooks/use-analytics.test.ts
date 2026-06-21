@@ -15,7 +15,11 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 import { apiFetch } from "@/lib/api-client";
-import { useAffectHeatmap, useCourseOverview } from "./use-analytics";
+import {
+  useAffectHeatmap,
+  useCourseOverview,
+  useSectionDetail,
+} from "./use-analytics";
 
 const mockApiFetch = apiFetch as ReturnType<typeof vi.fn>;
 
@@ -105,6 +109,56 @@ describe("useAffectHeatmap", () => {
   it("is disabled and does not fetch when courseId is undefined", async () => {
     const wrapper = makeWrapper();
     const { result } = renderHook(() => useAffectHeatmap(undefined), {
+      wrapper,
+    });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(mockApiFetch).not.toHaveBeenCalled();
+  });
+});
+
+const SECTION_DETAIL = {
+  sectionId: "sec-1",
+  sectionTitle: "Subnetting",
+  affectDistribution: {
+    engagedPct: 40,
+    confusedPct: 68,
+    boredPct: 10,
+    frustratedPct: 12,
+  },
+  temporalDistribution: [{ binIndex: 0, confusedPct: 50 }],
+  keyInsights: {
+    mostTriggeredAdaptationType: "hint",
+    averageConfusionDurationSeconds: 12,
+  },
+  content: [],
+  sampleCount: 80,
+  confidence: "high" as const,
+  insufficientData: false,
+};
+
+describe("useSectionDetail", () => {
+  beforeEach(() => {
+    mockApiFetch.mockReset();
+    mockApiFetch.mockResolvedValue(SECTION_DETAIL);
+  });
+
+  it("calls apiFetch with the correct section-detail URL", async () => {
+    const wrapper = makeWrapper();
+    const { result } = renderHook(() => useSectionDetail("sec-1"), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      "/analytics/sections/sec-1/detail",
+    );
+    expect(result.current.data).toEqual(SECTION_DETAIL);
+  });
+
+  it("is disabled and does not fetch when sectionId is undefined", async () => {
+    const wrapper = makeWrapper();
+    const { result } = renderHook(() => useSectionDetail(undefined), {
       wrapper,
     });
 

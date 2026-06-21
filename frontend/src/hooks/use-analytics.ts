@@ -3,7 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api-client";
-import type { AffectHeatmapResponse, CourseOverview } from "@/types/analytics";
+import type {
+  AffectHeatmapResponse,
+  CourseOverview,
+  SectionDetailResponse,
+} from "@/types/analytics";
 
 /** Root query-key namespace for analytics caches (reused for invalidation by 7.3/7.4). */
 export const ANALYTICS_KEY = "analytics";
@@ -22,6 +26,26 @@ export function useCourseOverview(courseId: string | undefined) {
     queryFn: () =>
       apiFetch<CourseOverview>(`/analytics/courses/${courseId}/overview`),
     enabled: Boolean(courseId),
+    staleTime: STALE_5_MIN,
+  });
+}
+
+/**
+ * Fetch the per-section detail (Story 7.1 contract → Story 7.4 consumer).
+ *
+ * Mirrors {@link useCourseOverview}/{@link useAffectHeatmap} exactly: react-query
+ * + centralized `apiFetch`, cached under {@link ANALYTICS_KEY}, 5-min stale time,
+ * disabled until a `sectionId` is available. The detail endpoint is section-keyed
+ * (no courseId in the path).
+ */
+export function useSectionDetail(sectionId: string | undefined) {
+  return useQuery<SectionDetailResponse>({
+    queryKey: [ANALYTICS_KEY, "section-detail", sectionId],
+    queryFn: () =>
+      apiFetch<SectionDetailResponse>(
+        `/analytics/sections/${sectionId}/detail`,
+      ),
+    enabled: Boolean(sectionId),
     staleTime: STALE_5_MIN,
   });
 }
