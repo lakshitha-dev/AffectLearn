@@ -47,6 +47,54 @@ async def test_admin_list_users_unauthorized_no_token(client: AsyncClient):
     assert response.status_code == 401
 
 
+# --- Admin create-designer endpoint ---
+
+
+async def test_admin_create_designer_success(client: AsyncClient, test_admin):
+    token = create_access_token(str(test_admin.id))
+    response = await client.post(
+        "/api/v1/admin/users",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"emailAddress": "new.designer@example.com", "firstName": "New", "lastName": "Designer"},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["role"] == "course_designer"
+    assert data["emailVerified"] is True
+    assert data["emailAddress"] == "new.designer@example.com"
+
+
+async def test_admin_create_designer_duplicate_email(client: AsyncClient, test_admin, test_user):
+    token = create_access_token(str(test_admin.id))
+    response = await client.post(
+        "/api/v1/admin/users",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"emailAddress": "learner@test.com", "firstName": "Dup", "lastName": "User"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"]["code"] == "DUPLICATE_EMAIL"
+
+
+async def test_admin_create_designer_forbidden_for_designer(client: AsyncClient, test_designer):
+    token = create_access_token(str(test_designer.id))
+    response = await client.post(
+        "/api/v1/admin/users",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"emailAddress": "x@example.com", "firstName": "X", "lastName": "Y"},
+    )
+    assert response.status_code == 403
+
+
+async def test_admin_create_designer_forbidden_for_learner(client: AsyncClient, test_user):
+    token = create_access_token(str(test_user.id))
+    response = await client.post(
+        "/api/v1/admin/users",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"emailAddress": "x@example.com", "firstName": "X", "lastName": "Y"},
+    )
+    assert response.status_code == 403
+
+
 # --- Analytics endpoint RBAC (course overview) ---
 # Role-gating only: a random course id is fine — the role check runs before the
 # 404, so designer/admin pass the gate (200/404) while a learner is rejected (403).
