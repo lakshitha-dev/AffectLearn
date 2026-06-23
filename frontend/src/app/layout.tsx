@@ -94,13 +94,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`} suppressHydrationWarning>
+        {/* JSON-LD rendered in the body (App Router-safe); search engines still read it.
+            A manual <head> here caused hydration mismatches that amplified guard redirects. */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
-      </head>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`} suppressHydrationWarning>
         <GoogleAnalytics />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <QueryProvider>
