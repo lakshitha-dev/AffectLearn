@@ -36,8 +36,10 @@ from app.schemas.auth import (
     WebcamModeRequest,
 )
 from app.services.email_service import (
+    send_password_changed_email,
     send_password_reset_email,
     send_verification_email,
+    send_welcome_email,
 )
 
 router = APIRouter()
@@ -307,6 +309,10 @@ async def verify_email(body: VerifyEmailRequest, db: AsyncSession = Depends(get_
     await db.commit()
     await db.refresh(user)
 
+    # Welcome learners once their email is confirmed (best-effort; never blocks login).
+    if user.role == Role.learner:
+        await send_welcome_email(user.email_address, user.first_name)
+
     return _token_response(user)
 
 
@@ -393,5 +399,8 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
         .values(used_at=datetime.now(timezone.utc))
     )
     await db.commit()
+
+    # Security confirmation (best-effort; never blocks the reset).
+    await send_password_changed_email(user.email_address)
 
     return MessageResponse(message="Your password has been reset. You can now sign in.")
