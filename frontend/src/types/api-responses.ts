@@ -15,6 +15,10 @@ export interface UserResponse {
   webcamEnabled?: boolean;
 }
 
+export interface MessageResponse {
+  message: string;
+}
+
 export interface ApiError {
   error: {
     code: string;

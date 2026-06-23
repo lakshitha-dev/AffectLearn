@@ -13,23 +13,29 @@ _PASSWORD_PATTERN = re.compile(
 )
 
 
+def _validate_password_complexity(v: str) -> str:
+    if not _PASSWORD_PATTERN.match(v):
+        raise ValueError(
+            "Password must contain at least one uppercase letter, "
+            "one lowercase letter, one digit, and one special character"
+        )
+    return v
+
+
 class RegisterRequest(CamelModel):
     email_address: EmailStr
     password: str = Field(min_length=8)
-
-    @field_validator("password")
-    @classmethod
-    def password_complexity(cls, v: str) -> str:
-        if not _PASSWORD_PATTERN.match(v):
-            raise ValueError(
-                "Password must contain at least one uppercase letter, "
-                "one lowercase letter, one digit, and one special character"
-            )
-        return v
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     age_range: str | None = None
     degree_program: str | None = None
+    # Optional shared secret to self-register as a course designer (see DESIGNER_INVITE_CODE).
+    designer_invite_code: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
 
 class LoginRequest(CamelModel):
@@ -66,3 +72,29 @@ class ConsentRequest(CamelModel):
 
 class WebcamModeRequest(CamelModel):
     webcam_enabled: bool
+
+
+class MessageResponse(CamelModel):
+    message: str
+
+
+class VerifyEmailRequest(CamelModel):
+    token: str
+
+
+class ResendVerificationRequest(CamelModel):
+    email_address: EmailStr
+
+
+class ForgotPasswordRequest(CamelModel):
+    email_address: EmailStr
+
+
+class ResetPasswordRequest(CamelModel):
+    token: str
+    password: str = Field(min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)

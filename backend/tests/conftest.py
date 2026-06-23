@@ -14,6 +14,7 @@ from app.models.course import Course, Module, Lesson, Section
 from app.models.enrollment import Enrollment
 from app.models.user import Role, User
 # Imported so create_all builds their tables (registered on Base):
+from app.models.email_token import EmailToken  # noqa: F401  (email verification + reset)
 from app.models.learner_profile import LearnerProfile  # noqa: F401  (Story 4.5)
 from app.models.research_event import ResearchEvent  # noqa: F401  (Story 4.7)
 from app.models.study_group import StudyGroup  # noqa: F401  (Story 6.1)
@@ -72,6 +73,7 @@ async def test_user(db: AsyncSession) -> User:
         first_name="Test",
         last_name="Learner",
         role=Role.learner,
+        email_verified=True,
     )
     db.add(user)
     await db.commit()
@@ -87,6 +89,7 @@ async def test_designer(db: AsyncSession) -> User:
         first_name="Test",
         last_name="Designer",
         role=Role.course_designer,
+        email_verified=True,
     )
     db.add(user)
     await db.commit()
@@ -102,6 +105,7 @@ async def test_admin(db: AsyncSession) -> User:
         first_name="Test",
         last_name="Admin",
         role=Role.admin,
+        email_verified=True,
     )
     db.add(user)
     await db.commit()
