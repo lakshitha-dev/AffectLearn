@@ -9,6 +9,8 @@ python-jose[cryptography]
 bcrypt
 structlog
 pydantic[email]
+# Transactional email (verification + password reset) via Azure Communication Services.
+azure-communication-email
 pytest
 pytest-asyncio
 httpx

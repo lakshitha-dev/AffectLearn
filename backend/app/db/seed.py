@@ -70,6 +70,7 @@ async def seed_accounts(db: AsyncSession) -> list[str]:
                 last_name=acct["last_name"],
                 role=acct["role"],
                 is_active=True,
+                email_verified=True,  # seeded accounts are trusted — skip the verification gate
             )
             db.add(user)
             created.append(acct["email_address"])

@@ -39,6 +39,22 @@ class Settings(BaseSettings):
     SEED_DESIGNER_PASSWORD: str = "Designer123!"
     SEED_ADMIN_PASSWORD: str = "Admin123!"
 
+    # --- Transactional email (verification + password reset) ---
+    # When EMAIL_ENABLED is False (or no connection string is set), the email service
+    # logs the link instead of sending — keeps local dev unblocked without ACS secrets.
+    EMAIL_ENABLED: bool = False
+    ACS_CONNECTION_STRING: str = ""  # Azure Communication Services connection string (secret)
+    ACS_SENDER_ADDRESS: str = "noreply@affectlearn.tech"
+    # Public base URL of the frontend — used to build verification/reset links in emails.
+    # Production sets this to https://affectlearn.tech.
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+    EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS: int = 24
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
+
+    # Shared secret required to self-register as a course designer. Empty disables
+    # designer self-registration entirely (only seeded designers exist).
+    DESIGNER_INVITE_CODE: str = ""
+
     model_config = {"env_file": ".env"}
 
 

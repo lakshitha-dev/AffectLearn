@@ -1,9 +1,13 @@
 "use client";
 
 import { useCallback } from "react";
-import { apiFetch, ApiRequestError } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
 import { useSessionStore } from "@/stores/session-store";
-import type { TokenResponse, UserResponse } from "@/types/api-responses";
+import type {
+  MessageResponse,
+  TokenResponse,
+  UserResponse,
+} from "@/types/api-responses";
 
 interface RegisterData {
   emailAddress: string;
@@ -12,6 +16,7 @@ interface RegisterData {
   lastName: string;
   ageRange?: string;
   degreeProgram?: string;
+  designerInviteCode?: string;
 }
 
 interface LoginData {
@@ -35,11 +40,21 @@ export function useAuth() {
     }
   }, [setUser]);
 
-  const register = useCallback(
-    async (data: RegisterData) => {
-      const tokens = await apiFetch<TokenResponse>("/auth/register", {
+  // Registration no longer logs the user in — the account must verify its email first.
+  // Returns the server's confirmation message.
+  const register = useCallback(async (data: RegisterData) => {
+    return apiFetch<MessageResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }, []);
+
+  // Confirm an email-verification token; the backend auto-logs-in on success.
+  const verifyEmail = useCallback(
+    async (token: string) => {
+      const tokens = await apiFetch<TokenResponse>("/auth/verify-email", {
         method: "POST",
-        body: JSON.stringify(data),
+        body: JSON.stringify({ token }),
       });
       setTokens(tokens.accessToken, tokens.refreshToken, tokens.expiresIn);
       const userData = await apiFetch<UserResponse>("/auth/me");
@@ -47,6 +62,30 @@ export function useAuth() {
       return userData;
     },
     [setTokens, setUser],
+  );
+
+  const resendVerification = useCallback(async (emailAddress: string) => {
+    return apiFetch<MessageResponse>("/auth/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({ emailAddress }),
+    });
+  }, []);
+
+  const forgotPassword = useCallback(async (emailAddress: string) => {
+    return apiFetch<MessageResponse>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ emailAddress }),
+    });
+  }, []);
+
+  const resetPassword = useCallback(
+    async (token: string, password: string) => {
+      return apiFetch<MessageResponse>("/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ token, password }),
+      });
+    },
+    [],
   );
 
   const login = useCallback(
@@ -91,5 +130,9 @@ export function useAuth() {
     logout,
     refreshToken,
     fetchUser,
+    verifyEmail,
+    resendVerification,
+    forgotPassword,
+    resetPassword,
   };
 }
