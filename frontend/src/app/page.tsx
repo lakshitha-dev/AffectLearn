@@ -536,6 +536,22 @@ export default function LandingPage() {
 
   return (
     <div className="al-landing" ref={rootRef}>
+      {/* FAQ structured data for rich results (built from the FAQS above) */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: FAQS.map((f) => ({
+              "@type": "Question",
+              name: f.q,
+              acceptedAnswer: { "@type": "Answer", text: f.a },
+            })),
+          }),
+        }}
+      />
+
       {/* ============ NAV ============ */}
       <header className={`nav${scrolled ? " scrolled" : ""}`}>
         <div className="wrap nav-inner">

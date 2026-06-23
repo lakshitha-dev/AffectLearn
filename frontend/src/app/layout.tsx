@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/shared/ThemeProvider";
 import { QueryProvider } from "@/components/shared/query-provider";
+import { GoogleAnalytics } from "@/components/shared/google-analytics";
 import "./globals.css";
 
 const inter = Inter({
@@ -15,9 +16,75 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://affectlearn.tech";
+const SITE_NAME = "AffectLearn";
+const SITE_DESCRIPTION =
+  "AffectLearn is an adaptive e-learning platform that senses when you're engaged, confused, bored, or frustrated — using your webcam and reading behavior — and reshapes each lesson in real time with hints, challenges, and breaks. No video is ever stored.";
+
 export const metadata: Metadata = {
-  title: "AffectLearn",
-  description: "Adaptive e-learning platform with real-time affect detection",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "AffectLearn — Adaptive learning that responds to how you feel",
+    template: "%s · AffectLearn",
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  keywords: [
+    "adaptive learning",
+    "affect detection",
+    "emotion-aware e-learning",
+    "personalized learning platform",
+    "engagement detection",
+    "facial affect recognition",
+    "online courses",
+    "EdTech",
+  ],
+  authors: [{ name: SITE_NAME }],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: "AffectLearn — Adaptive learning that responds to how you feel",
+    description: SITE_DESCRIPTION,
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AffectLearn — Adaptive learning that responds to how you feel",
+    description: SITE_DESCRIPTION,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large" },
+  },
+  category: "education",
+};
+
+// Site-wide structured data (Organization + WebSite) for rich results.
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "EducationalOrganization",
+      "@id": `${SITE_URL}/#organization`,
+      name: SITE_NAME,
+      url: SITE_URL,
+      description: SITE_DESCRIPTION,
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      url: SITE_URL,
+      name: SITE_NAME,
+      description: SITE_DESCRIPTION,
+      publisher: { "@id": `${SITE_URL}/#organization` },
+      inLanguage: "en",
+    },
+  ],
 };
 
 export default function RootLayout({
@@ -27,7 +94,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
+      </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`} suppressHydrationWarning>
+        <GoogleAnalytics />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <QueryProvider>
             {children}
