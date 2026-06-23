@@ -205,7 +205,7 @@ async def send_welcome_email(to: str, first_name: str) -> None:
             "Have a webcam? Optional focus detection helps the platform adapt better — "
             "you're always in control, and no video is ever stored."
         ),
-        accent=_GREEN,
+        accent=_BRAND,
         cta_label="Start learning",
         cta_url=f"{settings.FRONTEND_BASE_URL}/courses",
     )
