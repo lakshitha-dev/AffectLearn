@@ -25,10 +25,9 @@ async def test_register_success(client: AsyncClient):
     )
     assert response.status_code == 201
     data = response.json()
-    assert "accessToken" in data
-    assert "refreshToken" in data
-    assert data["tokenType"] == "bearer"
-    assert data["expiresIn"] == 1800  # 30 min * 60
+    # Registration no longer auto-logs-in — login is gated on email verification.
+    assert "accessToken" not in data
+    assert "message" in data
 
 
 async def test_register_duplicate_email(client: AsyncClient, test_user):
@@ -224,3 +223,186 @@ async def test_me_endpoint_returns_current_user(client: AsyncClient, test_user):
     assert data["firstName"] == "Test"
     assert data["lastName"] == "Learner"
     assert data["role"] == "learner"
+
+
+# --- Email Verification Tests ---
+
+
+def _capture_link(monkeypatch, target: str) -> dict:
+    """Monkeypatch an email sender in the auth route module to capture the emailed link."""
+    captured: dict = {}
+
+    async def fake_send(to: str, link: str) -> None:
+        captured["to"] = to
+        captured["link"] = link
+
+    monkeypatch.setattr(f"app.api.routes.auth.{target}", fake_send)
+    return captured
+
+
+def _token_from(link: str) -> str:
+    return link.split("token=", 1)[1]
+
+
+async def _register(client: AsyncClient, email: str, **extra) -> None:
+    payload = {
+        "emailAddress": email,
+        "password": "StrongPass1!",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        **extra,
+    }
+    resp = await client.post("/api/v1/auth/register", json=payload)
+    assert resp.status_code == 201
+
+
+async def test_login_blocked_until_verified(client: AsyncClient):
+    await _register(client, "unverified@example.com")
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"emailAddress": "unverified@example.com", "password": "StrongPass1!"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error"]["code"] == "EMAIL_NOT_VERIFIED"
+
+
+async def test_register_verify_then_login(client: AsyncClient, monkeypatch):
+    captured = _capture_link(monkeypatch, "send_verification_email")
+    await _register(client, "verifyme@example.com")
+
+    token = _token_from(captured["link"])
+    verify = await client.post("/api/v1/auth/verify-email", json={"token": token})
+    assert verify.status_code == 200
+    assert "accessToken" in verify.json()  # auto-login after verifying
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"emailAddress": "verifyme@example.com", "password": "StrongPass1!"},
+    )
+    assert login.status_code == 200
+    assert "accessToken" in login.json()
+
+
+async def test_verify_email_invalid_token(client: AsyncClient):
+    resp = await client.post("/api/v1/auth/verify-email", json={"token": "not-a-real-token"})
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"]["code"] == "INVALID_TOKEN"
+
+
+async def test_verify_email_expired_token(client: AsyncClient, db, test_user):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.security import hash_url_token
+    from app.models.email_token import EMAIL_VERIFICATION, EmailToken
+
+    db.add(
+        EmailToken(
+            user_id=test_user.id,
+            token_hash=hash_url_token("expired-raw-token"),
+            purpose=EMAIL_VERIFICATION,
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+    )
+    await db.commit()
+
+    resp = await client.post("/api/v1/auth/verify-email", json={"token": "expired-raw-token"})
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"]["code"] == "TOKEN_EXPIRED"
+
+
+async def test_resend_verification_is_generic(client: AsyncClient):
+    # Unknown email still returns 200 (no user enumeration).
+    resp = await client.post(
+        "/api/v1/auth/resend-verification", json={"emailAddress": "nobody@example.com"}
+    )
+    assert resp.status_code == 200
+    assert "message" in resp.json()
+
+
+# --- Password Reset Tests ---
+
+
+async def test_forgot_then_reset_password(client: AsyncClient, test_user, monkeypatch):
+    captured = _capture_link(monkeypatch, "send_password_reset_email")
+    forgot = await client.post(
+        "/api/v1/auth/forgot-password", json={"emailAddress": "learner@test.com"}
+    )
+    assert forgot.status_code == 200
+
+    token = _token_from(captured["link"])
+    reset = await client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": token, "password": "BrandNew1!"},
+    )
+    assert reset.status_code == 200
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"emailAddress": "learner@test.com", "password": "BrandNew1!"},
+    )
+    assert login.status_code == 200
+
+
+async def test_reset_password_invalid_token(client: AsyncClient):
+    resp = await client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": "bogus", "password": "BrandNew1!"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"]["code"] == "INVALID_TOKEN"
+
+
+async def test_forgot_password_unknown_email_is_generic(client: AsyncClient):
+    resp = await client.post(
+        "/api/v1/auth/forgot-password", json={"emailAddress": "ghost@example.com"}
+    )
+    assert resp.status_code == 200
+    assert "message" in resp.json()
+
+
+# --- Designer Invite Code Tests ---
+
+
+async def test_register_designer_with_valid_code(client: AsyncClient, db, monkeypatch):
+    from sqlalchemy import select
+
+    from app.core.config import settings
+    from app.models.user import Role, User
+
+    monkeypatch.setattr(settings, "DESIGNER_INVITE_CODE", "LET-ME-IN")
+    await _register(client, "designer-signup@example.com", designerInviteCode="LET-ME-IN")
+
+    user = (
+        await db.execute(select(User).where(User.email_address == "designer-signup@example.com"))
+    ).scalar_one()
+    assert user.role == Role.course_designer
+
+
+async def test_register_designer_with_wrong_code(client: AsyncClient, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DESIGNER_INVITE_CODE", "LET-ME-IN")
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "emailAddress": "imposter@example.com",
+            "password": "StrongPass1!",
+            "firstName": "Im",
+            "lastName": "Poster",
+            "designerInviteCode": "WRONG",
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"]["code"] == "INVALID_INVITE_CODE"
+
+
+async def test_register_without_code_is_learner(client: AsyncClient, db):
+    from sqlalchemy import select
+
+    from app.models.user import Role, User
+
+    await _register(client, "plain-learner@example.com")
+    user = (
+        await db.execute(select(User).where(User.email_address == "plain-learner@example.com"))
+    ).scalar_one()
+    assert user.role == Role.learner

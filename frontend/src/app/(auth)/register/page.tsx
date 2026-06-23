@@ -5,9 +5,9 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
@@ -36,6 +36,7 @@ const step1Schema = z.object({
     .regex(/[A-Z]/, "Must contain an uppercase letter")
     .regex(/\d/, "Must contain a digit")
     .regex(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/, "Must contain a special character"),
+  designerInviteCode: z.string().optional(),
 });
 
 const step2Schema = z.object({
@@ -53,15 +54,11 @@ export default function RegisterPage() {
   const [step1Data, setStep1Data] = useState<Step1Data | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isDuplicateEmail, setIsDuplicateEmail] = useState(false);
+  const [inviteCodeError, setInviteCodeError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showDesignerCode, setShowDesignerCode] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
   const { register: registerUser } = useAuth();
-  const router = useRouter();
-
-  const ROLE_REDIRECTS: Record<string, string> = {
-    learner: "/courses",
-    course_designer: "/analytics",
-    admin: "/users",
-  };
 
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
@@ -87,6 +84,7 @@ export default function RegisterPage() {
     setStep1Data(data);
     setServerError(null);
     setIsDuplicateEmail(false);
+    setInviteCodeError(false);
     setStep(2);
   };
 
@@ -96,20 +94,18 @@ export default function RegisterPage() {
     setServerError(null);
 
     try {
-      const registeredUser = await registerUser({
+      await registerUser({
         ...step1Data,
         ...data,
       });
-      // New learners must go through onboarding (consent + webcam) first
-      const needsOnboarding =
-        registeredUser.role === "learner" && !registeredUser.consentGivenAt;
-      const redirect = needsOnboarding
-        ? "/onboarding"
-        : (ROLE_REDIRECTS[registeredUser.role] ?? "/courses");
-      router.push(redirect);
+      // No auto-login — the account must verify its email first. Show a confirmation.
+      setRegisteredEmail(step1Data.emailAddress);
     } catch (err) {
       if (err instanceof ApiRequestError && err.errorCode === "DUPLICATE_EMAIL") {
         setIsDuplicateEmail(true);
+        setStep(1);
+      } else if (err instanceof ApiRequestError && err.errorCode === "INVALID_INVITE_CODE") {
+        setInviteCodeError(true);
         setStep(1);
       } else if (err instanceof ApiRequestError) {
         setServerError(err.message);
@@ -120,6 +116,30 @@ export default function RegisterPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (registeredEmail) {
+    return (
+      <Card className="rounded-none border-border shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-2xl tracking-tight">Check your email</CardTitle>
+          <CardDescription>
+            We sent a verification link to{" "}
+            <span className="font-medium text-foreground">{registeredEmail}</span>. Click it to
+            activate your account, then sign in.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Didn&apos;t get it? Check your spam folder, or{" "}
+            <Link href="/login" className="font-medium text-primary hover:underline">
+              go to sign in
+            </Link>{" "}
+            to request a new link.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="rounded-none border-border shadow-sm">
@@ -160,6 +180,17 @@ export default function RegisterPage() {
               </div>
             )}
 
+            {inviteCodeError && (
+              <div
+                className="rounded-md border border-error/30 bg-error/5 p-3 text-sm text-error"
+                role="alert"
+                aria-live="polite"
+              >
+                That designer invite code isn&apos;t valid. Leave it blank to register as a
+                learner.
+              </div>
+            )}
+
             <fieldset className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="emailAddress">
@@ -183,9 +214,8 @@ export default function RegisterPage() {
                 <Label htmlFor="password">
                   Password <span className="text-muted-foreground">*</span>
                 </Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   autoComplete="new-password"
                   className={`h-11 ${step1Form.formState.errors.password ? "border-error" : ""}`}
                   {...step1Form.register("password")}
@@ -194,6 +224,32 @@ export default function RegisterPage() {
                   <p className="text-sm text-error" role="alert">
                     {step1Form.formState.errors.password.message}
                   </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {showDesignerCode ? (
+                  <>
+                    <Label htmlFor="designerInviteCode">Designer invite code</Label>
+                    <Input
+                      id="designerInviteCode"
+                      autoComplete="off"
+                      placeholder="Enter your invite code"
+                      className="h-11"
+                      {...step1Form.register("designerInviteCode")}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to register as a learner.
+                    </p>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowDesignerCode(true)}
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    Have a designer invite code?
+                  </button>
                 )}
               </div>
             </fieldset>

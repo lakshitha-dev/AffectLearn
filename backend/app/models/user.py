@@ -23,6 +23,9 @@ class User(BaseModel):
     degree_program = Column(String(200), nullable=True)
     role = Column(Enum(Role), nullable=False, default=Role.learner)
     is_active = Column(Boolean, nullable=False, default=True)
+    # New self-registered accounts start unverified and cannot log in until they confirm
+    # their email. Seeded/pre-existing accounts are backfilled to True (migration 018).
+    email_verified = Column(Boolean, nullable=False, default=False)
     consent_given_at = Column(DateTime(timezone=True), nullable=True)
     webcam_enabled = Column(Boolean, nullable=False, default=False)
 

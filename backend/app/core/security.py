@@ -1,5 +1,7 @@
 """JWT token creation/verification and password hashing utilities."""
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -41,3 +43,13 @@ def create_refresh_token(subject: str) -> str:
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT token. Raises JWTError on failure."""
     return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+
+
+def generate_url_token() -> str:
+    """A high-entropy URL-safe token for verification / reset links (plaintext, emailed)."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_url_token(token: str) -> str:
+    """SHA-256 hex digest of a URL token — only the hash is stored in the DB."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

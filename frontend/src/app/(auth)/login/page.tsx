@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
@@ -64,7 +65,9 @@ export default function LoginPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [devCreds, setDevCreds] = useState<DevCredentialsResponse | null>(null);
-  const { login } = useAuth();
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
+  const { login, resendVerification } = useAuth();
   const router = useRouter();
 
   const form = useForm<LoginData>({
@@ -95,6 +98,8 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginData) => {
     setIsSubmitting(true);
     setServerError(null);
+    setNeedsVerification(false);
+    setResendNotice(null);
 
     try {
       const user = await login(data);
@@ -107,11 +112,24 @@ export default function LoginPage() {
     } catch (err) {
       if (err instanceof ApiRequestError && err.errorCode === "INVALID_CREDENTIALS") {
         setServerError("Invalid email or password. Please try again.");
+      } else if (err instanceof ApiRequestError && err.errorCode === "EMAIL_NOT_VERIFIED") {
+        setNeedsVerification(true);
       } else {
         setServerError("An unexpected error occurred. Please try again.");
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const onResend = async () => {
+    const email = form.getValues("emailAddress");
+    if (!email) return;
+    try {
+      await resendVerification(email);
+    } finally {
+      // Generic confirmation regardless of outcome (no account enumeration).
+      setResendNotice("If that account needs verifying, we've sent a fresh link.");
     }
   };
 
@@ -151,6 +169,27 @@ export default function LoginPage() {
             </div>
           )}
 
+          {needsVerification && (
+            <div
+              className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm text-foreground"
+              role="alert"
+              aria-live="polite"
+            >
+              <p>Please verify your email before signing in.</p>
+              {resendNotice ? (
+                <p className="mt-2 text-muted-foreground">{resendNotice}</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onResend}
+                  className="mt-2 font-medium text-primary hover:underline"
+                >
+                  Resend verification email
+                </button>
+              )}
+            </div>
+          )}
+
           <fieldset className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="emailAddress">
@@ -171,12 +210,19 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">
-                Password <span className="text-muted-foreground">*</span>
-              </Label>
-              <Input
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">
+                  Password <span className="text-muted-foreground">*</span>
+                </Label>
+                <Link
+                  href="/forgot-password"
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="current-password"
                 className={`h-11 ${form.formState.errors.password ? "border-error" : ""}`}
                 {...form.register("password")}
