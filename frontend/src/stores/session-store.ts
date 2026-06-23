@@ -7,8 +7,13 @@ interface SessionState {
   refreshToken: string | null;
   expiresAt: number | null;
   user: UserResponse | null;
+  // True once the persisted session has been read back from localStorage. Guards must
+  // wait for this before deciding to redirect — otherwise they redirect on the initial
+  // (pre-hydration) null state and bounce between /login and the dashboard.
+  hasHydrated: boolean;
   setTokens: (accessToken: string, refreshToken: string, expiresIn: number) => void;
   setUser: (user: UserResponse | null) => void;
+  setHasHydrated: (v: boolean) => void;
   clearSession: () => void;
   isAuthenticated: () => boolean;
   shouldRefresh: () => boolean;
@@ -21,6 +26,7 @@ export const useSessionStore = create<SessionState>()(
       refreshToken: null,
       expiresAt: null,
       user: null,
+      hasHydrated: false,
 
       setTokens: (accessToken, refreshToken, expiresIn) =>
         set({
@@ -30,6 +36,8 @@ export const useSessionStore = create<SessionState>()(
         }),
 
       setUser: (user) => set({ user }),
+
+      setHasHydrated: (v) => set({ hasHydrated: v }),
 
       clearSession: () =>
         set({
@@ -59,6 +67,11 @@ export const useSessionStore = create<SessionState>()(
         expiresAt: state.expiresAt,
         user: state.user,
       }),
+      // Fires after the persisted state is read back; flips hasHydrated so guards can
+      // safely evaluate auth. Runs even when there's nothing stored.
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     },
   ),
 );

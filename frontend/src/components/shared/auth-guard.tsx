@@ -17,7 +17,7 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   const router = useRouter();
-  const { accessToken, expiresAt, user } = useSessionStore();
+  const { accessToken, expiresAt, user, hasHydrated } = useSessionStore();
   const isAuthenticated =
     accessToken !== null && expiresAt !== null && Date.now() < expiresAt;
 
@@ -25,6 +25,10 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
     !allowedRoles || (user && allowedRoles.includes(user.role));
 
   useEffect(() => {
+    // Wait until the persisted session is rehydrated before deciding — otherwise we
+    // redirect on the initial null state and bounce with the guest guard.
+    if (!hasHydrated) return;
+
     if (!isAuthenticated) {
       router.replace("/login");
       return;
@@ -34,8 +38,9 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
       const redirect = ROLE_DASHBOARDS[user.role] ?? "/courses";
       router.replace(redirect);
     }
-  }, [isAuthenticated, user, allowedRoles, router]);
+  }, [hasHydrated, isAuthenticated, user, allowedRoles, router]);
 
+  if (!hasHydrated) return null;
   if (!isAuthenticated) return null;
   if (!hasAccess) return null;
 
