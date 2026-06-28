@@ -98,3 +98,23 @@ class ResetPasswordRequest(CamelModel):
     @classmethod
     def password_complexity(cls, v: str) -> str:
         return _validate_password_complexity(v)
+
+
+class CreateDesignerRequest(CamelModel):
+    """Admin-supplied details for a new course-designer account (no password — the
+    designer sets it via an emailed link)."""
+    email_address: EmailStr
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+
+
+class AdminUserItem(CamelModel):
+    """Richer user row for the admin console (adds status + timestamps)."""
+    id: uuid.UUID
+    email_address: str
+    first_name: str
+    last_name: str
+    role: Literal["learner", "course_designer", "admin"]
+    is_active: bool
+    email_verified: bool
+    created_at: str | None = None

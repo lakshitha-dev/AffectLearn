@@ -230,3 +230,25 @@ async def send_password_changed_email(to: str) -> None:
         cta_url=f"{settings.FRONTEND_BASE_URL}/forgot-password",
     )
     await _send(to, f"Your {_APP_NAME} password was changed", html, plain, kind="password_changed")
+
+
+async def send_designer_invite_email(to: str, first_name: str, link: str) -> None:
+    name = first_name.strip() or "there"
+    hours = settings.EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS
+    html, plain = _render(
+        to=to,
+        preheader=f"You've been added as a course designer on {_APP_NAME}.",
+        heading=f"Welcome aboard, {name}!",
+        intro=(
+            f"An administrator created a course-designer account for you on {_APP_NAME}. "
+            "Set your password to activate it and access the designer dashboard."
+        ),
+        outro=(
+            f"This link expires in {hours} hours. If you weren't expecting this, you can "
+            "ignore this email."
+        ),
+        accent=_BRAND,
+        cta_label="Set your password",
+        cta_url=link,
+    )
+    await _send(to, f"You've been invited to {_APP_NAME} as a designer", html, plain, kind="designer_invite")
