@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * useSelfReportTrigger — the Story 6.2 pause-point trigger for the self-report widget.
@@ -26,7 +26,9 @@ import { useCallback, useState } from "react";
  *    widget simply never shows (graceful absence, no error) — AC7.
  */
 
-export const SECTIONS_PER_PROMPT = 3;
+// Pause-point cadence: a prompt fires every N section completions ("every 2-3 sections").
+// Set to 2 so it triggers within short lessons (the pilot lessons have ~2 sections each).
+export const SECTIONS_PER_PROMPT = 2;
 
 interface UseSelfReportTriggerResult {
   /** True when a pause point has been reached and the widget should render. */
@@ -46,6 +48,14 @@ export function useSelfReportTrigger(
   // the boundary on dismiss re-renders and re-evaluates `showSelfReport`.
   const [boundary, setBoundary] = useState(0);
   const [promptIndex, setPromptIndex] = useState(0);
+
+  // Re-base when the completed count drops below the boundary. The lesson page feeds a
+  // PER-LESSON completed count, so navigating to a new lesson resets it toward 0; without
+  // this, a boundary carried over from the previous lesson would suppress every prompt in
+  // all later lessons. Re-basing makes each lesson start fresh.
+  useEffect(() => {
+    if (completedCount < boundary) setBoundary(completedCount);
+  }, [completedCount, boundary]);
 
   const showSelfReport = completedCount - boundary >= threshold;
 
