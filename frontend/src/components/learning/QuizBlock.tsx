@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -21,7 +21,7 @@ interface QuizContent {
 interface QuizBlockProps {
   blockId: string;
   content: QuizContent;
-  onSubmit?: (blockId: string, selectedIds: string[], isCorrect: boolean) => void;
+  onSubmit?: (blockId: string, selectedIds: string[], isCorrect: boolean, responseTimeMs: number) => void;
   previewMode?: boolean;
 }
 
@@ -30,6 +30,8 @@ export function QuizBlock({ blockId, content, onSubmit, previewMode }: QuizBlock
   const [submitted, setSubmitted] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const isMultiple = content.type === "multiple";
+  // Time from first seeing the quiz to submitting — a deliberation/frustration probe.
+  const shownAtRef = useRef<number>(Date.now());
 
   function handleSelect(id: string) {
     if (submitted || previewMode) return;
@@ -52,7 +54,7 @@ export function QuizBlock({ blockId, content, onSubmit, previewMode }: QuizBlock
     const correct = selectedArray.length === correctIds.size && selectedArray.every((id) => correctIds.has(id));
     setIsCorrect(correct);
     setSubmitted(true);
-    onSubmit?.(blockId, selectedArray, correct);
+    onSubmit?.(blockId, selectedArray, correct, Date.now() - shownAtRef.current);
   }
 
   return (

@@ -17,6 +17,15 @@ interface SectionViewProps {
   onNext: () => void;
   onPrev: () => void;
   isSaving?: boolean;
+  /** Fired when a quiz in this section is answered — carries the frustration/deliberation
+   *  probe (correctness + time-to-answer) for behavioral-data collection. */
+  onQuizAnswered?: (
+    sectionId: string,
+    blockId: string,
+    selectedIds: string[],
+    isCorrect: boolean,
+    responseTimeMs: number,
+  ) => void;
 }
 
 export function SectionView({
@@ -29,6 +38,7 @@ export function SectionView({
   onNext,
   onPrev,
   isSaving,
+  onQuizAnswered,
 }: SectionViewProps) {
   const sortedBlocks = useMemo(
     () => section.contentBlocks.slice().sort((a, b) => a.sortOrder - b.sortOrder),
@@ -45,13 +55,19 @@ export function SectionView({
   const [answeredQuizIds, setAnsweredQuizIds] = useState<Set<string>>(new Set());
   const allQuizzesAnswered = quizBlockIds.every((id) => answeredQuizIds.has(id));
 
-  const handleQuizSubmit = (blockId: string) => {
+  const handleQuizSubmit = (
+    blockId: string,
+    selectedIds: string[],
+    isCorrect: boolean,
+    responseTimeMs: number,
+  ) => {
     setAnsweredQuizIds((prev) => {
       if (prev.has(blockId)) return prev;
       const next = new Set(prev);
       next.add(blockId);
       return next;
     });
+    onQuizAnswered?.(section.id, blockId, selectedIds, isCorrect, responseTimeMs);
   };
 
   return (

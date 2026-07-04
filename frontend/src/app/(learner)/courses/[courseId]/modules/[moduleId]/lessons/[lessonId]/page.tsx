@@ -23,7 +23,7 @@ import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
 import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
-import { useLessonProgress, useMarkSectionComplete } from "@/hooks/use-progress";
+import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useSelfReportTrigger } from "@/hooks/use-self-report-trigger";
 import { useUiStore } from "@/stores/ui-store";
@@ -45,6 +45,7 @@ export default function LessonPage({ params }: PageProps) {
   const lessonQuery = useLessonDetail(lessonId);
   const progressQuery = useLessonProgress(lessonId);
   const markComplete = useMarkSectionComplete(courseId, lessonId);
+  const recordQuiz = useRecordQuizResponse();
 
   // Open the single learner WebSocket for affect detection + adaptation delivery.
   // Story 4.2+ hooks (facial features, behavioral window, adaptations) consume this connection
@@ -283,6 +284,15 @@ export default function LessonPage({ params }: PageProps) {
               onNext={() => { if (idx === sections.length - 1) handleLastSectionCta(); else handleSectionNav(idx + 1); }}
               onPrev={() => handleSectionNav(idx - 1)}
               isSaving={markComplete.isPending}
+              onQuizAnswered={(sectionId, blockId, selectedIds, isCorrect, responseTimeMs) =>
+                recordQuiz.mutate({
+                  contentBlockId: blockId,
+                  selectedAnswers: selectedIds,
+                  isCorrect,
+                  responseTimeMs,
+                  sectionId,
+                })
+              }
             />
           </>
         );
