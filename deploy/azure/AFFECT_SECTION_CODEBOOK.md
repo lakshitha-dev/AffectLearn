@@ -3,7 +3,16 @@
 Maps each course section to the affect state it is designed to elicit. Section titles are
 topic-natural so they do NOT bias participants; this codebook is the analysis key. Source of
 truth: `backend/app/db/course_content/*.py` (see the `# affect:` comments). States: **engaged /
-bored / confused / frustrated**.
+bored / confused / frustrated**, plus **neutral (baseline)** for the warm-up.
+
+## Getting Comfortable: A Warm-Up  (baseline task — do FIRST)
+Every participant completes this short, calm course **before** the study courses. It targets no
+affect; its behavioral windows are the participant's **resting baseline** for per-person
+normalization (see *Analysis notes → Baseline* below).
+| Lesson | Section | Intended affect |
+|---|---|---|
+| Getting Comfortable | Welcome — Read at Your Own Pace | neutral (baseline) |
+| Getting Comfortable | A Short, Easy Read | neutral (baseline) |
 
 ## Foundations of Agentic AI
 | Lesson | Section | Intended affect |
@@ -63,3 +72,49 @@ bored / confused / frustrated**.
 | Evaluation and Safety | Glossary of Evaluation Metrics | **bored** |
 | Evaluation and Safety | Reward Hacking, Specification Gaming, and Safety | **confused** |
 | Evaluation and Safety | Keeping Humans in the Loop | **engaged** |
+
+---
+
+# Analysis notes (Phase 1 validity controls)
+
+These record the design decisions that let the fixed course order and per-person signal
+differences be handled at analysis time rather than by scrambling the (now pedagogically
+dependent) content.
+
+## Serial position & fatigue — statistical control (choice #1A)
+Section order is **fixed** (the deep content has real dependencies — e.g. a *frustrated*
+assessment builds on the preceding *confused* material). Rather than counterbalance the order
+and break coherence, treat **serial position** and **elapsed time** as covariates in the affect
+models. Both are already recoverable from the durable data — no schema change:
+
+- **Serial position (per participant):** order `section_progress` rows by `completed_at` per
+  `user_id`/`enrollment_id` and rank; or use the canonical sequence (course→module `sort_order`
+  → lesson `sort_order` → section `sort_order`). For event-level work, `research_events`
+  `sequence_number` is monotonic per `session_id`.
+- **Elapsed time / fatigue (per participant):** `research_events.timestamp` (unix ms) −
+  the session's first event timestamp; or `section_progress.completed_at` − the participant's
+  first completion. `section_progress.time_spent_seconds` gives time-on-section.
+- **Affect target join:** join each section to its intended affect via this codebook (by title).
+
+Recommended modelling: include serial-position rank and elapsed-minutes (and optionally
+time-on-section) as fixed-effect covariates, with a per-participant random intercept, when
+relating behavioral/facial signals to the intended affect. This removes the position/fatigue
+confound analytically.
+
+## Per-participant baseline (choice #2A)
+The **warm-up course** (top of this codebook) is a neutral reading task completed first. Its
+behavioral windows are each participant's **resting baseline**; normalize study-phase signals
+per person against it (e.g. z-score or subtract baseline mean per feature) so individual
+differences don't dominate raw signals.
+
+- **Procedure:** assign/instruct participants to complete *Getting Comfortable: A Warm-Up*
+  before any study course.
+- **Identifying baseline windows:** the warm-up's two `section_progress` rows bound the baseline
+  interval per participant (`completed_at` of its sections); behavioral `research_events` within
+  that interval (before the first study-course section completes) are the baseline set. As the
+  warm-up is done first, these are also the session's opening windows.
+
+## Quiz answer timing (choice #4 — implemented)
+Every gated quiz records time-to-answer. The `quiz_submitted` research event payload carries
+`response_time_ms`, `section_id`, `is_correct`, and the selected answers — a
+deliberation/frustration probe joinable to the section's intended affect via this codebook.
