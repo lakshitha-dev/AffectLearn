@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Maximize2, Minimize2 } from "lucide-react";
@@ -66,16 +66,22 @@ export default function LessonPage({ params }: PageProps) {
     }
   }, [enrollmentQuery.isLoading, enrollmentQuery.isFetched, enrollmentQuery.data, courseId, router]);
 
-  const hasScrolled = useRef(false);
+  // One-section-per-page navigation: `currentIndex` is the section the learner is on.
+  // Initialize to the first not-yet-completed section (resume) once lesson + progress load.
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const didInitIndex = useRef(false);
   useEffect(() => {
-    if (lessonQuery.data && !hasScrolled.current) {
-      const hash = window.location.hash.slice(1);
-      if (hash) {
-        const el = document.getElementById(hash);
-        if (el) { el.scrollIntoView({ behavior: "smooth" }); hasScrolled.current = true; }
-      }
-    }
-  }, [lessonQuery.data]);
+    if (didInitIndex.current) return;
+    if (!lessonQuery.data || progressQuery.isLoading) return;
+    const secs = (lessonQuery.data.sections ?? [])
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    if (secs.length === 0) return;
+    const done = new Set(progressQuery.data?.completedSectionIds ?? []);
+    const firstIncomplete = secs.findIndex((s) => !done.has(s.id));
+    setCurrentIndex(firstIncomplete < 0 ? 0 : firstIncomplete);
+    didInitIndex.current = true;
+  }, [lessonQuery.data, progressQuery.isLoading, progressQuery.data]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -102,9 +108,8 @@ export default function LessonPage({ params }: PageProps) {
 
   const handleSectionNav = (idx: number) => {
     if (idx < 0 || idx >= sections.length) return;
-    const section = sections[idx];
-    const el = document.getElementById("section-" + section.id);
-    if (el) { el.scrollIntoView({ behavior: "smooth" }); history.replaceState(null, "", "#section-" + section.id); }
+    setCurrentIndex(idx);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   // Story 5.6: advance the content view to the NEXT section when the learner accepts a
@@ -117,18 +122,11 @@ export default function LessonPage({ params }: PageProps) {
   // 5.2 — we do NOT fabricate a challenge exercise). Graceful no-op when already at the last
   // section (handleSectionNav guards the out-of-range index).
   const handleSkipAhead = useCallback(() => {
-    if (sections.length === 0) return;
-    const hashId = window.location.hash.replace(/^#section-/, "");
-    let baseIdx = sections.findIndex((s) => s.id === hashId);
-    if (baseIdx < 0) {
-      baseIdx = sections.findIndex((s) => !completedSectionIds.has(s.id));
-    }
-    if (baseIdx < 0) baseIdx = 0;
-    handleSectionNav(baseIdx + 1);
-  // handleSectionNav + the section/completed snapshots are recomputed each render; this
-  // callback intentionally reads the latest values without re-subscribing.
+    // Advance the paginated view to the next section (graceful no-op on the last one).
+    setCurrentIndex((i) => (i + 1 < sections.length ? i + 1 : i));
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections, completedSectionIds]);
+  }, [sections.length]);
 
   // Story 5.6 (FR22): log an adaptation accept/dismiss upstream so the backend emits a
   // research event for the Learner Profiler (4.5) to refine future decisions. Rides the
@@ -264,22 +262,31 @@ export default function LessonPage({ params }: PageProps) {
       )}
       {sections.length === 0 ? (
         <p className="text-muted-foreground text-sm">This lesson has no content yet. Check back soon!</p>
-      ) : (
-        sections.map((section, idx) => (
-          <SectionView
-            key={section.id}
-            section={section}
-            isCompleted={completedSectionIds.has(section.id)}
-            isLast={idx === sections.length - 1}
-            hasPrev={idx > 0}
-            lastSectionCta={hasNextLesson ? "Next lesson" : "Back to course"}
-            onMarkComplete={handleMarkComplete}
-            onNext={() => { if (idx === sections.length - 1) handleLastSectionCta(); else handleSectionNav(idx + 1); }}
-            onPrev={() => handleSectionNav(idx - 1)}
-            isSaving={markComplete.isPending}
-          />
-        ))
-      )}
+      ) : (() => {
+        // One section per page (client-side pagination) — keeps the single WebSocket
+        // session + affect hooks mounted at the lesson level while showing one section.
+        const idx = Math.min(currentIndex, sections.length - 1);
+        const section = sections[idx];
+        return (
+          <>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Section {idx + 1} of {sections.length}
+            </p>
+            <SectionView
+              key={section.id}
+              section={section}
+              isCompleted={completedSectionIds.has(section.id)}
+              isLast={idx === sections.length - 1}
+              hasPrev={idx > 0}
+              lastSectionCta={hasNextLesson ? "Next lesson" : "Back to course"}
+              onMarkComplete={handleMarkComplete}
+              onNext={() => { if (idx === sections.length - 1) handleLastSectionCta(); else handleSectionNav(idx + 1); }}
+              onPrev={() => handleSectionNav(idx - 1)}
+              isSaving={markComplete.isPending}
+            />
+          </>
+        );
+      })()}
       {/* Inline adaptive hints (Story 5.4) — renders the latest show_* adaptation
           inline at a natural content break; non-inline actions are left in the
           queue for Stories 5.5–5.7. */}
