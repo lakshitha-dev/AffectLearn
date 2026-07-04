@@ -1,13 +1,58 @@
 "use client";
 
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
+
 import { useSessionStore } from "@/stores/session-store";
+import { useSetWebcamMode } from "@/hooks/use-onboarding";
+import { useWebcamStore } from "@/stores/webcam-store";
 
 export default function ProfilePage() {
   const { user } = useSessionStore();
+  const setWebcam = useSetWebcamMode();
+  const initWebcamMode = useWebcamStore((s) => s.initFromUser);
+  const [msg, setMsg] = useState<{ type: "error" | "info"; text: string } | null>(null);
 
   if (!user) return null;
 
   const initials = `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase();
+  const enabled = user.webcamEnabled ?? false;
+
+  async function toggleWebcam() {
+    if (setWebcam.isPending) return;
+    const enabling = !enabled;
+    setMsg(null);
+
+    // Turning ON: re-request the browser camera permission first, so a learner who
+    // previously denied it can grant it again at any time — no waiting period.
+    if (enabling) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        setMsg({
+          type: "error",
+          text:
+            "Your browser is blocking the camera. Click the camera / lock icon in the address bar " +
+            "(or Site settings) to allow it for this site, then try again.",
+        });
+        return;
+      }
+    }
+
+    try {
+      await setWebcam.mutateAsync(enabling); // persists users.webcam_enabled + updates the session
+      initWebcamMode(enabling); // flips the capture mode (adaptive / behavioral-only) immediately
+      setMsg({
+        type: "info",
+        text: enabling
+          ? "Webcam affect detection is ON. It will be used in your next learning session."
+          : "Switched to behavioral-only mode — the camera is off.",
+      });
+    } catch {
+      setMsg({ type: "error", text: "Could not save your preference. Please try again." });
+    }
+  }
 
   return (
     <div>
@@ -40,7 +85,7 @@ export default function ProfilePage() {
               { label: "First name", value: user.firstName },
               { label: "Last name", value: user.lastName },
               { label: "Email address", value: user.emailAddress },
-              { label: "Adaptive mode", value: user.webcamEnabled ? "Webcam + Behavioral" : "Behavioral only" },
+              { label: "Adaptive mode", value: enabled ? "Webcam + Behavioral" : "Behavioral only" },
             ].map((field) => (
               <div key={field.label}>
                 <p className="text-xs font-medium text-muted-foreground mb-1">{field.label}</p>
@@ -53,40 +98,48 @@ export default function ProfilePage() {
         <div className="rounded-lg border border-border bg-surface p-6">
           <h2 className="mb-1 font-semibold text-foreground">Privacy &amp; Webcam</h2>
           <p className="mb-4 text-sm text-muted-foreground">
-            Control how AffectLearn uses your webcam for affect detection
+            Control how AffectLearn uses your webcam for affect detection. You can turn this
+            on or off at any time.
           </p>
           <div className="flex items-center justify-between py-2">
             <div>
               <p className="text-sm font-medium text-foreground">Webcam affect detection</p>
               <p className="text-xs text-muted-foreground">
-                No video is stored — only facial feature vectors are sent to the server
+                No video is stored — only facial feature vectors are sent to the server. With the
+                camera off, AffectLearn adapts from behavioral signals only.
               </p>
             </div>
-            <div
-              className={`h-5 w-9 rounded-full ${user.webcamEnabled ? "bg-primary" : "bg-border"} cursor-not-allowed opacity-70`}
+            <button
+              type="button"
               role="switch"
-              aria-checked={user.webcamEnabled ?? false}
+              aria-checked={enabled}
               aria-label="Webcam affect detection"
-            />
+              disabled={setWebcam.isPending}
+              onClick={toggleWebcam}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60 ${enabled ? "bg-primary" : "bg-border"}`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-5" : "translate-x-0.5"}`}
+              />
+            </button>
           </div>
-          <div className="mt-4 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800/40 dark:bg-blue-900/10 px-4 py-3">
-            <svg className="h-4 w-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-xs text-blue-700 dark:text-blue-400">
-              Webcam preference can be updated from the learning session settings. Data is retained
-              for 90 days after study completion.
-            </p>
-          </div>
-        </div>
 
-        <div className="flex justify-end">
-          <button
-            disabled
-            className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground opacity-50 cursor-not-allowed"
-          >
-            Save changes
-          </button>
+          {setWebcam.isPending && (
+            <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving preference…
+            </p>
+          )}
+          {msg && (
+            <div
+              className={`mt-4 rounded-md border px-4 py-3 text-xs ${
+                msg.type === "error"
+                  ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-900/10 dark:text-red-400"
+                  : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/40 dark:bg-blue-900/10 dark:text-blue-400"
+              }`}
+            >
+              {msg.text}
+            </div>
+          )}
         </div>
       </div>
     </div>
