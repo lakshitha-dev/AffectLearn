@@ -49,6 +49,16 @@ export function ConsentStep({ onAgree, onBack, isSubmitting, currentStep, totalS
           </p>
         </section>
         <section>
+          <h2 className="font-semibold">What to Expect from the Material</h2>
+          <p className="mt-1 text-muted-foreground">
+            The course is an ordinary set of lessons on AI agents. Some parts may feel clear and
+            engaging, some may feel slow or tedious, and a few may feel challenging or confusing —
+            this range is a normal part of learning and is exactly what this study looks at. There
+            is no minimum score, and nothing here is a test of you. You can pause, skip a
+            self-report prompt, or stop at any time.
+          </p>
+        </section>
+        <section>
           <h2 className="font-semibold">Right to Withdraw</h2>
           <p className="mt-1 text-muted-foreground">
             You may withdraw from this study at any time without consequence. Upon withdrawal, all your data will be
