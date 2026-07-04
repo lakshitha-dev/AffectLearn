@@ -130,6 +130,8 @@ export interface SelfReportMessage extends WSMessage {
   data: {
     affect: SelfReportAffect | null;
     skipped: boolean;
+    /** Pre-pilot control (#7): a due prompt randomly OMITTED (never shown) — not a user skip. */
+    omitted?: boolean;
     prompt_index?: number;
     section_id?: string;
     cycle_number?: number;

@@ -48,6 +48,7 @@ async def test_valid_selection_emits_research_event(captured_events):
     assert evt["payload"] == {
         "affect": "confused",
         "skipped": False,
+        "omitted": False,
         "prompt_index": 2,
         "section_id": "sec-1",
     }
@@ -93,6 +94,29 @@ async def test_skip_normalizes_affect_to_none_even_if_provided(captured_events):
     assert reports[0]["payload"]["skipped"] is True
 
 
+async def test_omitted_prompt_emits_event_distinct_from_skip(captured_events):
+    # A due prompt RANDOMLY OMITTED by the client (never shown): no affect, NOT a user skip.
+    await ws._handle_self_report(
+        _report_envelope(affect=None, skipped=False, omitted=True, prompt_index=3), "u1", "s1"
+    )
+    reports = [e for e in captured_events if e["event_type"] == "self_report"]
+    assert len(reports) == 1
+    payload = reports[0]["payload"]
+    assert payload["omitted"] is True
+    assert payload["skipped"] is False
+    assert payload["affect"] is None
+    assert payload["prompt_index"] == 3
+
+
+async def test_omitted_normalizes_affect_to_none_even_if_provided(captured_events):
+    await ws._handle_self_report(
+        _report_envelope(affect="engaged", skipped=False, omitted=True), "u1", "s1"
+    )
+    payload = captured_events[0]["payload"]
+    assert payload["omitted"] is True
+    assert payload["affect"] is None
+
+
 async def test_out_of_vocab_affect_is_dropped_without_raising(captured_events):
     await ws._handle_self_report(_report_envelope("happy"), "u1", "s1")
     await ws._handle_self_report(_report_envelope("bored_to_tears"), "u1", "s1")
@@ -126,3 +150,4 @@ async def test_optional_payload_keys_default_to_none(captured_events):
     payload = captured_events[0]["payload"]
     assert payload["prompt_index"] is None
     assert payload["section_id"] is None
+    assert payload["omitted"] is False
