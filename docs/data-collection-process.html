@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AffectLearn — Data Collection Process</title>
+<style>
+  :root{
+    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc; --card:#fff;
+    --brand:#2563eb; --engaged:#16a34a; --confused:#d97706; --bored:#64748b; --frustrated:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+       color:var(--ink);background:var(--bg);line-height:1.6;}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 24px 80px;}
+  header.hero{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:8px;}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em;}
+  h1 b{color:var(--brand);}
+  .sub{color:var(--muted);font-size:15px;margin:0;}
+  h2{font-size:21px;margin:38px 0 10px;padding-top:8px;}
+  h3{font-size:16px;margin:22px 0 6px;}
+  p{margin:8px 0;}
+  .lead{font-size:16px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0;
+        box-shadow:0 1px 2px rgba(15,23,42,.04);}
+  figure{margin:18px 0;text-align:center;}
+  figure img{max-width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;}
+  figcaption{color:var(--muted);font-size:13px;margin-top:8px;}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{background:#f1f5f9;font-weight:600;}
+  code{background:#f1f5f9;border-radius:4px;padding:1px 6px;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:13px;}
+  ol,ul{margin:8px 0;padding-left:22px;}
+  li{margin:5px 0;}
+  .note{border-left:4px solid var(--brand);background:#eff6ff;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0;}
+  .note.privacy{border-left-color:var(--frustrated);background:#fef2f2;}
+  .note.ok{border-left-color:var(--engaged);background:#f0fdf4;}
+  .stage{display:flex;gap:14px;margin:0;padding:14px 0;border-bottom:1px solid var(--line);}
+  .stage:last-child{border-bottom:0;}
+  .stage .n{flex:0 0 30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;font-weight:700;
+            display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .stage h4{margin:2px 0 4px;font-size:15px;}
+  .stage p{margin:2px 0;font-size:14px;color:#334155;}
+  .muted{color:var(--muted);font-size:14px;}
+  .badge{display:inline-block;background:#e0e7ff;color:#3730a3;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600;font-family:ui-monospace,monospace;margin:1px 3px 1px 0;}
+  footer{margin-top:48px;border-top:1px solid var(--line);padding-top:16px;color:var(--muted);font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Affect<b>Learn</b> — Data Collection Process</h1>
+  <p class="sub">How affect data is captured from a participant and stored durably for research analysis.</p>
+</header>
+
+<p class="lead">As a participant studies a lesson, the app continuously senses their emotional state and records it — together with the learner’s own self-reports — as a stream of durable <strong>research events</strong>. This page describes that pipeline end to end.</p>
+
+<figure>
+  <img src="data-collection-process.svg" alt="Data collection process diagram" />
+  <figcaption>End-to-end data-collection pipeline: browser → WebSocket → agent loop → Redis → background worker → PostgreSQL.</figcaption>
+</figure>
+
+<!-- ============ PIPELINE STAGES ============ -->
+<h2>1. The pipeline, stage by stage</h2>
+<div class="card">
+  <div class="stage"><div class="n">1</div><div>
+    <h4>Capture (browser)</h4>
+    <p>While the learner reads, the browser collects three streams: <strong>behavioral</strong> signals (mouse, scroll, keystroke category, idle, timing), <strong>facial</strong> frames (only if the camera is on, read in memory), and <strong>self-reports</strong> (the one-click feeling at pause points).</p>
+  </div></div>
+  <div class="stage"><div class="n">2</div><div>
+    <h4>Bundle &amp; stream</h4>
+    <p>Signals are bundled into a <strong>~30-second window</strong> and sent over a single authenticated <strong>WebSocket</strong> (JWT in the connection). Self-reports and adaptation interactions are sent as they happen.</p>
+  </div></div>
+  <div class="stage"><div class="n">3</div><div>
+    <h4>Agent loop (backend)</h4>
+    <p>The WebSocket handler runs the LangGraph agent: the <strong>Behavioral Bi-LSTM</strong> and <strong>Facial CNN-LSTM</strong> classify affect, <strong>late fusion</strong> combines them, the <strong>learner profiler</strong> updates, and in <strong>Phase B</strong> the pedagogical agent may return an adaptation to the browser.</p>
+  </div></div>
+  <div class="stage"><div class="n">4</div><div>
+    <h4>Emit research event</h4>
+    <p>Every classification, interaction, and self-report is passed to <code>research_logger.emit()</code> — one event per occurrence, stamped with a monotonic per-session <code>sequence_number</code>.</p>
+  </div></div>
+  <div class="stage"><div class="n">5</div><div>
+    <h4>Buffer in Redis</h4>
+    <p>Events are appended to a <strong>Redis stream</strong> (best-effort, non-blocking) so the learner’s session is never slowed by the database.</p>
+  </div></div>
+  <div class="stage"><div class="n">6</div><div>
+    <h4>Drain to PostgreSQL</h4>
+    <p>A <strong>background worker</strong> continuously drains the stream and batch-inserts into the durable <code>research_events</code> table. End-to-end latency is a few seconds (it is a research store, not a live feed).</p>
+  </div></div>
+</div>
+
+<!-- ============ MESSAGE TYPES ============ -->
+<h2>2. Messages sent over the WebSocket</h2>
+<table>
+  <thead><tr><th>Message</th><th>When</th><th>Produces</th></tr></thead>
+  <tbody>
+    <tr><td><span class="badge">behavioral_window</span></td><td>every ~30 s</td><td><code>behavioral_affect_detected</code></td></tr>
+    <tr><td><span class="badge">facial_features</span></td><td>every cycle (camera on)</td><td><code>facial_affect_detected</code> (+ fused <code>multimodal_affect_detected</code>)</td></tr>
+    <tr><td><span class="badge">self_report</span></td><td>at pause points (every 3 sections)</td><td><code>self_report</code> (ground truth)</td></tr>
+    <tr><td><span class="badge">adaptation_interaction</span></td><td>when a learner accepts/dismisses an adaptation</td><td><code>adaptation_interaction</code></td></tr>
+  </tbody>
+</table>
+
+<!-- ============ WHAT IS COLLECTED ============ -->
+<h2>3. What is collected</h2>
+<p>The durable store, <code>research_events</code>, holds these event types:</p>
+<ul>
+  <li><code>behavioral_affect_detected</code> · <code>facial_affect_detected</code> · <code>multimodal_affect_detected</code></li>
+  <li><code>self_report</code> (ground truth) · <code>adaptation_interaction</code> · <code>learner_profile_updated</code></li>
+</ul>
+<p>Every row carries:</p>
+<table>
+  <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>event_type</code></td><td>which event (one of the above)</td></tr>
+    <tr><td><code>affect_state</code> + probabilities</td><td>predicted label + probability over {engaged, bored, confused, frustrated}</td></tr>
+    <tr><td><code>confidence</code>, <code>detection_mode</code></td><td>model confidence; behavioral_only / facial / multimodal</td></tr>
+    <tr><td><code>learner_id</code>, <code>session_id</code>, <code>cycle_number</code></td><td>who, which session, which 30-s cycle</td></tr>
+    <tr><td><code>timestamp</code>, <code>sequence_number</code></td><td>when; monotonic per session (lets analysts detect dropped events — NFR23)</td></tr>
+    <tr><td><code>phase</code>, <code>group</code></td><td>study phase (A / B) and cohort (control / adaptive)</td></tr>
+    <tr><td><code>payload</code></td><td>event-specific detail (e.g. self-report value, adaptation type)</td></tr>
+  </tbody>
+</table>
+
+<h3>Written directly to PostgreSQL (not via the stream)</h3>
+<p class="muted">Onboarding and study-config data are written straight to their own tables: <code>users</code> (consent, webcam choice) · <code>questionnaire_responses</code> · <code>survey_responses</code> · <code>study_groups</code> · <code>study_phase</code> · <code>section_progress</code> (time-on-section, affect states).</p>
+
+<!-- ============ RELIABILITY ============ -->
+<h2>4. Durability &amp; reliability</h2>
+<div class="card">
+  <ul style="margin:0;">
+    <li><strong>Decoupled writes.</strong> The learner’s real-time loop only touches Redis; PostgreSQL is filled asynchronously by the worker, so a slow database never affects the session.</li>
+    <li><strong>Gap detection.</strong> Each event has a monotonic <code>sequence_number</code> per session, so analysts can verify no events were lost.</li>
+    <li><strong>Requires Redis.</strong> The durable copy reaches PostgreSQL only through the Redis → worker path — Redis must be deployed and reachable for collection to work.</li>
+    <li><strong>Latency.</strong> A few seconds from capture to a row in PostgreSQL — fine for a research store; a live dashboard should not expect instant rows.</li>
+  </ul>
+</div>
+
+<!-- ============ PRIVACY ============ -->
+<h2>5. Privacy</h2>
+<div class="note privacy">
+  <ul style="margin:0;">
+    <li><strong>No video is ever stored</strong> — webcam frames are processed in memory and discarded.</li>
+    <li><strong>Keystroke content is never captured</strong> — only the category of a keypress (e.g. alphanumeric / backspace).</li>
+    <li><strong>Consent is required</strong> before any capture; participants may choose behavioral-only (camera off).</li>
+  </ul>
+</div>
+
+<!-- ============ VERIFICATION ============ -->
+<h2>6. Verification (live end-to-end test)</h2>
+<div class="note ok">
+  <p style="margin:0 0 6px;"><strong>Confirmed on the production deployment:</strong> a simulated participant session logged in, opened the WebSocket, streamed behavioral windows, and the events were verified in PostgreSQL:</p>
+  <ul style="margin:0;">
+    <li>WebSocket auth + handshake succeeded.</li>
+    <li><code>behavioral_window</code> cycles ran the Bi-LSTM and persisted <code>behavioral_affect_detected</code> rows.</li>
+    <li><code>self_report</code> persisted; the full agent graph ran (<code>learner_profile_updated</code>).</li>
+    <li><code>phase</code> / <code>group</code> columns were populated; test rows were cleaned up afterwards.</li>
+  </ul>
+  <p class="muted" style="margin:6px 0 0;">Note: the behavioral model is currently a demo-grade artifact — the self-reports are the trustworthy ground-truth signal.</p>
+</div>
+
+<footer>
+  AffectLearn · data-collection process reference. See also <code>client-side-flows.html</code>.
+  Diagram source: <code>data-collection-process.(drawio|svg|png)</code> in this folder.
+</footer>
+
+</div>
+</body>
+</html>

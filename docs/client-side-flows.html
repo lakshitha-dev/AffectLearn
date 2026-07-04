@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AffectLearn — Client-Side (Participant) Flows</title>
+<style>
+  :root{
+    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc; --card:#fff;
+    --brand:#2563eb; --engaged:#16a34a; --confused:#d97706; --bored:#64748b; --frustrated:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+       color:var(--ink);background:var(--bg);line-height:1.6;}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 24px 80px;}
+  header.hero{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:8px;}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em;}
+  h1 b{color:var(--brand);}
+  .sub{color:var(--muted);font-size:15px;margin:0;}
+  h2{font-size:21px;margin:38px 0 10px;padding-top:8px;}
+  h3{font-size:16px;margin:22px 0 6px;}
+  p{margin:8px 0;}
+  .lead{font-size:16px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0;
+        box-shadow:0 1px 2px rgba(15,23,42,.04);}
+  figure{margin:18px 0;text-align:center;}
+  figure img{max-width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;}
+  figcaption{color:var(--muted);font-size:13px;margin-top:8px;}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{background:#f1f5f9;font-weight:600;}
+  code{background:#f1f5f9;border-radius:4px;padding:1px 6px;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:13px;}
+  ol,ul{margin:8px 0;padding-left:22px;}
+  li{margin:5px 0;}
+  .pill{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;color:#fff;margin:2px 4px 2px 0;}
+  .p-eng{background:var(--engaged)} .p-con{background:var(--confused)} .p-bor{background:var(--bored)} .p-fru{background:var(--frustrated)} .p-neu{background:#475569}
+  .note{border-left:4px solid var(--brand);background:#eff6ff;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0;}
+  .note.privacy{border-left-color:var(--frustrated);background:#fef2f2;}
+  .step{display:flex;gap:12px;margin:10px 0;}
+  .step .n{flex:0 0 28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;font-weight:700;
+           display:flex;align-items:center;justify-content:center;font-size:13px;}
+  .muted{color:var(--muted);font-size:14px;}
+  footer{margin-top:48px;border-top:1px solid var(--line);padding-top:16px;color:var(--muted);font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Affect<b>Learn</b> — Client-Side (Participant) Flows</h1>
+  <p class="sub">How a participant moves through the app and how their data is captured, on their device and on the way to the server.</p>
+</header>
+
+<p class="lead">AffectLearn is an affect-aware adaptive learning platform. While a participant studies, the app quietly senses their emotional state (from interaction and, optionally, the webcam) and periodically asks how they feel. This page describes the <strong>client side</strong> end to end.</p>
+
+<!-- ============ PARTICIPANT JOURNEY ============ -->
+<h2>1. The participant journey</h2>
+<figure>
+  <img src="participant-side-flow.svg" alt="Participant-side flow diagram" />
+  <figcaption>Participant-side flow — the linear journey (left) and the in-lesson experience (right).</figcaption>
+</figure>
+
+<div class="card">
+  <div class="step"><div class="n">1</div><div><strong>Open AffectLearn → Sign up / Log in.</strong> The participant lands on the site and creates an account (or signs in).</div></div>
+  <div class="step"><div class="n">2</div><div><strong>Consent.</strong> They read and agree to take part — no capture happens before consent.</div></div>
+  <div class="step"><div class="n">3</div><div><strong>Webcam choice.</strong> They choose <em>Allow camera</em> (facial + behavioral) or <em>Behavioral-only</em> (camera off — the app still works fully).</div></div>
+  <div class="step"><div class="n">4</div><div><strong>Calibration</strong> <span class="muted">(only if the camera is on)</span> — a short step so facial capture is positioned correctly.</div></div>
+  <div class="step"><div class="n">5</div><div><strong>Pre-study questionnaire.</strong> Baseline questions about the learner.</div></div>
+  <div class="step"><div class="n">6</div><div><strong>Browse → Enroll → Open a lesson.</strong> They pick a course and start learning.</div></div>
+  <div class="step"><div class="n">7</div><div><strong>Study the lesson</strong> — the core experience (detailed in section 2).</div></div>
+  <div class="step"><div class="n">8</div><div><strong>Post-study satisfaction survey</strong>, then a <strong>Thank-you</strong> screen.</div></div>
+</div>
+
+<!-- ============ INSIDE A LESSON ============ -->
+<h2>2. Inside a lesson — what they see &amp; do</h2>
+<p>The lesson is a loop. The participant reads one section at a time and marks it complete to move on. Two things appear <em>inline within the page</em> (never as blocking pop-ups):</p>
+
+<h3>Self-report check-in (the ground-truth label)</h3>
+<div class="card">
+  <p>At a natural <strong>pause point — after every 3 sections</strong> — a small inline bar slides in:</p>
+  <p style="font-size:16px;font-weight:600;margin:10px 0;">“Quick check: How are you feeling about this material?”</p>
+  <p>
+    <span class="pill p-eng">Engaged</span>
+    <span class="pill p-con">Confused</span>
+    <span class="pill p-bor">Bored</span>
+    <span class="pill p-fru">Frustrated</span>
+    <span class="pill p-neu">Neutral</span>
+    <span class="muted">· or <em>Skip</em></span>
+  </p>
+  <ul>
+    <li><strong>One click, no typing, under 5 seconds.</strong> No countdown, no pressure.</li>
+    <li>After a choice it highlights, auto-collapses after ~1s, and shows a quiet “Thanks”.</li>
+    <li><strong>It is an inline bar, not a pop-up / modal / toast</strong> — the design rule is “never block learning”.</li>
+    <li><em>Neutral</em> is a self-report-only option (the AI model uses only the other four).</li>
+    <li>A deliberate <em>Skip</em> is recorded as a skip; a prompt the learner never reaches records nothing.</li>
+  </ul>
+  <p class="muted">This is the study’s <strong>primary ground-truth label</strong> — what the learner says they feel, compared against what the models predicted.</p>
+</div>
+
+<h3>Adaptation cards (adaptive group, Phase B only)</h3>
+<div class="card">
+  <p>If the participant is in the <strong>adaptive</strong> group during <strong>Phase B</strong>, the agent may deliver a gentle inline card based on the detected state:</p>
+  <ul>
+    <li><strong>Hint</strong> — a simpler explanation when they seem confused.</li>
+    <li><strong>“Skip ahead?”</strong> — when the material seems too easy / they look bored.</li>
+    <li><strong>“Take a 5-min break?”</strong> — when frustration persists.</li>
+  </ul>
+  <p class="muted">The control group sees none of these (same content, no intervention) — that’s the A/B comparison.</p>
+</div>
+
+<!-- ============ WHAT THE BROWSER CAPTURES ============ -->
+<h2>3. What the browser captures (mostly invisible)</h2>
+<p>While the participant simply reads, the browser bundles signals into a <strong>~30-second window</strong> and streams it to the server over a single WebSocket. The participant does nothing extra for this.</p>
+<table>
+  <thead><tr><th>Stream</th><th>What is captured</th><th>Visible to participant?</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Behavioral</strong></td><td>mouse moves &amp; clicks, scrolling, keystroke <em>category</em> (e.g. alphanumeric / backspace — never the content), idle / tab-visibility, timing</td><td>No — silent background</td></tr>
+    <tr><td><strong>Facial</strong> <span class="muted">(optional)</span></td><td>webcam frames, read in memory only and discarded</td><td>A small “camera on” indicator; no video shown/stored</td></tr>
+    <tr><td><strong>Self-report</strong></td><td>the one-click feeling at pause points</td><td>Yes — the inline “Quick check” bar</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ HOW IT REACHES THE SERVER ============ -->
+<h2>4. How the data reaches the server</h2>
+<figure>
+  <img src="data-collection-process.svg" alt="Data collection process diagram" />
+  <figcaption>End-to-end data-collection pipeline: browser → WebSocket → agent loop → Redis → worker → PostgreSQL.</figcaption>
+</figure>
+<ol>
+  <li>The browser sends each 30-second <code>behavioral_window</code> (and <code>facial_features</code> if the camera is on, plus <code>self_report</code> at pauses) over the WebSocket.</li>
+  <li>The backend agent loop runs the <strong>Behavioral Bi-LSTM</strong> and <strong>Facial CNN-LSTM</strong>, fuses them, updates the learner profile, and (Phase B) may return an adaptation.</li>
+  <li>Every classification / interaction / self-report is emitted as a <strong>research event</strong> → buffered in <strong>Redis</strong> → drained by a background worker → stored durably in <strong>PostgreSQL</strong> (<code>research_events</code>).</li>
+</ol>
+<p class="muted">Onboarding data (consent, webcam choice, questionnaire, survey, A/B group, phase) is written directly to PostgreSQL.</p>
+
+<!-- ============ WHAT IS STORED ============ -->
+<h2>5. What gets stored</h2>
+<p>Each row in <code>research_events</code> is one of these event types:</p>
+<ul>
+  <li><code>behavioral_affect_detected</code> · <code>facial_affect_detected</code> · <code>multimodal_affect_detected</code></li>
+  <li><code>self_report</code> (ground truth) · <code>adaptation_interaction</code> · <code>learner_profile_updated</code></li>
+</ul>
+<p>And every row carries:</p>
+<table>
+  <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>affect_state</code> + probabilities</td><td>predicted label + probability over {engaged, bored, confused, frustrated}</td></tr>
+    <tr><td><code>confidence</code>, <code>detection_mode</code></td><td>model confidence; behavioral_only / facial / multimodal</td></tr>
+    <tr><td><code>learner_id</code>, <code>session_id</code>, <code>cycle_number</code></td><td>who, which session, which 30-s cycle</td></tr>
+    <tr><td><code>timestamp</code>, <code>sequence_number</code></td><td>when; monotonic per session (lets analysts detect dropped events)</td></tr>
+    <tr><td><code>phase</code>, <code>group</code></td><td>study phase (A/B) and cohort (control / adaptive)</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ PRIVACY ============ -->
+<h2>6. Privacy</h2>
+<div class="note privacy">
+  <ul style="margin:0;">
+    <li><strong>No video is ever stored</strong> — webcam frames are processed in memory and discarded.</li>
+    <li><strong>Keystroke content is never captured</strong> — only the category of a keypress.</li>
+    <li><strong>Consent is required</strong> before any capture begins, and the participant can choose behavioral-only (camera off).</li>
+  </ul>
+</div>
+
+<footer>
+  AffectLearn · client-side flow reference. Diagrams: <code>participant-side-flow.(drawio|svg|png)</code>,
+  <code>data-collection-process.(drawio|svg|png)</code> in this folder.
+</footer>
+
+</div>
+</body>
+</html>

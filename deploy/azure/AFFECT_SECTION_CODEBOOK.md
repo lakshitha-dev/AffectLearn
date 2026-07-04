@@ -1,43 +1,65 @@
 # Affect-Section Codebook — Pilot Courses
 
-Maps each course section to the **affect state it is designed to elicit** for the study.
-Section titles are intentionally topic-natural (not labelled "boring"/"confusing") so they
-do **not** bias participants; this codebook is the analysis key. Source of truth:
-`backend/app/db/seed_courses.py` (see the `# affect:` comments).
+Maps each course section to the affect state it is designed to elicit. Section titles are
+topic-natural so they do NOT bias participants; this codebook is the analysis key. Source of
+truth: `backend/app/db/course_content/*.py` (see the `# affect:` comments). States: **engaged /
+bored / confused / frustrated**.
 
-The four target states: **engaged**, **bored**, **confused**, **frustrated**.
-
-## How each state is induced
-- **Engaged** — clear, well-paced explanation, a relatable analogy, a Mermaid diagram, and an easy confidence-building quiz.
-- **Bored** — long, dry, exhaustive prose (chronologies, taxonomies, field references); repetitive; no visuals; low cognitive challenge but tedious.
-- **Confused** — dense jargon and formal notation introduced out of order, with symbols/terms used before they are defined; cognitive overload.
-- **Frustrated** — a deceptively hard quiz/exercise that depends on the preceding (confusing) material, with tricky distractors and unforgiving numbers.
-
-## Course 1 — Foundations of Agentic AI
+## Foundations of Agentic AI
 | Lesson | Section | Intended affect |
 |---|---|---|
-| What Makes AI 'Agentic' | The Agent Loop | **engaged** |
-| What Makes AI 'Agentic' | A Brief History of Autonomous Systems | **bored** |
-| Inside an Agent | Formal Foundations: MDPs and Policies | **confused** |
-| Inside an Agent | Check Your Understanding | **frustrated** |
+| What Makes Software 'Agentic' | From Programs to Agents | **engaged** |
+| What Makes Software 'Agentic' | The Reasoning Core: LLMs as the Brain | **engaged** |
+| What Makes Software 'Agentic' | The Four Parts of an Agent | **engaged** |
+| The Agent Loop | The Perceive-Reason-Act-Observe Loop | **engaged** |
+| The Agent Loop | Levels of Autonomy | **engaged** |
+| The Agent Loop | Where Agents Spend Their Effort | **engaged** |
+| A Worked Example: The Support Agent | Tracing a Refund Request | **engaged** |
+| A Worked Example: The Support Agent | A Field Guide: Agent, Chatbot, Assistant, and Workflow | **bored** |
+| How Agents Reason: The ReAct Pattern | Reasoning and Acting Together | **engaged** |
+| How Agents Reason: The ReAct Pattern | The Vocabulary: State, Observation, Action, Environment | **engaged** |
+| How Agents Reason: The ReAct Pattern | The Anatomy of a Tool Definition | **bored** |
+| Formal Foundations | The Sequential Decision Framework | **confused** |
+| Formal Foundations | Optimality Operators and Their Consequences | **confused** |
+| Where Agents Break | A Taxonomy of Failure Modes | **bored** |
+| Where Agents Break | Diagnostic Assessment: Formalism and Failure | **frustrated** |
 
-## Course 2 — Building AI Agents: Tools, Memory & Planning
+## Building AI Agents: Tools, Memory & Planning
 | Lesson | Section | Intended affect |
 |---|---|---|
-| Giving Agents Hands and Memory | Tool Use & Function Calling | **engaged** |
-| Giving Agents Hands and Memory | A Catalogue of Memory Types | **bored** |
-| Planning & Reasoning | ReAct, Reflexion, and the Reasoning Zoo | **confused** |
-| Planning & Reasoning | Trace the Reasoning (Exercise) | **frustrated** |
+| Tool Use & Function Calling | What a Tool Is and Why an Agent Needs One | **engaged** |
+| Tool Use & Function Calling | Anatomy of a Tool Schema | **engaged** |
+| Tool Use & Function Calling | The Tool-Call Round Trip | **engaged** |
+| Tool Use & Function Calling | When (and When Not) to Give an Agent a Tool | **engaged** |
+| Structured Output | Why Free Text Breaks Programs | **engaged** |
+| Structured Output | Schema Edge Cases That Bite | **frustrated** |
+| Structured Output | Constrained Decoding and Grammars | **confused** |
+| Agent Memory | A Catalogue of Memory Types | **bored** |
+| Agent Memory | Chunking and Retention Strategies | **bored** |
+| Agent Memory | Short-Term vs Long-Term Memory in Practice | **engaged** |
+| Planning & Reasoning Patterns | Planning and Task Decomposition | **engaged** |
+| Planning & Reasoning Patterns | The ReAct Loop | **engaged** |
+| Planning & Reasoning Patterns | The Reasoning-Pattern Zoo | **confused** |
+| Planning & Reasoning Patterns | Which Pattern Fits? A Tricky Case | **frustrated** |
+| Retrieval-Augmented Generation & Embeddings | The RAG Pipeline | **engaged** |
+| Retrieval-Augmented Generation & Embeddings | Embeddings, Cosine Similarity & the Curse of Dimensionality | **confused** |
+| Retrieval-Augmented Generation & Embeddings | Design and Trace the Agent | **frustrated** |
 
-## Course 3 — Multi-Agent Systems & Orchestration
+## Multi-Agent Systems & Orchestration
 | Lesson | Section | Intended affect |
 |---|---|---|
-| Coordinating Multiple Agents | Why Use More Than One Agent? | **engaged** |
-| Coordinating Multiple Agents | Message-Passing Field Reference | **bored** |
-| Reliability & Evaluation | Consensus, Byzantine Faults & Guarantees | **confused** |
-| Reliability & Evaluation | Diagnose the Failure (Exercise) | **frustrated** |
-
-## Notes for analysis
-- Each course traverses all four states, so a single session yields a balanced affect spread.
-- The intended affect is the **design hypothesis**, not ground truth — the actual affect is what the facial/behavioral models + self-reports record per section (`research_events`, `section_progress.affect_states`).
-- To join captured affect to intended affect, match `section_progress.section_id` (or research-event section context) to the section titles above.
+| From One Agent to Many | Why More Than One Agent? A Newsroom Analogy | **engaged** |
+| From One Agent to Many | The Orchestrator-Worker Pattern | **engaged** |
+| Roles, Specialisation, and Talking Between Agents | Roles and Specialisation | **engaged** |
+| Roles, Specialisation, and Talking Between Agents | Message Envelope Field Reference | **bored** |
+| Coordination Patterns | Sharing State: Blackboards and Message Queues | **engaged** |
+| Coordination Patterns | When Agents Fail: Retries, Timeouts, and Idempotency | **engaged** |
+| Coordination Patterns | Sequential, Parallel, and Hierarchical Coordination | **engaged** |
+| Consensus and Byzantine Fault Tolerance | Consensus, FLP Impossibility, and Quorums | **confused** |
+| Consensus and Byzantine Fault Tolerance | Byzantine Fault Tolerance and the n >= 3f + 1 Bound | **confused** |
+| Consensus and Byzantine Fault Tolerance | Leader Election, Terms, and Split-Brain | **confused** |
+| Consensus and Byzantine Fault Tolerance | Fault-Tolerance Diagnosis: A Demanding Assessment | **frustrated** |
+| Evaluation and Safety | Evaluating Agent Systems: Four Dimensions | **engaged** |
+| Evaluation and Safety | Glossary of Evaluation Metrics | **bored** |
+| Evaluation and Safety | Reward Hacking, Specification Gaming, and Safety | **confused** |
+| Evaluation and Safety | Keeping Humans in the Loop | **engaged** |

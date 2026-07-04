@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="970" viewBox="0 0 1180 970" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#555"/>
+    </marker>
+    <marker id="arrowP" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#9673a6"/>
+    </marker>
+  </defs>
+  <rect width="1180" height="970" fill="#ffffff"/>
+  <text x="40" y="26" font-size="20" font-weight="700" fill="#1f2937">AffectLearn — Participant Data Collection Process</text>
+
+  <!-- ===== bands ===== -->
+  <rect x="40" y="170" width="700" height="300" rx="10" fill="#eaf2fb" stroke="#6c8ebf" stroke-dasharray="6 4"/>
+  <text x="52" y="190" font-size="13" font-weight="700" fill="#3b5b8a">① BROWSER — participant's device (capture &amp; stream)</text>
+  <rect x="40" y="500" width="700" height="210" rx="10" fill="#f3eefa" stroke="#9673a6" stroke-dasharray="6 4"/>
+  <text x="52" y="520" font-size="13" font-weight="700" fill="#6b4e8a">② BACKEND — FastAPI + LangGraph agent loop</text>
+  <rect x="40" y="740" width="700" height="200" rx="10" fill="#eef7ec" stroke="#82b366" stroke-dasharray="6 4"/>
+  <text x="52" y="760" font-size="13" font-weight="700" fill="#4c7a3a">③ DURABILITY &amp; STORAGE</text>
+
+  <!-- ===== edges (drawn first, under nodes) ===== -->
+  <g stroke="#555" stroke-width="1.6" fill="none">
+    <path d="M220,65 L274,65" marker-end="url(#arrow)"/>
+    <path d="M530,65 L594,65" marker-end="url(#arrow)"/>
+    <path d="M405,95 L405,150 L385,150 L385,199" marker-end="url(#arrow)"/>
+    <path d="M340,245 L165,267 L165,283" marker-end="url(#arrow)"/>
+    <path d="M385,245 L385,283" marker-end="url(#arrow)"/>
+    <path d="M430,245 L605,267 L605,283" marker-end="url(#arrow)"/>
+    <path d="M165,375 L210,408" marker-end="url(#arrow)"/>
+    <path d="M385,375 L390,408" marker-end="url(#arrow)"/>
+    <path d="M605,375 L575,408" marker-end="url(#arrow)"/>
+    <path d="M300,454 L130,490 L130,538" marker-end="url(#arrow)"/>
+    <path d="M200,556 L236,545" marker-end="url(#arrow)"/>
+    <path d="M200,576 L236,591" marker-end="url(#arrow)"/>
+    <path d="M390,543 L426,560" marker-end="url(#arrow)"/>
+    <path d="M390,591 L426,566" marker-end="url(#arrow)"/>
+    <path d="M560,562 L586,557" marker-end="url(#arrow)"/>
+    <path d="M130,590 L130,638" marker-end="url(#arrow)"/>
+    <path d="M160,684 L160,778" marker-end="url(#arrow)"/>
+    <path d="M240,805 L296,805" marker-end="url(#arrow)"/>
+    <path d="M400,830 L378,868" marker-end="url(#arrow)"/>
+  </g>
+  <!-- adaptation feedback (dashed, purple) -->
+  <path d="M657,525 L657,432 L612,432" fill="none" stroke="#9673a6" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrowP)"/>
+
+  <!-- edge labels -->
+  <g font-size="11" fill="#555">
+    <text x="225" y="58">1. sign up</text>
+    <text x="545" y="58">REST</text>
+    <text x="410" y="140">2. enroll</text>
+    <text x="150" y="500" font-weight="700">every ~30 s</text>
+    <text x="205" y="540">behavioral_window</text>
+    <text x="205" y="600">facial_features</text>
+    <text x="135" y="618">log each event</text>
+    <text x="405" y="855">batch insert</text>
+  </g>
+  <text x="500" y="420" font-size="11" fill="#9673a6">adaptation (Phase B)</text>
+
+  <!-- ===== top row nodes ===== -->
+  <g font-size="12">
+    <rect x="60" y="40" width="160" height="50" rx="6" fill="#f5f5f5" stroke="#666"/>
+    <text x="140" y="70" text-anchor="middle" font-weight="700">👤 Participant</text>
+
+    <rect x="280" y="35" width="250" height="60" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="405" y="58" text-anchor="middle" font-weight="700">Onboarding &amp; setup</text>
+    <text x="405" y="76" text-anchor="middle" font-size="11">consent · webcam choice · pre-questionnaire</text>
+
+    <rect x="600" y="25" width="300" height="80" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="750" y="46" text-anchor="middle" font-weight="700">PostgreSQL — direct writes</text>
+    <text x="750" y="64" text-anchor="middle" font-size="11">users(consent, webcam) · questionnaire_responses</text>
+    <text x="750" y="80" text-anchor="middle" font-size="11">survey_responses · study_groups · study_phase</text>
+  </g>
+
+  <!-- ===== browser band nodes ===== -->
+  <g font-size="12">
+    <rect x="285" y="205" width="200" height="40" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="385" y="230" text-anchor="middle" font-weight="700">Study a lesson</text>
+
+    <rect x="60" y="285" width="210" height="90" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="165" y="312" text-anchor="middle" font-weight="700">Behavioral capture</text>
+    <text x="165" y="332" text-anchor="middle" font-size="11">mouse moves/clicks · scroll</text>
+    <text x="165" y="348" text-anchor="middle" font-size="11">keystroke CATEGORY only</text>
+    <text x="165" y="364" text-anchor="middle" font-size="11">idle / visibility · timing</text>
+
+    <rect x="290" y="285" width="190" height="90" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="385" y="315" text-anchor="middle" font-weight="700">Facial capture (optional)</text>
+    <text x="385" y="335" text-anchor="middle" font-size="11">webcam frames read in</text>
+    <text x="385" y="351" text-anchor="middle" font-size="11">memory — never stored</text>
+
+    <rect x="500" y="285" width="210" height="90" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="605" y="312" text-anchor="middle" font-weight="700">Self-report at pauses</text>
+    <text x="605" y="332" text-anchor="middle" font-size="11">learner picks their true feeling</text>
+    <text x="605" y="350" text-anchor="middle" font-size="11" font-weight="700" fill="#9a7a00">➜ GROUND-TRUTH label</text>
+
+    <rect x="180" y="410" width="430" height="44" rx="6" fill="#bbdefb" stroke="#6c8ebf"/>
+    <text x="395" y="437" text-anchor="middle" font-weight="700">Bundle a ~30-second WINDOW → WebSocket (JWT)</text>
+  </g>
+
+  <!-- ===== backend band nodes ===== -->
+  <g font-size="12">
+    <rect x="60" y="540" width="140" height="50" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="130" y="560" text-anchor="middle" font-weight="700">WebSocket</text>
+    <text x="130" y="578" text-anchor="middle" font-size="11">handler · auth</text>
+
+    <rect x="240" y="525" width="150" height="36" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="315" y="548" text-anchor="middle">Behavioral Bi-LSTM</text>
+
+    <rect x="240" y="575" width="150" height="36" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="315" y="598" text-anchor="middle">Facial CNN-LSTM</text>
+
+    <rect x="430" y="540" width="130" height="44" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="495" y="558" text-anchor="middle">Late fusion</text>
+    <text x="495" y="574" text-anchor="middle" font-size="11">→ multimodal affect</text>
+
+    <rect x="590" y="525" width="135" height="60" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="657" y="546" text-anchor="middle" font-size="11">Learner profiler +</text>
+    <text x="657" y="562" text-anchor="middle" font-size="11">pedagogical agent</text>
+    <text x="657" y="578" text-anchor="middle" font-size="11">(Phase B → adapt)</text>
+
+    <rect x="60" y="640" width="660" height="44" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="390" y="667" text-anchor="middle" font-weight="700">research_logger.emit()  —  one event per classification / interaction / self-report</text>
+  </g>
+
+  <!-- ===== storage band nodes ===== -->
+  <g font-size="12">
+    <rect x="80" y="780" width="160" height="50" rx="6" fill="#ffe6cc" stroke="#d79b00"/>
+    <text x="160" y="800" text-anchor="middle" font-weight="700">Redis stream</text>
+    <text x="160" y="818" text-anchor="middle" font-size="11">best-effort buffer</text>
+
+    <rect x="300" y="780" width="200" height="50" rx="6" fill="#ffe6cc" stroke="#d79b00"/>
+    <text x="400" y="800" text-anchor="middle" font-weight="700">Background worker</text>
+    <text x="400" y="818" text-anchor="middle" font-size="11">drains stream → Postgres</text>
+
+    <rect x="150" y="870" width="450" height="60" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="375" y="895" text-anchor="middle" font-weight="700">PostgreSQL — research_events</text>
+    <text x="375" y="914" text-anchor="middle" font-size="11">durable event store · per-session · sequence-numbered</text>
+  </g>
+
+  <!-- ===== notes ===== -->
+  <rect x="770" y="500" width="360" height="300" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+  <text x="786" y="524" font-size="13" font-weight="700" fill="#7a5d00">WHAT'S COLLECTED (research_events)</text>
+  <g font-size="12" fill="#5c4a00">
+    <text x="786" y="548">• behavioral_affect_detected</text>
+    <text x="786" y="568">• facial_affect_detected</text>
+    <text x="786" y="588">• multimodal_affect_detected</text>
+    <text x="786" y="608">• self_report  (ground truth)</text>
+    <text x="786" y="628">• adaptation_interaction</text>
+    <text x="786" y="648">• learner_profile_updated</text>
+    <text x="786" y="676" font-weight="700">Each row carries:</text>
+    <text x="786" y="696">affect_state + probabilities</text>
+    <text x="786" y="714">{engaged, bored, confused, frustrated}</text>
+    <text x="786" y="732">+ confidence · detection_mode</text>
+    <text x="786" y="750">· learner_id · session_id · cycle</text>
+    <text x="786" y="768">· timestamp · sequence_number</text>
+    <text x="786" y="786">· phase (A/B) · group (control/adaptive)</text>
+  </g>
+
+  <rect x="770" y="820" width="360" height="110" rx="6" fill="#f8cecc" stroke="#b85450"/>
+  <text x="786" y="844" font-size="13" font-weight="700" fill="#8a2b27">PRIVACY</text>
+  <g font-size="12" fill="#6b211e">
+    <text x="786" y="866">• No video ever stored (frames in memory only)</text>
+    <text x="786" y="886">• Keystroke CONTENT never captured — category only</text>
+    <text x="786" y="906">• Consent required before any capture</text>
+  </g>
+</svg>
