@@ -118,3 +118,21 @@ differences don't dominate raw signals.
 Every gated quiz records time-to-answer. The `quiz_submitted` research event payload carries
 `response_time_ms`, `section_id`, `is_correct`, and the selected answers — a
 deliberation/frustration probe joinable to the section's intended affect via this codebook.
+
+## Manipulation design (applied pre-pilot)
+The elicitation is strengthened structurally so the affect labels come through cleaner:
+
+- **Bored** sections are pure low-stimulation text — all diagrams and interactive blocks
+  (quizzes, exercises, reflections) were stripped (boredom = monotony + no payoff).
+- **Confused** sections each carry a genuine, *resolvable* contradiction (an apparent paradox
+  the section — or the next one — reconciles): confusion via cognitive disequilibrium, kept
+  productive by guaranteeing a resolution path.
+- **Frustrated** sections keep their gated, tricky-distractor quizzes (solvable-but-hard).
+- **Engaged** sections keep diagram + analogy + a fair quiz with immediate feedback.
+- **Self-report reactivity:** ~20% of due prompts are randomly omitted and logged as
+  `self_report {omitted:true}` — compare behavioral windows after a shown vs an omitted prompt
+  to estimate the prompt's own (Hawthorne/reactivity) effect.
+- **Consent / debrief:** consent warns the material "may feel clear, slow or tedious, or
+  challenging or confusing" *without naming the manipulation* (avoids demand characteristics);
+  the end-of-study screen debriefs that the study measured emotion during learning (not the
+  participant) and that difficulty was by design.

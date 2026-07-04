@@ -387,6 +387,17 @@ def _lesson_structured_output() -> "lesson":
                 "token masking. The upshot: constrained decoding trades a little "
                 "generative freedom and some latency for a hard structural guarantee."
             ),
+            callout(
+                "Here is something that should feel wrong. The model was trained to "
+                "put probability on those forbidden tokens — so by masking them to "
+                "zero, are we not overriding the model and forcing it to write text "
+                "it 'believes' is wrong? The resolution: masking removes only the "
+                "grammar-INVALID continuations; among the tokens that remain, the "
+                "model's relative preferences are untouched. We are pruning the "
+                "impossible, not rewriting the model's judgement — which is why the "
+                "output stays fluent, just guaranteed well-formed.",
+                "info",
+            ),
             reflection(
                 "In your own words, why can a model under grammar-constrained decoding "
                 "never emit invalid JSON? What might it give up in exchange?"
@@ -481,21 +492,6 @@ def _lesson_memory() -> "lesson":
                 "least-recently-used eviction; importance scoring (keep entries the agent "
                 "flagged as significant); and summarise-then-discard (compress old detail "
                 "into semantic memory, then delete the raw episodes)."
-            ),
-            quiz(
-                "Which chunking strategy specifically starts a new chunk when the meaning "
-                "of the text shifts?",
-                [
-                    ("Fixed-size chunking", False),
-                    ("Semantic chunking", True),
-                    ("Paragraph-based chunking", False),
-                    ("Recursive chunking", False),
-                ],
-                explanation=(
-                    "Semantic chunking embeds sentences and cuts a new chunk at meaning "
-                    "boundaries. It is the most faithful and the most computationally "
-                    "expensive of the strategies listed."
-                ),
             ),
         ),
 
@@ -691,6 +687,16 @@ for step in range(MAX_STEPS):
                 "Self-Consistency, Reflexion, and ReAct are orthogonal axes over sampling, "
                 "memory, and grounding respectively."
             ),
+            callout(
+                "A claim that seems to follow — but does not. Graph-of-Thoughts "
+                "allows an arbitrary DAG, which strictly contains paths (CoT) and "
+                "trees (ToT) as special cases. So surely GoT can do everything the "
+                "others can, and the weaker patterns are obsolete? Hold that thought: "
+                "generality is not free, and 'can represent' is not 'should use'. Why "
+                "the most general structure is often the wrong choice is exactly what "
+                "the next section forces you to work out.",
+                "info",
+            ),
             reflection(
                 "Try to place four patterns on the 'topology' axis: which of CoT, ToT, "
                 "GoT, and Reflexion describe the SHAPE of the reasoning (path/tree/graph), "
@@ -846,6 +852,18 @@ def _lesson_retrieval() -> "lesson":
                 "The takeaway under the notation: similarity is an angle, the ambient "
                 "space is treacherous, and learned structure plus ANN indexing is what "
                 "keeps retrieval usable."
+            ),
+            callout(
+                "Two things you were just told seem to collide. More dimensions "
+                "should give the model more room to pull different meanings apart — "
+                "yet the curse of dimensionality says that as d grows, all points "
+                "drift toward equidistant and 'nearest' loses meaning. So are more "
+                "dimensions helping retrieval or wrecking it? The reconciliation is "
+                "in the paragraph above: the curse is about UNIFORMLY RANDOM points, "
+                "but trained embeddings are not random — they lie on a low-dimensional "
+                "manifold inside R^d, so the extra dimensions buy expressive structure "
+                "while ANN indexing tames the geometry.",
+                "info",
             ),
             exercise(
                 "Compute the cosine similarity between u = [1, 0, 1] and v = [1, 1, 0]. "
