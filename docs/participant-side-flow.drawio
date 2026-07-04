@@ -1,0 +1,51 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram name="Participant Side" id="participantside1">
+    <mxGraphModel dx="1100" dy="850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="AffectLearn — Participant Side (what the participant sees &amp; does)" style="text;html=1;fontSize=18;fontStyle=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="720" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Left journey column ===== -->
+        <mxCell id="a" value="Open AffectLearn&#10;→ Sign up / Log in" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="60" y="60" width="230" height="50" as="geometry" /></mxCell>
+        <mxCell id="b" value="Consent to participate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="60" y="135" width="230" height="40" as="geometry" /></mxCell>
+        <mxCell id="c" value="Webcam choice&#10;Allow camera  —or—  Behavioral-only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="60" y="200" width="230" height="55" as="geometry" /></mxCell>
+        <mxCell id="d" value="Webcam calibration&#10;(only if camera on)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="60" y="285" width="230" height="45" as="geometry" /></mxCell>
+        <mxCell id="e" value="Pre-study questionnaire" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="60" y="360" width="230" height="40" as="geometry" /></mxCell>
+        <mxCell id="f" value="Browse courses → Enroll → Open a lesson" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="60" y="425" width="230" height="50" as="geometry" /></mxCell>
+        <mxCell id="g" value="STUDY THE LESSON" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbdefb;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;" vertex="1" parent="1"><mxGeometry x="60" y="505" width="230" height="55" as="geometry" /></mxCell>
+        <mxCell id="h" value="Post-study satisfaction survey" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="60" y="605" width="230" height="45" as="geometry" /></mxCell>
+        <mxCell id="i" value="✓ Thank you — done" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="60" y="680" width="230" height="45" as="geometry" /></mxCell>
+
+        <!-- ===== Inside-a-lesson container ===== -->
+        <mxCell id="lessonbg" value="INSIDE A LESSON — the participant's experience" style="rounded=1;fillColor=#fbf6ff;strokeColor=#9673a6;dashed=1;verticalAlign=top;align=left;fontStyle=1;fontSize=12;spacingLeft=8;spacingTop=4;" vertex="1" parent="1"><mxGeometry x="370" y="190" width="500" height="360" as="geometry" /></mxCell>
+        <mxCell id="g1" value="Read a content section&#10;(text · diagrams · code · quiz)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="400" y="230" width="200" height="50" as="geometry" /></mxCell>
+        <mxCell id="g2" value="Mark complete → next section" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="400" y="320" width="200" height="44" as="geometry" /></mxCell>
+        <mxCell id="g3" value="PAUSE POINT (every 3 sections):&#10;inline “Quick check” bar — “How are you feeling?”&#10;one click: Engaged / Confused / Bored / Frustrated / Neutral  ·  or Skip&#10;(inline bar, NOT a pop-up · under 5 s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="630" y="225" width="220" height="120" as="geometry" /></mxCell>
+        <mxCell id="g4" value="Adaptive group only (Phase B):&#10;an inline card may appear —&#10;Hint · “Skip ahead?” · “Take a break?”" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="630" y="380" width="220" height="70" as="geometry" /></mxCell>
+        <mxCell id="bgnote" value="Runs INVISIBLY in the background while they read:&#10;behavioral signals (mouse · scroll · keystroke category · timing) every ~30 s,&#10;plus webcam frames if the camera is on. The participant does nothing extra." style="shape=note;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="1"><mxGeometry x="400" y="450" width="450" height="80" as="geometry" /></mxCell>
+
+        <!-- ===== Edges (journey) ===== -->
+        <mxCell id="ea" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="b" target="c"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ec1" value="camera on" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" edge="1" parent="1" source="c" target="d"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ec2" value="camera off (behavioral-only)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;dashed=1;fontSize=10;" edge="1" parent="1" source="c" target="e"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="30" y="227" /><mxPoint x="30" y="380" /></Array></mxGeometry></mxCell>
+        <mxCell id="ed" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="d" target="e"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ee" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="e" target="f"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ef" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="f" target="g"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg" value="enter lesson" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" edge="1" parent="1" source="g" target="g1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="egh" value="finish lesson / course" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" edge="1" parent="1" source="g" target="h"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ehi" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="h" target="i"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ===== Edges (inside lesson) ===== -->
+        <mxCell id="lg1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="g1" target="g2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="lg2" value="next section (loop)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" edge="1" parent="1" source="g2" target="g1"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="370" y="342" /><mxPoint x="370" y="255" /></Array></mxGeometry></mxCell>
+        <mxCell id="lg3" value="every 3 sections" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=10;" edge="1" parent="1" source="g1" target="g3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="lg4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;dashed=1;strokeColor=#9673a6;" edge="1" parent="1" source="g2" target="g4"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="770" viewBox="0 0 900 770" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,3 L0,6 z" fill="#555"/></marker>
+    <marker id="arP" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,3 L0,6 z" fill="#9673a6"/></marker>
+  </defs>
+  <rect width="900" height="770" fill="#ffffff"/>
+  <text x="40" y="28" font-size="18" font-weight="700" fill="#1f2937">AffectLearn — Participant Side (what the participant sees &amp; does)</text>
+
+  <!-- lesson container -->
+  <rect x="370" y="190" width="500" height="360" rx="10" fill="#fbf6ff" stroke="#9673a6" stroke-dasharray="6 4"/>
+  <text x="382" y="210" font-size="12" font-weight="700" fill="#6b4e8a">INSIDE A LESSON — the participant's experience</text>
+
+  <!-- edges -->
+  <g stroke="#555" stroke-width="1.6" fill="none">
+    <path d="M175,110 L175,133" marker-end="url(#ar)"/>
+    <path d="M175,175 L175,198" marker-end="url(#ar)"/>
+    <path d="M175,255 L175,283" marker-end="url(#ar)"/>
+    <path d="M175,330 L175,358" marker-end="url(#ar)"/>
+    <path d="M175,400 L175,423" marker-end="url(#ar)"/>
+    <path d="M175,475 L175,503" marker-end="url(#ar)"/>
+    <path d="M175,560 L175,603" marker-end="url(#ar)"/>
+    <path d="M175,650 L175,678" marker-end="url(#ar)"/>
+    <path d="M290,532 L345,532 L345,255 L398,255" marker-end="url(#ar)"/>
+    <path d="M500,280 L500,318" marker-end="url(#ar)"/>
+    <path d="M400,342 L376,342 L376,255 L398,255" marker-end="url(#ar)"/>
+    <path d="M600,250 L628,283" marker-end="url(#ar)"/>
+  </g>
+  <!-- camera-off (dashed) -->
+  <path d="M60,227 L30,227 L30,380 L58,380" fill="none" stroke="#555" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+  <!-- adaptive card (dashed purple) -->
+  <path d="M600,342 L628,410" fill="none" stroke="#9673a6" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arP)"/>
+
+  <!-- edge labels -->
+  <g font-size="10" fill="#555">
+    <text x="180" y="274">camera on</text>
+    <text x="36" y="305">camera off</text>
+    <text x="300" y="525">enter lesson</text>
+    <text x="180" y="585">finish</text>
+    <text x="382" y="252">next section (loop)</text>
+    <text x="602" y="245">every 3 sections</text>
+  </g>
+
+  <!-- left journey nodes -->
+  <g font-size="12">
+    <rect x="60" y="60" width="230" height="50" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="175" y="82" text-anchor="middle" font-weight="700">Open AffectLearn</text>
+    <text x="175" y="99" text-anchor="middle" font-size="11">→ Sign up / Log in</text>
+
+    <rect x="60" y="135" width="230" height="40" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="175" y="160" text-anchor="middle">Consent to participate</text>
+
+    <rect x="60" y="200" width="230" height="55" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="175" y="222" text-anchor="middle" font-weight="700">Webcam choice</text>
+    <text x="175" y="240" text-anchor="middle" font-size="11">Allow camera  —or—  Behavioral-only</text>
+
+    <rect x="60" y="285" width="230" height="45" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="175" y="305" text-anchor="middle">Webcam calibration</text>
+    <text x="175" y="321" text-anchor="middle" font-size="11">(only if camera on)</text>
+
+    <rect x="60" y="360" width="230" height="40" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="175" y="385" text-anchor="middle">Pre-study questionnaire</text>
+
+    <rect x="60" y="425" width="230" height="50" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="175" y="447" text-anchor="middle">Browse courses → Enroll</text>
+    <text x="175" y="464" text-anchor="middle" font-size="11">→ Open a lesson</text>
+
+    <rect x="60" y="505" width="230" height="55" rx="6" fill="#bbdefb" stroke="#6c8ebf"/>
+    <text x="175" y="538" text-anchor="middle" font-weight="700" font-size="13">STUDY THE LESSON</text>
+
+    <rect x="60" y="605" width="230" height="45" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="175" y="631" text-anchor="middle">Post-study satisfaction survey</text>
+
+    <rect x="60" y="680" width="230" height="45" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="175" y="706" text-anchor="middle" font-weight="700">✓ Thank you — done</text>
+  </g>
+
+  <!-- inside-lesson nodes -->
+  <g font-size="12">
+    <rect x="400" y="230" width="200" height="50" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="500" y="252" text-anchor="middle" font-weight="700">Read a content section</text>
+    <text x="500" y="269" text-anchor="middle" font-size="11">text · diagrams · code · quiz</text>
+
+    <rect x="400" y="320" width="200" height="44" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="500" y="346" text-anchor="middle">Mark complete → next</text>
+
+    <rect x="630" y="225" width="225" height="125" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="642" y="245" font-size="11.5" font-weight="700" fill="#7a5d00">PAUSE POINT (every 3 sections)</text>
+    <text x="642" y="265" font-size="11" fill="#5c4a00">inline “Quick check” bar:</text>
+    <text x="642" y="281" font-size="11" fill="#5c4a00" font-weight="700">“How are you feeling?”</text>
+    <text x="642" y="299" font-size="11" fill="#5c4a00">one click: Engaged / Confused /</text>
+    <text x="642" y="314" font-size="11" fill="#5c4a00">Bored / Frustrated / Neutral · or Skip</text>
+    <text x="642" y="333" font-size="11" fill="#9a5b00" font-weight="700">inline bar, NOT a pop-up · under 5 s</text>
+
+    <rect x="630" y="375" width="225" height="72" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="642" y="396" font-size="11" font-weight="700">Adaptive group only (Phase B):</text>
+    <text x="642" y="413" font-size="11">an inline card may appear —</text>
+    <text x="642" y="430" font-size="11">Hint · “Skip ahead?” · “Take a break?”</text>
+
+    <rect x="400" y="460" width="450" height="80" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="412" y="482" font-size="11.5" font-weight="700" fill="#3f6b2f">Runs INVISIBLY in the background while they read:</text>
+    <text x="412" y="500" font-size="11" fill="#37592b">behavioral signals (mouse · scroll · keystroke category · timing) every ~30 s,</text>
+    <text x="412" y="516" font-size="11" fill="#37592b">plus webcam frames if the camera is on.</text>
+    <text x="412" y="532" font-size="11" fill="#37592b" font-weight="700">The participant does nothing extra for this.</text>
+  </g>
+</svg>
