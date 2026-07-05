@@ -34,7 +34,13 @@ async def drain_once(db, last_id: str = "0", count: int = 200) -> tuple[str, int
 
 
 async def run_worker(stop_event: asyncio.Event | None = None, poll_interval: float = 1.0) -> None:
-    """Loop `drain_once` until stopped. Exits if Redis is/ becomes disabled."""
+    """Loop `drain_once` until stopped.
+
+    Runs for the whole app lifetime — it does NOT exit when Redis is unreachable. A transient
+    Redis blip only latches `redis_service` off for a short cooldown; the worker keeps polling
+    (idle, no-op reads) and resumes draining automatically once Redis recovers, so a single
+    timeout can't silently kill research data collection for the rest of the process.
+    """
     last_id = "0"
     logger.info("research_worker_started")
     while stop_event is None or not stop_event.is_set():
@@ -45,7 +51,5 @@ async def run_worker(stop_event: asyncio.Event | None = None, poll_interval: flo
                     logger.info("research_worker_drained", count=n)
         except Exception:
             logger.exception("research_worker_iteration_failed")
-        if redis_service._disabled:
-            logger.info("research_worker_stopping_redis_disabled")
-            return
         await asyncio.sleep(poll_interval)
+    logger.info("research_worker_stopped")
