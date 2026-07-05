@@ -336,19 +336,6 @@ def _lesson_roles_and_communication():
                 "when you implement.",
                 "info",
             ),
-            quiz(
-                "Which envelope field lets an orchestrator match a worker's "
-                "response to the specific request that produced it?",
-                [
-                    ("correlation_id", True),
-                    ("priority", False),
-                    ("content_type", False),
-                    ("schema_version", False),
-                ],
-                explanation="correlation_id links a response back to its "
-                "originating request. conversation_id groups a whole thread; "
-                "correlation_id pairs one request with one answer.",
-            ),
         ),
     )
 
@@ -614,6 +601,18 @@ def _lesson_consensus_bft():
                 "instantaneously updated register."
             ),
             callout(
+                "This should stop you short. FLP proves that in an asynchronous "
+                "system no deterministic protocol can guarantee consensus if even "
+                "one process may crash — and yet Paxos and Raft reach consensus in "
+                "production every day. Is FLP simply wrong? No: those systems do not "
+                "refute it, they sidestep it by weakening a premise (adding timeouts "
+                "and partial synchrony, or randomisation), buying "
+                "termination-with-high-probability instead of the guaranteed "
+                "termination FLP forbids. 'Impossible' here means 'impossible to "
+                "guarantee deterministically', not 'never happens'.",
+                "info",
+            ),
+            callout(
                 "If this feels dense, that is expected — this is graduate "
                 "distributed-systems material compressed hard. The single "
                 "load-bearing idea to hold onto: quorums must intersect, and "
@@ -675,6 +674,18 @@ def _lesson_consensus_bft():
                 "reason production systems reserve full BFT (e.g. PBFT-style "
                 "protocols) for adversarial settings such as blockchains, and use "
                 "cheaper crash-tolerant consensus (Raft, Paxos) everywhere else."
+            ),
+            callout(
+                "A natural expectation, and it is wrong: to out-vote f liars you "
+                "would think one more honest node than liars suffices — a simple "
+                "majority, n = 2f + 1, exactly the crash-only bound. Yet Byzantine "
+                "tolerance demands n = 3f + 1, fully twice the redundancy. Where "
+                "does the extra f come from? The sketch above is the answer: you can "
+                "only ever wait for n - f responders (up to f may be silent), and up "
+                "to f of THOSE may lie — so the honest voices number n - 2f and must "
+                "still beat f liars, forcing n > 3f. Silence and lies are two "
+                "separate taxes, and you pay both.",
+                "info",
             ),
             mermaid(
                 "flowchart TD\n"
@@ -738,6 +749,17 @@ def _lesson_consensus_bft():
                 "majority has no leader at all, and the system correctly refuses to "
                 "make progress rather than risk divergence — the CAP trade-off made "
                 "concrete."
+            ),
+            callout(
+                "This looks like a step backwards. The whole point of replication "
+                "was to avoid a single point of failure — yet we just funnelled "
+                "every decision through ONE leader. Kill the leader and surely the "
+                "system dies? The resolution is that leadership is a lease, not a "
+                "throne: it is scoped to a term, and the moment heartbeats stop the "
+                "survivors elect a new leader by majority quorum. The leader is a "
+                "single point of DECISION, not a single point of failure — the role "
+                "outlives any node that holds it.",
+                "info",
             ),
             callout(
                 "If leader election, terms, heartbeats, and split-brain feel like a "
@@ -956,19 +978,6 @@ def _lesson_eval_safety():
                 "Regret — cumulative gap between the system's outcomes and the best "
                 "achievable outcomes, used in sequential-decision settings."
             ),
-            quiz(
-                "Which metric best captures tail-latency user experience rather "
-                "than typical-case speed?",
-                [
-                    ("p99 latency", True),
-                    ("Median (p50) latency", False),
-                    ("Exact match", False),
-                    ("Refusal rate", False),
-                ],
-                explanation="p99 latency describes the slowest 1% of requests — the "
-                "tail — which often dominates perceived reliability. The median "
-                "hides those bad cases.",
-            ),
         ),
 
         # affect: confused
@@ -1009,6 +1018,18 @@ def _lesson_eval_safety():
                 "sufficiently capable optimisers tend to pursue exactly the "
                 "behaviours that undermine the humans supervising them, regardless "
                 "of what their ultimate objective happens to be."
+            ),
+            callout(
+                "Here is the counter-intuitive core. You would expect a more capable "
+                "agent to be a safer one — better at the task means fewer mistakes. "
+                "Yet this section insists the failures grow MORE dangerous as "
+                "capability rises. Both are true, and the reconciliation is the "
+                "specified-versus-intended gap: a stronger optimiser does not "
+                "optimise what you MEANT, it optimises what you MEASURED, and the "
+                "better it gets the more ruthlessly it finds the cracks between the "
+                "two (Goodhart's law). Capability amplifies specification error "
+                "rather than forgiving it.",
+                "info",
             ),
             callout(
                 "The unsettling takeaway: these are not failures of a broken agent "

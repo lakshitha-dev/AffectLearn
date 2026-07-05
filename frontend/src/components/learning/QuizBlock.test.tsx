@@ -162,7 +162,7 @@ describe("QuizBlock", () => {
       fireEvent.click(screen.getByRole("radio", { name: /4/ }));
       fireEvent.click(screen.getByRole("button", { name: "Check answer" }));
 
-      expect(onSubmit).toHaveBeenCalledWith("q1", ["b"], true);
+      expect(onSubmit).toHaveBeenCalledWith("q1", ["b"], true, expect.any(Number));
     });
 
     it("shows 'Correct!' feedback", () => {
@@ -206,7 +206,7 @@ describe("QuizBlock", () => {
       fireEvent.click(screen.getByRole("radio", { name: /3/ }));
       fireEvent.click(screen.getByRole("button", { name: "Check answer" }));
 
-      expect(onSubmit).toHaveBeenCalledWith("q1", ["a"], false);
+      expect(onSubmit).toHaveBeenCalledWith("q1", ["a"], false, expect.any(Number));
     });
 
     it("shows 'Not quite' feedback", () => {
@@ -244,7 +244,7 @@ describe("QuizBlock", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: /^3$/ }));
       fireEvent.click(screen.getByRole("button", { name: "Check answer" }));
 
-      expect(onSubmit).toHaveBeenCalledWith("q2", expect.arrayContaining(["a", "b"]), true);
+      expect(onSubmit).toHaveBeenCalledWith("q2", expect.arrayContaining(["a", "b"]), true, expect.any(Number));
       const [, selectedIds, isCorrect] = onSubmit.mock.calls[0];
       expect(selectedIds).toHaveLength(2);
       expect(isCorrect).toBe(true);
@@ -257,7 +257,7 @@ describe("QuizBlock", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: /^2$/ }));
       fireEvent.click(screen.getByRole("button", { name: "Check answer" }));
 
-      expect(onSubmit).toHaveBeenCalledWith("q2", ["a"], false);
+      expect(onSubmit).toHaveBeenCalledWith("q2", ["a"], false, expect.any(Number));
     });
   });
 

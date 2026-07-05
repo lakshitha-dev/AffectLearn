@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 
 import { useSelfReportTrigger, SECTIONS_PER_PROMPT } from "./use-self-report-trigger";
@@ -77,5 +77,43 @@ describe("useSelfReportTrigger (AC7 pause-point trigger)", () => {
     expect(result.current.showSelfReport).toBe(false);
     rerender(3);
     expect(result.current.showSelfReport).toBe(true);
+  });
+
+  // Pre-pilot reactivity control (#7): random omission of a fraction of due prompts.
+  it("omits a due prompt when the roll is below the omission rate (logs, never shows)", () => {
+    const onOmit = vi.fn();
+    const { result, rerender } = renderHook(
+      (count: number) =>
+        useSelfReportTrigger(count, T, { omissionRate: 1, random: () => 0, onOmit }),
+      { initialProps: 0 },
+    );
+    rerender(T); // due, but the roll (0 < 1) omits it
+    expect(result.current.showSelfReport).toBe(false);
+    expect(onOmit).toHaveBeenCalledWith(0);
+    // Boundary advanced silently so the flow continues; the next prompt needs a further T.
+    expect(result.current.promptIndex).toBe(1);
+  });
+
+  it("shows a due prompt when the roll is at/above the omission rate", () => {
+    const onOmit = vi.fn();
+    const { result, rerender } = renderHook(
+      (count: number) =>
+        useSelfReportTrigger(count, T, { omissionRate: 0.2, random: () => 0.9, onOmit }),
+      { initialProps: 0 },
+    );
+    rerender(T);
+    expect(result.current.showSelfReport).toBe(true);
+    expect(onOmit).not.toHaveBeenCalled();
+  });
+
+  it("with omissionRate 0 (default) never omits and never consults the RNG", () => {
+    const random = vi.fn(() => 0); // would omit if it were consulted
+    const { result, rerender } = renderHook(
+      (count: number) => useSelfReportTrigger(count, T, { omissionRate: 0, random }),
+      { initialProps: 0 },
+    );
+    rerender(T);
+    expect(result.current.showSelfReport).toBe(true);
+    expect(random).not.toHaveBeenCalled();
   });
 });

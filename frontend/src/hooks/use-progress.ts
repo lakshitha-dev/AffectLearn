@@ -134,3 +134,24 @@ export function useMarkSectionComplete(
     },
   });
 }
+
+interface QuizResponsePayload {
+  contentBlockId: string;
+  selectedAnswers: string[];
+  isCorrect: boolean;
+  responseTimeMs: number;
+  sectionId: string;
+}
+
+/**
+ * Records a quiz answer + its time-to-answer (frustration/deliberation probe). The backend
+ * persists it and emits a `quiz_submitted` research event with the timing. Best-effort —
+ * never surfaces errors to the learner.
+ */
+export function useRecordQuizResponse() {
+  return useMutation<unknown, Error, QuizResponsePayload>({
+    mutationFn: (body) =>
+      apiFetch("/quiz-responses", { method: "POST", body: JSON.stringify(body) }),
+    retry: (n, err) => n < 2 && err instanceof TypeError,
+  });
+}
