@@ -2,14 +2,20 @@
 
 The learner-profile hot path uses this. Redis being unreachable (CI, an outage, or the
 `redis` package/host being absent) must NEVER break a learner's cycle (NFR22 spirit), so
-every call degrades: `get_json` returns None, `set_json` no-ops. On the first failure the
-client disables itself for the process so we don't pay repeated connect timeouts.
+every call degrades: `get_json` returns None, `set_json` no-ops.
+
+Failures disable Redis for a SHORT COOLDOWN (not permanently) and drop the client, so a
+transient blip self-heals on the next attempt after the cooldown. This matters for the
+research durability pipeline: a permanent latch would silently kill event draining +
+buffering for the rest of the process on one timeout (the worker keeps polling and resumes
+once Redis recovers). Cooldown length: `REDIS_COOLDOWN_S` (default 10s).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 import structlog
@@ -19,13 +25,22 @@ from app.core.config import settings
 logger = structlog.get_logger(__name__)
 
 _client: Any | None = None
-_disabled = False
+_disabled = False           # True while unhealthy (during a cooldown, or pinned in tests)
+_disabled_until = 0.0       # monotonic time the cooldown ends; 0 => pinned (no auto-recover)
+_COOLDOWN_S = float(os.getenv("REDIS_COOLDOWN_S", "10"))
 
 
 def _get_client() -> Any | None:
-    global _client, _disabled
+    global _client, _disabled, _disabled_until
     if _disabled:
-        return None
+        # Auto-recover once the cooldown has elapsed (a real failure always sets a cooldown;
+        # a test-pinned `_disabled=True` leaves `_disabled_until=0` and stays disabled).
+        if _disabled_until and time.monotonic() >= _disabled_until:
+            _disabled = False
+            _disabled_until = 0.0
+            _client = None      # force a fresh reconnect
+        else:
+            return None
     if _client is None:
         try:
             import redis.asyncio as aioredis
@@ -37,16 +52,22 @@ def _get_client() -> Any | None:
                 socket_timeout=0.5,
             )
         except Exception:
-            logger.warning("redis_unavailable_disabling_cache")
-            _disabled = True
+            _disable("client_init_failed")
             return None
     return _client
 
 
 def _disable(reason: str, **kw: Any) -> None:
-    global _disabled
+    """Disable Redis for a cooldown and drop the client so the next attempt reconnects.
+
+    A COOLDOWN, not a permanent latch — a transient blip must not permanently halt the
+    research durability pipeline. Callers still degrade gracefully during the cooldown.
+    """
+    global _disabled, _disabled_until, _client
     _disabled = True
-    logger.warning("redis_disabled", reason=reason, **kw)
+    _disabled_until = time.monotonic() + _COOLDOWN_S
+    _client = None
+    logger.warning("redis_disabled_cooldown", reason=reason, cooldown_s=_COOLDOWN_S, **kw)
 
 
 async def get_json(key: str) -> dict | None:
@@ -119,6 +140,7 @@ async def stream_read(
 
 def _reset() -> None:
     """Test helper — drop the cached client and re-enable."""
-    global _client, _disabled
+    global _client, _disabled, _disabled_until
     _client = None
     _disabled = False
+    _disabled_until = 0.0

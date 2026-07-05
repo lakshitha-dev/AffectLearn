@@ -4,6 +4,8 @@ No Redis runs in CI (REDIS_URL host is unresolvable), so these assert the calls 
 to None/no-op without raising — never breaking a caller.
 """
 
+import time
+
 import pytest
 
 from app.services import redis_service
@@ -27,3 +29,18 @@ async def test_disabled_after_failure_returns_fast():
     await redis_service.get_json("k")          # first call fails -> disables
     assert redis_service._disabled is True
     assert await redis_service.get_json("k2") is None  # subsequent calls short-circuit
+
+
+@pytest.mark.asyncio
+async def test_disable_is_a_cooldown_not_permanent():
+    # A transient failure disables Redis for a COOLDOWN, then auto-recovers — it must NOT
+    # latch off permanently (else one blip silently kills research draining for the process).
+    redis_service._reset()
+    redis_service._disable("simulated_blip")
+    assert redis_service._disabled is True
+    assert redis_service._disabled_until > 0          # a real failure sets a cooldown
+    assert redis_service._get_client() is None         # within cooldown -> degraded
+    redis_service._disabled_until = time.monotonic() - 1  # pretend the cooldown elapsed
+    redis_service._get_client()                        # next attempt reconnects
+    assert redis_service._disabled is False            # latch cleared -> recovered
+    redis_service._reset()
