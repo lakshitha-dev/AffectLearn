@@ -32,6 +32,12 @@ async def test_disabled_after_failure_returns_fast():
 
 
 @pytest.mark.asyncio
+async def test_ping_degrades_to_false_without_redis():
+    redis_service._reset()
+    assert await redis_service.ping() is False
+
+
+@pytest.mark.asyncio
 async def test_disable_is_a_cooldown_not_permanent():
     # A transient failure disables Redis for a COOLDOWN, then auto-recovers — it must NOT
     # latch off permanently (else one blip silently kills research draining for the process).

@@ -68,3 +68,37 @@ app.include_router(api_router, prefix="/api/v1")
 async def health_check():
     return {"status": "healthy"}
 
+
+@app.get("/health/pipeline")
+async def pipeline_health():
+    """Liveness of the research data-collection pipeline (for pilot monitoring).
+
+    Reports Redis reachability, the drain worker's heartbeat, and Postgres reachability so
+    a stalled pipeline is caught during Phase A. No secrets — safe to poll. `status` is "ok"
+    only when all three are healthy; poll e.g. every minute and alert on "degraded".
+    """
+    from sqlalchemy import text as _sql_text
+
+    from app.db.session import async_session
+    from app.services import redis_service, research_worker
+
+    redis_ok = await redis_service.ping()
+    worker_age = research_worker.heartbeat_age()
+    worker_ok = research_worker.is_healthy()
+    try:
+        async with async_session() as db:
+            await db.execute(_sql_text("SELECT 1"))
+        pg_ok = True
+    except Exception:
+        pg_ok = False
+
+    return {
+        "status": "ok" if (redis_ok and worker_ok and pg_ok) else "degraded",
+        "redis": redis_ok,
+        "postgres": pg_ok,
+        "worker": {
+            "running": worker_ok,
+            "heartbeatAgeS": round(worker_age, 1) if worker_age is not None else None,
+        },
+    }
+

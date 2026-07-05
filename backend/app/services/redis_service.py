@@ -138,6 +138,18 @@ async def stream_read(
         return []
 
 
+async def ping() -> bool:
+    """Best-effort liveness ping. True if Redis responds; never raises (degrades to False)."""
+    client = _get_client()
+    if client is None:
+        return False
+    try:
+        return bool(await client.ping())
+    except Exception:
+        _disable("ping_failed")
+        return False
+
+
 def _reset() -> None:
     """Test helper — drop the cached client and re-enable."""
     global _client, _disabled, _disabled_until
