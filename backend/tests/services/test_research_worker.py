@@ -38,3 +38,16 @@ async def test_drain_once_empty_stream_is_noop(monkeypatch, db):
     new_last_id, count = await research_worker.drain_once(db, last_id="5-0")
     assert count == 0
     assert new_last_id == "5-0"          # unchanged when nothing to read
+
+
+def test_heartbeat_reports_liveness(monkeypatch):
+    import time
+    # Never started -> no heartbeat -> not healthy.
+    monkeypatch.setattr(research_worker, "_heartbeat", 0.0, raising=False)
+    assert research_worker.heartbeat_age() is None
+    assert research_worker.is_healthy() is False
+    # Fresh beat -> healthy; stale beat -> unhealthy.
+    monkeypatch.setattr(research_worker, "_heartbeat", time.monotonic(), raising=False)
+    assert research_worker.is_healthy(max_age_s=15) is True
+    monkeypatch.setattr(research_worker, "_heartbeat", time.monotonic() - 60, raising=False)
+    assert research_worker.is_healthy(max_age_s=15) is False

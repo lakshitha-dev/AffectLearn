@@ -12,6 +12,7 @@ restart are de-dupable offline by (session_id, sequence_number).
 from __future__ import annotations
 
 import asyncio
+import time
 
 import structlog
 
@@ -21,6 +22,21 @@ from app.services import redis_service, research_event_service
 logger = structlog.get_logger(__name__)
 
 _STREAM = "research_events"
+
+# Liveness heartbeat: monotonic time of the worker's last loop iteration (0 = never started).
+# Read by the /health/pipeline endpoint so the pilot can detect a stalled drain worker.
+_heartbeat: float = 0.0
+
+
+def heartbeat_age() -> float | None:
+    """Seconds since the worker's last loop iteration, or None if it never started."""
+    return None if _heartbeat == 0.0 else time.monotonic() - _heartbeat
+
+
+def is_healthy(max_age_s: float = 15.0) -> bool:
+    """True if the worker looped within `max_age_s` (poll interval is ~1s)."""
+    age = heartbeat_age()
+    return age is not None and age <= max_age_s
 
 
 async def drain_once(db, last_id: str = "0", count: int = 200) -> tuple[str, int]:
@@ -41,9 +57,11 @@ async def run_worker(stop_event: asyncio.Event | None = None, poll_interval: flo
     (idle, no-op reads) and resumes draining automatically once Redis recovers, so a single
     timeout can't silently kill research data collection for the rest of the process.
     """
+    global _heartbeat
     last_id = "0"
     logger.info("research_worker_started")
     while stop_event is None or not stop_event.is_set():
+        _heartbeat = time.monotonic()   # liveness beat for /health/pipeline
         try:
             async with async_session() as db:
                 last_id, n = await drain_once(db, last_id)
