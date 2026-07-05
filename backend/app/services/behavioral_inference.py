@@ -202,4 +202,10 @@ def predict_from_window(
     features = extract_features(df, window_start=0, window_length_ms=WINDOW_LENGTH_MS)
     result = (model or get_behavioral_model()).infer(features)
     result["n_bins"] = int(features.shape[0])
+    # Persist the RAW (pre-normalisation) aggregate feature window so Phase A data is
+    # trainable. These are aggregate statistics (entropy, velocities, counts) — NOT raw
+    # events — so this honours NFR10 / the consent's "only aggregate features". Training
+    # fits its own z-score, so we store the un-normalised window: the exact (n_bins,
+    # N_FEATURES) array infer() consumed, guaranteeing train/serve parity (guide §7).
+    result["features"] = features.round(6).tolist()   # (n_bins, N_FEATURES)
     return result

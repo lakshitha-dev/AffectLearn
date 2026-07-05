@@ -261,7 +261,11 @@ async def _handle_behavioral_window(
     never thrown (NFR22). An idle window (no events) still classifies the zero-window.
 
     Privacy (NFR10): raw behavioral events ride only the transient `behavioral_payload`
-    and are dropped after the cycle — only counts + results enter the research event.
+    and are dropped after the cycle. Only aggregate values enter the research event: the
+    event counts, the model result, and the (n_bins × N_FEATURES) AGGREGATE feature window
+    (entropy, velocities, counts — never raw coordinates/keys), which makes Phase A data
+    trainable (train/serve parity, ml-training-guide-behavioral §7) while honouring the
+    consent's "only aggregate features".
     """
     data = envelope.get("data") or {}
     cycle = int(data.get("cycle_number", 0) or 0)
@@ -309,6 +313,10 @@ async def _handle_behavioral_window(
             label=inference.get("label"),
             probs=inference.get("probs"),
             n_bins=inference.get("n_bins"),
+            # aggregate feature window (n_bins × N_FEATURES) — the Bi-LSTM's own input,
+            # persisted so Phase A data is trainable (guide §7 train/serve parity). Aggregate
+            # stats only (not raw events) → honours NFR10 / the consent's "only aggregate features".
+            features=inference.get("features"),
         )
     elif error:
         payload["error"] = error

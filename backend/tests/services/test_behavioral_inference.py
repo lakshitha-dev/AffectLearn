@@ -57,6 +57,8 @@ def test_predict_argmax_maps_to_behavioral_class_order():
     assert 0.0 <= out["confidence"] <= 1.0
     assert len(out["probs"]) == 4
     assert out["n_bins"] == 30
+    # aggregate feature window persisted for training (guide §7 train/serve parity)
+    assert len(out["features"]) == 30 and len(out["features"][0]) == 13
 
 
 def test_missing_window_start_anchors_to_first_event(monkeypatch):
