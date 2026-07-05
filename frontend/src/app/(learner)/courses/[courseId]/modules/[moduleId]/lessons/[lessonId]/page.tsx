@@ -23,9 +23,13 @@ import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
 import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
-import { useLessonProgress, useMarkSectionComplete } from "@/hooks/use-progress";
+import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
-import { useSelfReportTrigger } from "@/hooks/use-self-report-trigger";
+import {
+  useSelfReportTrigger,
+  SECTIONS_PER_PROMPT,
+  SELF_REPORT_OMISSION_RATE,
+} from "@/hooks/use-self-report-trigger";
 import { useUiStore } from "@/stores/ui-store";
 import type { SectionDetail } from "@/types/course";
 
@@ -45,6 +49,7 @@ export default function LessonPage({ params }: PageProps) {
   const lessonQuery = useLessonDetail(lessonId);
   const progressQuery = useLessonProgress(lessonId);
   const markComplete = useMarkSectionComplete(courseId, lessonId);
+  const recordQuiz = useRecordQuizResponse();
 
   // Open the single learner WebSocket for affect detection + adaptation delivery.
   // Story 4.2+ hooks (facial features, behavioral window, adaptations) consume this connection
@@ -158,13 +163,30 @@ export default function LessonPage({ params }: PageProps) {
     [send],
   );
 
+  // Pre-pilot research control (#7): log a due prompt that was RANDOMLY OMITTED (never shown)
+  // so analysis can estimate the prompt's own reactive effect. Reuses the self_report channel
+  // with an `omitted` marker; affect is null and it is NOT a user skip.
+  const logSelfReportOmitted = useCallback(
+    (prompt_index: number) => {
+      send({
+        type: "self_report",
+        ts: Date.now(),
+        data: { affect: null, skipped: false, omitted: true, prompt_index },
+      });
+    },
+    [send],
+  );
+
   // Story 6.2: self-report pause-point trigger. Derived from distinct section completions
   // (the page tracks no "sections viewed" counter; a scroll-spy is deliberately avoided —
   // see use-self-report-trigger.ts). The widget shows once SECTIONS_PER_PROMPT completions
   // accrue since the last prompt, then resets after a report/skip (never re-prompts
-  // immediately, never blocks scrolling/navigation).
+  // immediately, never blocks scrolling/navigation). A random SELF_REPORT_OMISSION_RATE
+  // fraction of due prompts are omitted (logged, not shown) for reactivity estimation (#7).
   const { showSelfReport, promptIndex, dismiss: dismissSelfReport } = useSelfReportTrigger(
     completedSectionIds.size,
+    SECTIONS_PER_PROMPT,
+    { omissionRate: SELF_REPORT_OMISSION_RATE, onOmit: logSelfReportOmitted },
   );
 
   // Story 6.2: log the learner's ground-truth self-report (or deliberate skip) upstream so
@@ -283,6 +305,15 @@ export default function LessonPage({ params }: PageProps) {
               onNext={() => { if (idx === sections.length - 1) handleLastSectionCta(); else handleSectionNav(idx + 1); }}
               onPrev={() => handleSectionNav(idx - 1)}
               isSaving={markComplete.isPending}
+              onQuizAnswered={(sectionId, blockId, selectedIds, isCorrect, responseTimeMs) =>
+                recordQuiz.mutate({
+                  contentBlockId: blockId,
+                  selectedAnswers: selectedIds,
+                  isCorrect,
+                  responseTimeMs,
+                  sectionId,
+                })
+              }
             />
           </>
         );

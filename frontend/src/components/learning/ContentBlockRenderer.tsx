@@ -8,7 +8,7 @@ import type { ContentBlock } from "@/types/course";
 
 interface ContentBlockRendererProps {
   block: ContentBlock;
-  onQuizSubmit?: (blockId: string, selectedIds: string[], isCorrect: boolean) => void;
+  onQuizSubmit?: (blockId: string, selectedIds: string[], isCorrect: boolean, responseTimeMs: number) => void;
   previewMode?: boolean;
 }
 

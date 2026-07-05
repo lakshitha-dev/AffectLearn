@@ -127,8 +127,10 @@ async def phase_a_dataset(
 
     Join key for the analyst: pair each `behavioral_affect_detected` window to a `self_report`
     label by `session_id` + the nearest preceding `cycle_number`/`timestamp`. Behavioral payload
-    carries `event_counts`/`idle` + raw model output (`label`/`probs`/`n_bins`/`affect_*`); the
-    self_report payload carries `{affect, skipped, prompt_index, section_id}`.
+    carries `event_counts`/`idle`, raw model output (`label`/`probs`/`n_bins`/`affect_*`), and the
+    aggregate `features` window (n_bins × N_FEATURES) — the Bi-LSTM training input (guide §7); the
+    self_report payload carries `{affect, skipped, omitted, prompt_index, section_id}` (an
+    `omitted:true` row is a due prompt randomly withheld for reactivity estimation, not a skip).
     """
     result = await research_export_service.phase_a_dataset(
         db,

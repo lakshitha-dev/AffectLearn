@@ -44,7 +44,8 @@ def _envelope(cycle=1, idle=False, events=None):
 async def test_success_emits_behavioral_affect_event(monkeypatch, captured_events):
     def fake_predict(events, started):
         return {"affect_index": 1, "label": "bored", "confidence": 0.66,
-                "probs": [0.2, 0.66, 0.1, 0.04], "n_bins": 30}
+                "probs": [0.2, 0.66, 0.1, 0.04], "n_bins": 30,
+                "features": [[0.1, 0.2], [0.3, 0.4]]}
 
     monkeypatch.setattr(ad, "predict_from_window", fake_predict)
     await ws._handle_behavioral_window(_envelope(), "u1", "s1")
@@ -61,6 +62,8 @@ async def test_success_emits_behavioral_affect_event(monkeypatch, captured_event
     assert p["probs"] == [0.2, 0.66, 0.1, 0.04]
     assert p["n_bins"] == 30
     assert p["event_counts"]["mouse_click_count"] == 1
+    # aggregate feature window persisted for training (train/serve parity, guide §7)
+    assert p["features"] == [[0.1, 0.2], [0.3, 0.4]]
 
 
 @pytest.mark.asyncio

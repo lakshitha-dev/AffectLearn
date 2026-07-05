@@ -261,7 +261,11 @@ async def _handle_behavioral_window(
     never thrown (NFR22). An idle window (no events) still classifies the zero-window.
 
     Privacy (NFR10): raw behavioral events ride only the transient `behavioral_payload`
-    and are dropped after the cycle — only counts + results enter the research event.
+    and are dropped after the cycle. Only aggregate values enter the research event: the
+    event counts, the model result, and the (n_bins × N_FEATURES) AGGREGATE feature window
+    (entropy, velocities, counts — never raw coordinates/keys), which makes Phase A data
+    trainable (train/serve parity, ml-training-guide-behavioral §7) while honouring the
+    consent's "only aggregate features".
     """
     data = envelope.get("data") or {}
     cycle = int(data.get("cycle_number", 0) or 0)
@@ -309,6 +313,10 @@ async def _handle_behavioral_window(
             label=inference.get("label"),
             probs=inference.get("probs"),
             n_bins=inference.get("n_bins"),
+            # aggregate feature window (n_bins × N_FEATURES) — the Bi-LSTM's own input,
+            # persisted so Phase A data is trainable (guide §7 train/serve parity). Aggregate
+            # stats only (not raw events) → honours NFR10 / the consent's "only aggregate features".
+            features=inference.get("features"),
         )
     elif error:
         payload["error"] = error
@@ -539,11 +547,15 @@ async def _handle_self_report(
         return
 
     skipped = bool(data.get("skipped"))
+    # Pre-pilot control (#7): a due prompt RANDOMLY OMITTED by the client (never shown to the
+    # learner) so analysis can estimate the prompt's own reactive effect. It carries no affect
+    # and is NOT a user skip; recorded with `omitted:true` so it is distinguishable from both.
+    omitted = bool(data.get("omitted"))
     affect = data.get("affect")
 
-    # A valid message is EITHER a deliberate skip (then `affect` is normalized to None) OR a
-    # real selection whose `affect` is in the 5-value vocabulary. Anything else is dropped.
-    if not skipped and affect not in _SELF_REPORT_AFFECTS:
+    # A valid message is a deliberate skip, an omitted prompt (both affect-less), OR a real
+    # selection whose `affect` is in the 5-value vocabulary. Anything else is dropped.
+    if not skipped and not omitted and affect not in _SELF_REPORT_AFFECTS:
         logger.warning(
             "ws_invalid_message",
             user_id=user_id,
@@ -560,8 +572,9 @@ async def _handle_self_report(
         "phase": phase,
         "group": group,
         "payload": {
-            "affect": None if skipped else affect,
+            "affect": None if (skipped or omitted) else affect,
             "skipped": skipped,
+            "omitted": omitted,
             "prompt_index": data.get("prompt_index"),
             "section_id": data.get("section_id"),
         },

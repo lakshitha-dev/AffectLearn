@@ -95,6 +95,33 @@ export function ThankYouSummary({ learnerId }: ThankYouSummaryProps) {
           </div>
         )}
       </section>
+
+      <section
+        aria-label="About this study"
+        className="rounded-xl border border-border bg-surface p-6 space-y-3 text-sm leading-relaxed"
+      >
+        <h2 className="text-lg font-semibold text-foreground">About this study</h2>
+        <p className="text-muted-foreground">
+          Now that you have finished, here is what we were really studying. AffectLearn is
+          research into how learners <strong>feel</strong> while they study — moments of
+          engagement, boredom, confusion, and mild frustration — and how those feelings show up
+          in webcam and mouse/keyboard signals. We were studying those emotions,{" "}
+          <strong>not testing you</strong>; there was no score you needed to reach.
+        </p>
+        <p className="text-muted-foreground">
+          To observe a natural range of feelings, the lessons were deliberately varied: some
+          sections were meant to feel clear and engaging, some were dense reference material that
+          can feel tedious, and a few were intentionally challenging or held ideas that seem to
+          contradict each other before they resolve. If parts felt slow, confusing, or hard, that
+          was by design and is completely normal — not a reflection of your ability.
+        </p>
+        <p className="text-muted-foreground">
+          Your webcam frames were never stored — only the on-device affect reading was sent.
+          Behavioural data is aggregate features only, anonymised by a random session token, and
+          kept for at most 90 days. You may still withdraw at any time and have your data deleted;
+          contact the research team with any questions.
+        </p>
+      </section>
     </div>
   );
 }

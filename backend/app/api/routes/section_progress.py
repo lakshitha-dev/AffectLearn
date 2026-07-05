@@ -66,6 +66,10 @@ class QuizResponseCreate(CamelModel):
     content_block_id: uuid.UUID
     selected_answers: list[str]
     is_correct: bool
+    # Behavioral-data probe (frustration/deliberation signal): time from first seeing the
+    # quiz to submitting, and the section it belongs to. Optional/back-compatible.
+    response_time_ms: int | None = None
+    section_id: uuid.UUID | None = None
 
 
 class QuizResponseOut(CamelModel):
@@ -223,6 +227,8 @@ async def record_quiz_response(
         "payload": {
             "content_block_id": str(body.content_block_id),
             "is_correct": bool(body.is_correct),
+            "response_time_ms": body.response_time_ms,
+            "section_id": str(body.section_id) if body.section_id else None,
         },
     })
     return record

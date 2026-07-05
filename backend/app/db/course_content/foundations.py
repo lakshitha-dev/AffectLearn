@@ -484,11 +484,6 @@ def _lesson_worked_example():
                 "category in this exhaustive enumeration that satisfies, in "
                 "full, every clause of the definition of agency."
             ),
-            reflection(
-                "Pick a product you use that is marketed as an 'AI agent.' Using "
-                "the five categories above, which one does it actually fall "
-                "into? What single capability would move it up a category?"
-            ),
         ),
     )
 
@@ -696,11 +691,6 @@ def _lesson_react():
                 '}',
                 language="json",
             ),
-            reflection(
-                "Of the tool-definition fields above, which do you think teams "
-                "most often neglect, and what class of failure would you expect "
-                "that neglect to cause?"
-            ),
         ),
     )
 
@@ -745,6 +735,17 @@ def _lesson_formal():
                 "map from belief states, not states, to actions — which is "
                 "precisely why partial observability makes the problem so much "
                 "harder than the fully observed MDP case above."
+            ),
+            callout(
+                "A tension worth pausing on: Module 1 insisted an agent needs "
+                "*memory* or it forgets — yet the Markov property just said the "
+                "future depends only on the present state, as if the past can be "
+                "discarded. Both are true. The reconciliation is the definition "
+                "of 'state': it is whatever you must know now to predict the "
+                "future, so a well-chosen state — or the belief state b_t above — "
+                "already absorbs the relevant past. 'Memoryless' and 'needs "
+                "memory' are the same claim seen from two sides.",
+                variant="info",
             ),
             callout(
                 "If S, A, P, gamma, V^pi, Q^pi, belief states, and the Bellman "
@@ -796,6 +797,18 @@ def _lesson_formal():
                 "actually use. The LLM-driven agent, then, is best read as a "
                 "learned approximation to pi*(a|b) that never explicitly forms b, "
                 "Gamma, or T* at all."
+            ),
+            callout(
+                "Notice the apparent paradox: value iteration is *guaranteed* to "
+                "converge to the unique optimal value function — the Banach "
+                "fixed-point theorem promises it — and yet we conclude that real "
+                "agents cannot compute it and must approximate. If it is "
+                "guaranteed, why can we not just run it? The resolution is that "
+                "'guaranteed to converge' is not the same as 'tractable to "
+                "compute': in the POMDP lift each step manipulates a set of "
+                "alpha-vectors that grows doubly exponentially, so the promised "
+                "convergence is real but computationally out of reach.",
+                variant="info",
             ),
             callout(
                 "T*, contraction mappings, the belief simplex, alpha-vectors — "

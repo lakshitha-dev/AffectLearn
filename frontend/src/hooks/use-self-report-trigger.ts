@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * useSelfReportTrigger — the Story 6.2 pause-point trigger for the self-report widget.
@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
  * existing "sections viewed" counter and no per-section route. The "every 2-3 sections /
  * ~10-15 min" pause point is therefore DERIVED from the cleanest signal the page already
  * has: SECTION COMPLETION (`completedSectionIds` / `handleMarkComplete`). We count distinct
- * completions since the last prompt; once the delta reaches `SECTIONS_PER_PROMPT` (= 3) the
+ * completions since the last prompt; once the delta reaches `SECTIONS_PER_PROMPT` (= 2) the
  * widget shows, then the boundary resets after a report/skip. This maps "every 2-3 sections"
  * to a concrete, testable rule and reuses existing state — a scroll-spy / IntersectionObserver
  * is deliberately avoided (over-engineering for a pilot instrument; Dev Notes "Pause-point
@@ -24,11 +24,31 @@ import { useCallback, useEffect, useState } from "react";
  *    increments `promptIndex` so downstream analysis can order prompts within the session.
  *  - With no pause signal (e.g. a single-section lesson that never reaches the threshold) the
  *    widget simply never shows (graceful absence, no error) — AC7.
+ *
+ * Prompt-reactivity control (pre-pilot, research action item #7): a fraction of due prompts
+ * are RANDOMLY OMITTED (`options.omissionRate`, default 0 = off). An omitted prompt is never
+ * shown; the hook silently advances the boundary as if dismissed and fires `options.onOmit`
+ * so the consumer can log a `self_report {omitted:true}` marker. Comparing behavioral windows
+ * after a SHOWN prompt vs an OMITTED (would-be) prompt estimates the prompt's own reactive
+ * effect (Hawthorne / measurement reactivity). The show-vs-omit coin is flipped ONCE per
+ * boundary (memoised in a ref) so re-renders never re-roll and the widget never flashes.
  */
 
 // Pause-point cadence: a prompt fires every N section completions ("every 2-3 sections").
 // Set to 2 so it triggers within short lessons (the pilot lessons have ~2 sections each).
 export const SECTIONS_PER_PROMPT = 2;
+
+// Fraction of due self-report prompts to randomly omit in the pilot (research action item #7).
+export const SELF_REPORT_OMISSION_RATE = 0.2;
+
+interface UseSelfReportTriggerOptions {
+  /** Probability (0-1) that a due prompt is omitted instead of shown. Default 0 (never omit). */
+  omissionRate?: number;
+  /** RNG in [0,1); injectable for deterministic tests. Default `Math.random`. */
+  random?: () => number;
+  /** Called once when a due prompt is omitted, with the omitted prompt's index (for logging). */
+  onOmit?: (promptIndex: number) => void;
+}
 
 interface UseSelfReportTriggerResult {
   /** True when a pause point has been reached and the widget should render. */
@@ -42,7 +62,10 @@ interface UseSelfReportTriggerResult {
 export function useSelfReportTrigger(
   completedCount: number,
   threshold: number = SECTIONS_PER_PROMPT,
+  options: UseSelfReportTriggerOptions = {},
 ): UseSelfReportTriggerResult {
+  const { omissionRate = 0, random = Math.random, onOmit } = options;
+
   // The completed-count at the last prompt boundary (start at 0 — first prompt fires once
   // `threshold` distinct completions have accrued). Held in STATE (not a ref) so advancing
   // the boundary on dismiss re-renders and re-evaluates `showSelfReport`.
@@ -57,7 +80,31 @@ export function useSelfReportTrigger(
     if (completedCount < boundary) setBoundary(completedCount);
   }, [completedCount, boundary]);
 
-  const showSelfReport = completedCount - boundary >= threshold;
+  const due = completedCount - boundary >= threshold;
+
+  // Flip the show-vs-omit coin exactly ONCE per boundary, synchronously during render so the
+  // widget never flashes before an effect can hide it. Memoised in a ref keyed by boundary;
+  // only rolled when omission is enabled (so the default path stays pure and deterministic).
+  const decisionRef = useRef<{ boundary: number; omit: boolean } | null>(null);
+  let omit = false;
+  if (due && omissionRate > 0) {
+    if (decisionRef.current?.boundary !== boundary) {
+      decisionRef.current = { boundary, omit: random() < omissionRate };
+    }
+    omit = decisionRef.current.omit;
+  }
+
+  // On an omitted prompt, silently advance (as dismiss would) and notify for logging. Fires
+  // once: advancing the boundary makes `due` false, so the effect will not re-run for it.
+  useEffect(() => {
+    if (due && omit) {
+      onOmit?.(promptIndex);
+      setBoundary(completedCount);
+      setPromptIndex((i) => i + 1);
+    }
+  }, [due, omit, completedCount, onOmit, promptIndex]);
+
+  const showSelfReport = due && !omit;
 
   const dismiss = useCallback(() => {
     // Record the new boundary at the current completed count so the next prompt requires a

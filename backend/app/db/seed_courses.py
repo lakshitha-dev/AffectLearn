@@ -22,14 +22,18 @@ from app.db.session import async_session
 from app.db.course_content.building import build as build_building
 from app.db.course_content.foundations import build as build_foundations
 from app.db.course_content.multiagent import build as build_multiagent
+from app.db.course_content.warmup import build as build_warmup
 from app.models.course import Course
 
 
 def _build_courses() -> list[Course]:
-    return [build_foundations(), build_building(), build_multiagent()]
+    # Warm-up first: participants complete it before the study courses so its behavioral
+    # windows serve as each learner's resting baseline (see AFFECT_SECTION_CODEBOOK.md).
+    return [build_warmup(), build_foundations(), build_building(), build_multiagent()]
 
 
 _TITLES = [
+    "Getting Comfortable: A Warm-Up",
     "Foundations of Agentic AI",
     "Building AI Agents: Tools, Memory & Planning",
     "Multi-Agent Systems & Orchestration",
