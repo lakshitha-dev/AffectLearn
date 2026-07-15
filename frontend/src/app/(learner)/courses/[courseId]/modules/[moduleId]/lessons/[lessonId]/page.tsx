@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -256,25 +256,35 @@ export default function LessonPage({ params }: PageProps) {
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-16">
       <LessonProgressBar value={lessonPercentage} />
-      <header className="flex items-center justify-between py-4">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href={"/courses/" + courseId}>{course?.title ?? "Course"}</Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>{currentModule?.title ?? "Module"}</BreadcrumbPage>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage aria-current="page">{lesson.title}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <button onClick={toggleFocusMode} aria-pressed={focusMode} aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"} className="rounded p-1.5 text-muted-foreground hover:bg-border transition-colors">
+      <header className="flex items-center justify-between gap-3 py-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            href={"/courses/" + courseId}
+            aria-label="Back to course"
+            className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-border hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Back to course</span>
+          </Link>
+          <Breadcrumb className="min-w-0">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href={"/courses/" + courseId}>{course?.title ?? "Course"}</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{currentModule?.title ?? "Module"}</BreadcrumbPage>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage aria-current="page">{lesson.title}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        <button onClick={toggleFocusMode} aria-pressed={focusMode} aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"} className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-border transition-colors">
           {focusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </button>
       </header>
