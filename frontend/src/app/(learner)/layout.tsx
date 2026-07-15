@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { AuthGuard } from "@/components/shared/auth-guard";
 import { TopBar } from "@/components/shared/TopBar";
 import { useSessionStore } from "@/stores/session-store";
@@ -102,7 +102,11 @@ export default function LearnerLayout({
               className="hidden rounded p-1 text-muted-foreground hover:bg-border lg:block"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              {collapsed ? ">" : "<"}
+              {collapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronLeft className="h-4 w-4" />
+              )}
             </button>
             {/* Close drawer — mobile only */}
             <button

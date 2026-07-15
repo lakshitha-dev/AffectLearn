@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { CourseOutlineSidebar } from "@/components/learning/CourseOutlineSidebar";
 import { WebcamIndicator } from "@/components/learning/WebcamIndicator";
@@ -103,7 +103,11 @@ export default function LessonLayout({ children, params }: LayoutProps) {
                 className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-border"
                 aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
-                {sidebarCollapsed ? ">" : "<"}
+                {sidebarCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                )}
               </button>
             </div>
           </>
