@@ -255,40 +255,48 @@ export default function LessonPage({ params }: PageProps) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-16">
-      <LessonProgressBar value={lessonPercentage} />
-      <header className="flex items-center justify-between gap-3 py-4">
-        <div className="flex min-w-0 items-center gap-3">
+      {/* Full-width back bar — flush to the content-column edges. Carries the exit
+          action (Back to course) and the focus-mode toggle; the breadcrumb sits below
+          as pure location context so a long course title never tangles with the button. */}
+      <div className="-mx-4 sm:-mx-8">
+        <LessonProgressBar value={lessonPercentage} />
+        <div className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5 sm:px-8">
           <Link
             href={"/courses/" + courseId}
             aria-label="Back to course"
-            className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-border hover:text-foreground"
+            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-foreground transition-colors hover:text-primary"
           >
             <ArrowLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">Back to course</span>
+            Back to course
           </Link>
-          <Breadcrumb className="min-w-0">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href={"/courses/" + courseId}>{course?.title ?? "Course"}</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{currentModule?.title ?? "Module"}</BreadcrumbPage>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage aria-current="page">{lesson.title}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+          <button
+            onClick={toggleFocusMode}
+            aria-pressed={focusMode}
+            aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+          >
+            {focusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
         </div>
-        <button onClick={toggleFocusMode} aria-pressed={focusMode} aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"} className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-border transition-colors">
-          {focusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-        </button>
-      </header>
-      <h1 className="mt-2 mb-8 text-3xl font-semibold text-foreground">{lesson.title}</h1>
+      </div>
+      <Breadcrumb className="mt-4 min-w-0">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href={"/courses/" + courseId}>{course?.title ?? "Course"}</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{currentModule?.title ?? "Module"}</BreadcrumbPage>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage aria-current="page">{lesson.title}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <h1 className="mt-3 mb-8 text-3xl font-semibold text-foreground">{lesson.title}</h1>
       {lesson.description && (
         <p className="mb-8 text-base text-muted-foreground">{lesson.description}</p>
       )}
