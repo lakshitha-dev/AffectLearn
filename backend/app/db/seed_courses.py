@@ -20,18 +20,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session
 from app.db.course_content.building import build as build_building
-from app.db.course_content.foundations import build as build_foundations
-from app.db.course_content.multiagent import build as build_multiagent
 from app.db.course_content.warmup import build as build_warmup
 from app.models.course import Course
 
 
 def _build_courses() -> list[Course]:
-    # Warm-up first: participants complete it before the study courses so its behavioral
-    # windows serve as each learner's resting baseline (see AFFECT_SECTION_CODEBOOK.md).
-    return [build_warmup(), build_foundations(), build_building(), build_multiagent()]
+    # Pilot design: ALL participants take ONE study course — "Building AI Agents" — after the
+    # neutral warm-up baseline. Building gives the best balance of the four affect states
+    # (esp. the rare bored/confused/frustrated). `foundations.py` and `multiagent.py` are kept
+    # in source (retired from the pilot, easily re-addable) but are NOT seeded.
+    return [build_warmup(), build_building()]
 
 
+# Titles this seeder MANAGES on `--reset`. A superset of what `_build_courses` creates: it
+# keeps the two retired titles so a `--reset` DELETES them from any DB that still has them.
 _TITLES = [
     "Getting Comfortable: A Warm-Up",
     "Foundations of Agentic AI",
