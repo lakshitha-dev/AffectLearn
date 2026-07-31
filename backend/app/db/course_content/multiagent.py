@@ -788,6 +788,63 @@ def _lesson_consensus_bft():
             ),
         ),
 
+        # affect: engaged
+        section(
+            "Consensus in Practice: Choosing Your Guarantees",
+            4,
+            text(
+                "The last three sections threw a lot of theory at you — FLP, quorums, the "
+                "n >= 3f + 1 bound, leader terms. Step back, because in practice it collapses "
+                "into a few clean rules you can actually use.\n\n"
+                "The one idea under everything is that quorums must intersect: as long as any "
+                "two decision-making groups share at least one node, they cannot ratify "
+                "conflicting decisions — that single fact is what makes Paxos, Raft, and "
+                "Byzantine protocols all work. From it follow three practical takeaways. You "
+                "cannot have perfect agreement AND perfect availability — FLP says a purely "
+                "asynchronous system can always be stalled, so real systems add timeouts and "
+                "settle for 'almost always decides'. Tolerating liars costs three times as "
+                "much as tolerating crashes — crash-only needs n >= 2f + 1, Byzantine needs "
+                "n >= 3f + 1. And a leader is a lease, not a throne — it holds a time-stamped "
+                "term, and the moment it goes quiet the survivors elect a new one by majority.\n\n"
+                "So which do you actually reach for? One question decides it: can a participant "
+                "lie or act maliciously, or only crash? Inside your own datacentre, where every "
+                "node is yours and a failure just means 'the process died', use crash-tolerant "
+                "consensus (Raft or multi-Paxos) — cheaper and simpler. Only when participants "
+                "are untrusted or adversarial — a public blockchain, a consortium of competing "
+                "companies — do you pay for full Byzantine fault tolerance. Most systems never "
+                "need BFT; they need Raft done carefully."
+            ),
+            mermaid(
+                "flowchart TD\n"
+                "    Q{Can a node lie or act maliciously?} -->|No, only crash| CR[Crash-tolerant: Raft / multi-Paxos<br/>n >= 2f+1]\n"
+                "    Q -->|Yes, adversarial| BFT[Byzantine-tolerant: PBFT-style<br/>n >= 3f+1]\n"
+                "    CR --> U1[Internal datacentre, trusted nodes]\n"
+                "    BFT --> U2[Blockchains, untrusted consortia]\n"
+            ),
+            callout(
+                "Rule of thumb: reach for BFT only when someone in the group might lie. If a "
+                "failure just means 'a node crashed', crash-tolerant consensus (Raft) is "
+                "cheaper, simpler, and enough.",
+                "tip",
+            ),
+            quiz(
+                "You are building a replicated database across three servers you own in one "
+                "company datacentre. Nodes may crash, but none are malicious. Which approach "
+                "fits best?",
+                [
+                    ("Crash-tolerant consensus (Raft/Paxos) — failures are crashes, not lies, "
+                     "so n >= 2f + 1 suffices", True),
+                    ("Full Byzantine fault tolerance (n >= 3f + 1), just to be safe", False),
+                    ("No consensus needed — let each server decide on its own", False),
+                    ("Whichever is faster; the fault model does not matter", False),
+                ],
+                explanation="The nodes are trusted and only crash, so crash-tolerant consensus "
+                "(Raft / multi-Paxos, n >= 2f + 1) is the right and cheaper choice. Full BFT's "
+                "three-fold cost is only justified when participants might be malicious — not "
+                "the case inside your own datacentre.",
+            ),
+        ),
+
         # affect: frustrated
         section(
             "Fault-Tolerance Diagnosis: A Demanding Assessment",
@@ -980,7 +1037,7 @@ def _lesson_eval_safety():
             ),
         ),
 
-        # affect: confused
+        # affect: engaged
         section(
             "Reward Hacking, Specification Gaming, and Safety",
             5,

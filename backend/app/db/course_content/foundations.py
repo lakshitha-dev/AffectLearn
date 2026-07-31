@@ -811,6 +811,16 @@ def _lesson_formal():
                 variant="info",
             ),
             callout(
+                "A concrete anchor to hold onto: the *contraction* simply means each "
+                "value-iteration sweep multiplies the remaining error by gamma. With "
+                "gamma = 0.9, the error shrinks about 10x every ~22 sweeps — so "
+                "convergence is not just guaranteed, it is fast. The catch is the cost "
+                "of ONE sweep in the POMDP lift: the set of alpha-vectors can more than "
+                "double each step, so by a horizon of ~20 it is astronomically large. "
+                "Fast convergence, hopeless per-step cost — that gap is the whole point.",
+                variant="tip",
+            ),
+            callout(
                 "T*, contraction mappings, the belief simplex, alpha-vectors — "
                 "this is graduate-level notation compressed into a few "
                 "sentences. The point to retain is only the last one: real "
