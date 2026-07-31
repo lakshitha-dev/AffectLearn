@@ -75,6 +75,8 @@ export function EnrollButton({
     );
   }
 
+  // Unenrolled: enroll AND go straight into the first lesson in one tap (removes the old
+  // Enroll -> Start-Learning two-click gate that added friction before any content).
   return (
     <Button
       size="lg"
@@ -83,17 +85,15 @@ export function EnrollButton({
         mutation.mutate(
           { courseId },
           {
-            onSuccess: () => {
-              toast.success("You're enrolled! Ready to start learning.");
-            },
+            onSuccess: () => navigate(),
             onError: (error) => {
-              toast.error(error.message || "Could not enroll. Please try again.");
+              toast.error(error.message || "Could not start. Please try again.");
             },
           },
         )
       }
     >
-      {mutation.isPending ? "Enrolling…" : "Enroll"}
+      {mutation.isPending ? "Starting…" : "Start Learning"}
     </Button>
   );
 }

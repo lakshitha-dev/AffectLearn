@@ -21,6 +21,8 @@ interface CourseCardProps {
   lastAccessedAt?: string | null;
   highlightText?: string;
   className?: string;
+  /** Show a "Start here" badge (used for the warm-up so new learners know where to begin). */
+  recommended?: boolean;
 }
 
 function escapeRegExp(str: string): string {
@@ -67,6 +69,7 @@ export function CourseCard({
   lastAccessedAt,
   highlightText = "",
   className,
+  recommended = false,
 }: CourseCardProps) {
   const duration = formatDuration(course.estimatedDurationMinutes);
   const moduleCount = course.moduleCount ?? null;
@@ -94,6 +97,11 @@ export function CourseCard({
         )}
       >
         <CardHeader className="space-y-2">
+          {recommended ? (
+            <span className="inline-flex w-fit items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+              Start here
+            </span>
+          ) : null}
           <CardTitle className="text-xl text-foreground">
             <Highlighted text={course.title} query={highlightText} />
           </CardTitle>
