@@ -165,6 +165,10 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
             },
         )
 
+    # Record the successful sign-in for the admin user table (Story 8.1).
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
+
     return _token_response(user)
 
 

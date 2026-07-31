@@ -108,6 +108,42 @@ class CreateDesignerRequest(CamelModel):
     last_name: str = Field(min_length=1, max_length=100)
 
 
+class CreateUserRequest(CamelModel):
+    """Admin-supplied details for a new account created with a password directly.
+    Unlike the designer invite flow, the account is usable immediately (Story 8.1)."""
+    email_address: EmailStr
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=8)
+    role: Literal["learner", "course_designer", "admin"]
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
+
+
+class UpdateUserRoleRequest(CamelModel):
+    """Admin request to change a user's role (Story 8.1)."""
+    role: Literal["learner", "course_designer", "admin"]
+
+
+class UpdateUserStatusRequest(CamelModel):
+    """Admin request to activate/deactivate a user account (Story 8.1)."""
+    is_active: bool
+
+
+class UserStatsResponse(CamelModel):
+    """Role/verification/status counts across ALL users, independent of pagination or
+    search — powers the admin summary cards (Story 8.1)."""
+    total: int
+    learners: int
+    course_designers: int
+    admins: int
+    verified: int
+    active: int
+
+
 class AdminUserItem(CamelModel):
     """Richer user row for the admin console (adds status + timestamps)."""
     id: uuid.UUID
@@ -118,3 +154,4 @@ class AdminUserItem(CamelModel):
     is_active: bool
     email_verified: bool
     created_at: str | None = None
+    last_login_at: str | None = None

@@ -28,6 +28,8 @@ class User(BaseModel):
     email_verified = Column(Boolean, nullable=False, default=False)
     consent_given_at = Column(DateTime(timezone=True), nullable=True)
     webcam_enabled = Column(Boolean, nullable=False, default=False)
+    # Last successful login timestamp; surfaced in the admin user table (Story 8.1).
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
 
     enrollments = relationship(
         "Enrollment", back_populates="user", cascade="all, delete-orphan"
