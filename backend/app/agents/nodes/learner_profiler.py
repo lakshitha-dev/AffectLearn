@@ -16,7 +16,7 @@ from typing import Any
 
 import structlog
 
-from app.agents.edges import should_adapt
+from app.agents.edges import GATE_OK, adaptation_decision
 from app.agents.state import AgentState
 from app.services import profile_service, redis_service
 from app.services.research_logger import emit as emit_research_event
@@ -58,6 +58,22 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     profile = profile_service.apply_affect(profile, state.get("affect_state"), cycle, now_ms)
 
+    # ---- adaptation gate ----------------------------------------------------------------
+    # Evaluated HERE because this is the only point that holds the FRESH profile: the new
+    # affect history is folded in above but is not yet in `state`, so evaluating the gate from
+    # `state["learner_profile"]` (e.g. in the router) would silently use the PREVIOUS cycle's
+    # history and the persistence rule would be off by one.
+    #
+    # The cooldown marker lives in the profile rather than a separate Redis key so it rides the
+    # write-through below — no new I/O site. It is stamped when the gate PASSES, i.e. when an
+    # adaptation is about to be attempted, not when one is confirmed delivered. If the LLM then
+    # returns `no_action` the cooldown is still consumed; that errs toward fewer interventions,
+    # which is the safe direction for an imperfect detector.
+    last_adapt = profile.get("last_adaptation_cycle")
+    adapt, gate_reason = adaptation_decision(state, profile, last_adapt)
+    if adapt:
+        profile["last_adaptation_cycle"] = int(cycle or 0)
+
     # Write-through: Redis hot (best-effort) + Postgres cold (best-effort)
     try:
         await redis_service.set_json(_key(learner_id), profile)
@@ -85,7 +101,14 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
             "skill_level": profile.get("skill_level"),
             "affect_history_len": len(profile.get("affect_history") or []),
             "source": source,
+            # Why this cycle did or did not adapt. Makes the gate auditable from the research
+            # record — the distribution of reasons is how you calibrate the thresholds.
+            "adaptation_gate": gate_reason,
         },
     })
 
-    return {"learner_profile": profile, "should_adapt": should_adapt(state)}
+    return {
+        "learner_profile": profile,
+        "should_adapt": adapt,
+        "adaptation_gate_reason": gate_reason,
+    }

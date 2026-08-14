@@ -69,6 +69,94 @@ async def health_check():
     return {"status": "healthy"}
 
 
+def _model_report() -> dict:
+    """Which affect models are ACTUALLY loaded, and how the code will interpret them.
+
+    Deploy verification exists because the failure modes here are silent. Pointing
+    AFFECT_MODEL_KIND at `binary_confusion` while AFFECT_MODEL_PATH still resolves to the
+    4-level engagement artifact produces confident nonsense, not an error — and the only
+    previous way to notice was reading App Service logs after a learner had already been
+    affected. Reporting the resolved kind next to the file that is actually on disk makes
+    that mismatch a single curl.
+
+    Deliberately NOT part of the `status` verdict: a missing facial ONNX is a documented
+    degradation (the pipeline runs behavioural-only, see models/README.md), not an outage.
+    Never raises — every probe is guarded so a broken artifact reports rather than 500s.
+    No secrets: paths and shapes only.
+    """
+    import os
+
+    report: dict = {}
+
+    def _onnx_io(path: str) -> dict:
+        """Input/output names and shapes, so a width mismatch is visible before inference."""
+        try:
+            import onnxruntime as ort
+
+            sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+            return {
+                "inputs": [{"name": i.name, "shape": i.shape} for i in sess.get_inputs()],
+                "outputs": [{"name": o.name, "shape": o.shape} for o in sess.get_outputs()],
+            }
+        except Exception as exc:
+            return {"error": f"{type(exc).__name__}: {exc}"}
+
+    # ---- behavioural ----
+    try:
+        from app.services.behavioral_inference import (
+            _DEFAULT_MODEL_PATH,
+            BehavioralModel,
+        )
+
+        beh_path = os.getenv("BEHAVIORAL_MODEL_PATH", _DEFAULT_MODEL_PATH)
+        beh: dict = {"path": beh_path, "exists": os.path.exists(beh_path)}
+        if beh["exists"]:
+            try:
+                beh["kind"] = BehavioralModel(model_path=beh_path)._kind()
+            except Exception as exc:
+                beh["kind"] = f"unresolved: {type(exc).__name__}"
+            beh.update(_onnx_io(beh_path))
+        report["behavioral"] = beh
+    except Exception as exc:
+        report["behavioral"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    # ---- facial ----
+    try:
+        from app.agents.affect_mapping import _model_kind
+
+        fac_path = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_best.onnx")
+        fac: dict = {"path": fac_path, "exists": os.path.exists(fac_path), "kind": _model_kind()}
+        if fac["exists"]:
+            fac.update(_onnx_io(fac_path))
+        report["facial"] = fac
+    except Exception as exc:
+        report["facial"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    # ---- decision-path config ----
+    try:
+        from app.agents.edges import (
+            ADAPT_COOLDOWN_CYCLES,
+            ADAPT_MIN_CONFIDENCE,
+            ADAPT_MIN_CONSECUTIVE,
+            ADAPT_STATES,
+        )
+        from app.agents.fusion import forced_mode
+        from app.agents.nodes.affect_detection import fusion_drives_decision
+
+        report["decision"] = {
+            "adaptStates": list(ADAPT_STATES),
+            "adaptMinConfidence": ADAPT_MIN_CONFIDENCE,
+            "adaptMinConsecutive": ADAPT_MIN_CONSECUTIVE,
+            "adaptCooldownCycles": ADAPT_COOLDOWN_CYCLES,
+            "fusionDrivesDecision": fusion_drives_decision(),
+            "forcedMode": forced_mode(),
+        }
+    except Exception as exc:
+        report["decision"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    return report
+
+
 @app.get("/health/pipeline")
 async def pipeline_health():
     """Liveness of the research data-collection pipeline (for pilot monitoring).
@@ -76,6 +164,10 @@ async def pipeline_health():
     Reports Redis reachability, the drain worker's heartbeat, and Postgres reachability so
     a stalled pipeline is caught during Phase A. No secrets — safe to poll. `status` is "ok"
     only when all three are healthy; poll e.g. every minute and alert on "degraded".
+
+    Also reports which affect MODELS are loaded (`models`). That block is informational and
+    does NOT affect `status`: a missing facial ONNX degrades the pipeline to behavioural-only
+    by design rather than breaking it, so it must not page anyone.
     """
     from sqlalchemy import text as _sql_text
 
@@ -100,5 +192,6 @@ async def pipeline_health():
             "running": worker_ok,
             "heartbeatAgeS": round(worker_age, 1) if worker_age is not None else None,
         },
+        "models": _model_report(),
     }
 

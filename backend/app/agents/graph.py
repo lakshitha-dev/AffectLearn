@@ -52,6 +52,7 @@ _TRACE_OUTPUT_KEYS: tuple[str, ...] = (
     "affect_confidence",
     "empty_cycle",
     "should_adapt",
+    "adaptation_gate_reason",
     "engagement_level",
     "engagement_label",
 )
@@ -133,9 +134,14 @@ def instrument(
 
 
 def _route_reason(state: AgentState, chosen: str) -> str:
+    """Human-readable 'why' for the route_decision trace, including the gate verdict."""
+    gate = state.get("adaptation_gate_reason")
     if chosen == ROUTE_PEDAGOGICAL:
-        return "phase_b + adaptive → pedagogical (adaptive branch)"
-    return f"{state.get('phase')}/{state.get('group')} → log_only (no adaptation)"
+        return "phase_b + adaptive, gate passed → pedagogical (adaptive branch)"
+    if gate and gate != "not_eligible":
+        # Eligible cohort, but the gate withheld the intervention this cycle.
+        return f"gate withheld ({gate}) → log_only"
+    return f"{state.get('phase')}/{state.get('group')} → log_only (not eligible)"
 
 
 def instrument_router(fn: Callable[[AgentState], str]) -> Callable[[AgentState], str]:

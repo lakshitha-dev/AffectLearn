@@ -246,11 +246,22 @@ export function useBehavioralSignals(
       });
     }
 
-    function handleVisibility(): void {
+    /**
+     * Record a visibility/attention transition.
+     *
+     * `visibilitychange` only fires for TAB switches and minimising — it does NOT fire when the
+     * learner switches to another application with this tab still frontmost, which is exactly
+     * the "went to look something up" case that matters most for disengagement. `blur`/`focus`
+     * cover that, so both feed the same accounting.
+     *
+     * Transitions are de-duplicated: the two event sources overlap (switching tabs fires both
+     * `visibilitychange` and `blur`), and double-counting would inflate `tab_switch_count` and
+     * corrupt the hidden-time integral.
+     */
+    function setAttentionState(hidden: boolean): void {
       const now = monoNow();
-      const state =
-        document.visibilityState === "hidden" ? "hidden" : "visible";
-      if (state === "hidden") {
+      if (hidden === (hiddenSinceMono !== null)) return; // no change — ignore the duplicate
+      if (hidden) {
         hiddenSinceMono = now;
       } else if (hiddenSinceMono !== null) {
         visibilityHiddenAccumMs += now - hiddenSinceMono;
@@ -258,10 +269,24 @@ export function useBehavioralSignals(
       }
       pushEvent({
         kind: "visibility",
-        state,
+        state: hidden ? "hidden" : "visible",
         t_mono: now,
         t_wall: Date.now(),
       });
+    }
+
+    function handleVisibility(): void {
+      setAttentionState(document.visibilityState === "hidden");
+    }
+
+    function handleBlur(): void {
+      setAttentionState(true);
+    }
+
+    function handleFocus(): void {
+      // Only "visible" if the tab is also foregrounded — a focus event while the tab is hidden
+      // should not clear the hidden state.
+      setAttentionState(document.visibilityState === "hidden");
     }
 
     // --- 10 Hz aggregator (AC #2) ---
@@ -377,6 +402,9 @@ export function useBehavioralSignals(
     window.addEventListener("scroll", handleScroll, { passive: true });
     window.addEventListener("wheel", handleWheel, { passive: true });
     document.addEventListener("visibilitychange", handleVisibility);
+    // Catches switching to another APPLICATION, which visibilitychange does not fire for.
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
 
     const aggregatorId = setInterval(
       aggregatorTick,
@@ -392,6 +420,8 @@ export function useBehavioralSignals(
       window.removeEventListener("scroll", handleScroll);
       window.removeEventListener("wheel", handleWheel);
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
       clearInterval(aggregatorId);
       clearInterval(cycleId);
       buffer = [];

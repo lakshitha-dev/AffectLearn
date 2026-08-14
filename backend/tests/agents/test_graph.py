@@ -7,6 +7,7 @@ pedagogical stubs.
 
 import pytest
 
+import app.agents.edges as edges
 import app.agents.graph as graph_mod
 import app.agents.llm as llm_mod
 import app.agents.nodes.affect_detection as ad
@@ -90,6 +91,29 @@ def fake_engaged(monkeypatch):
     monkeypatch.setattr(ad, "detect_engagement", fake_detect)
 
 
+@pytest.fixture
+def gate_open(monkeypatch):
+    """Detect a state the adaptation gate will actually pass, for topology tests.
+
+    `fake_engaged` cannot reach the pedagogical branch any more, and correctly so: `engaged` is
+    not in ADAPT_STATES because engagement is the do-nothing state. Levels 0/1 map to `bored`,
+    which IS actionable, and the engagement adapter sums probs[0]+probs[1] for its confidence
+    (0.85 here), clearing ADAPT_MIN_CONFIDENCE.
+
+    ADAPT_MIN_CONSECUTIVE is relaxed to 1 because these tests invoke a SINGLE cycle against a
+    fresh default profile, whose affect history therefore holds exactly one entry. That the
+    first cycle of a session can never adapt under the shipped default is intended conservative
+    behaviour, not something to work around in production — see tests/agents/test_adaptation_gate.py
+    for the persistence rule itself.
+    """
+    async def fake_detect(_data):
+        return {"engagement_level": 0, "label": "very_low", "confidence": 0.5,
+                "probs": [0.5, 0.35, 0.1, 0.05], "frames_used": 16}
+
+    monkeypatch.setattr(ad, "detect_engagement", fake_detect)
+    monkeypatch.setattr(edges, "ADAPT_MIN_CONSECUTIVE", 1)
+
+
 async def test_phase_a_routes_to_log_only_no_adaptation(traced, fake_engaged):
     compiled, visited = traced
     state = make_initial_state(
@@ -107,7 +131,7 @@ async def test_phase_a_routes_to_log_only_no_adaptation(traced, fake_engaged):
     assert not out.get("adaptation_content")
 
 
-async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engaged, fake_vllm):
+async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, gate_open, fake_vllm):
     compiled, visited = traced
     captured_events = fake_vllm
     state = make_initial_state(
@@ -117,8 +141,9 @@ async def test_phase_b_adaptive_traverses_pedagogical_branch(traced, fake_engage
     )
     out = await compiled.ainvoke(state)
 
-    assert out["affect_state"] == "engaged"
+    assert out["affect_state"] == "bored"        # actionable, so the gate lets it through
     assert out["should_adapt"] is True
+    assert out["adaptation_gate_reason"] == "ok"
     # PROOF of routing: the full Phase B branch ran in order; log_only did NOT.
     assert visited == ["pedagogical", "content_adapter", "deliver"]
     assert "log_only" not in visited
@@ -149,7 +174,7 @@ class _GenerativeChatClient:
 
 
 async def test_phase_b_generative_populates_adaptation_content(
-    traced, fake_engaged, monkeypatch
+    traced, gate_open, monkeypatch
 ):
     """A Phase B generative strategy reaches content_adapter and sets adaptation_content.
 

@@ -47,6 +47,33 @@ def take_counterpart(
     return result
 
 
+def peek_counterpart(
+    session_id: str, modality: str, now: int, window_ms: int | None = None
+) -> dict[str, Any] | None:
+    """Return the OTHER modality's recent result WITHOUT removing it, or None if absent/stale.
+
+    Needed because the counterpart is now used TWICE per pairing: once to drive the live
+    decision (`affect_detection_node` fuses it into `affect_state`) and once to emit the
+    `multimodal_affect_detected` research event. `take_counterpart` consumes the slot, so
+    calling it for the decision would leave the research event unpaired — the two would
+    silently disagree about whether a pair existed.
+
+    A stale entry is left in place rather than popped: this is a read-only probe, and the
+    caller that owns consumption (`take_counterpart`) will clear it.
+    """
+    from app.agents.fusion import FUSION_PAIR_WINDOW_MS
+
+    window = FUSION_PAIR_WINDOW_MS if window_ms is None else window_ms
+    other = "behavioral" if modality == "facial" else "facial"
+    session = _BUFFER.get(session_id)
+    if not session or other not in session:
+        return None
+    result, ts = session[other]
+    if int(now) - ts > window:
+        return None
+    return dict(result)
+
+
 def clear_session(session_id: str) -> None:
     """Drop all buffered results for a session (call on WS disconnect)."""
     _BUFFER.pop(session_id, None)
