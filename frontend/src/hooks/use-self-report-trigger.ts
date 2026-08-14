@@ -35,11 +35,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
  */
 
 // Pause-point cadence: a prompt fires every N section completions ("every 2-3 sections").
-// Set to 2 so it triggers within short lessons (the pilot lessons have ~2 sections each).
-export const SECTIONS_PER_PROMPT = 2;
+// Pilot value is 2, so it triggers within short lessons (the pilot lessons have ~2 sections).
+//
+// BOOTSTRAP OVERRIDE (single-subject collection, Aug 2026): set to 1. Windows are labelled by
+// their section's intended affect (AFFECT_SECTION_CODEBOOK.md) and the self-report serves as
+// the per-section MANIPULATION CHECK, so one report per section is what the scheme needs.
+// REVERT to 2 before the Phase A pilot.
+export const SECTIONS_PER_PROMPT = 1;
 
 // Fraction of due self-report prompts to randomly omit in the pilot (research action item #7).
-export const SELF_REPORT_OMISSION_RATE = 0.2;
+//
+// BOOTSTRAP OVERRIDE (single-subject collection, Aug 2026): set to 0. Omission exists to
+// estimate prompt reactivity by comparing windows after a shown vs an omitted prompt — a
+// BETWEEN-participant control that cannot be estimated at n=1, where it is pure label loss.
+// REVERT to 0.2 before the Phase A pilot; the reactivity control is load-bearing there.
+export const SELF_REPORT_OMISSION_RATE = 0;
 
 interface UseSelfReportTriggerOptions {
   /** Probability (0-1) that a due prompt is omitted instead of shown. Default 0 (never omit). */

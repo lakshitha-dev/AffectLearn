@@ -317,9 +317,26 @@ async def _handle_behavioral_window(
             # persisted so Phase A data is trainable (guide §7 train/serve parity). Aggregate
             # stats only (not raw events) → honours NFR10 / the consent's "only aggregate features".
             features=inference.get("features"),
+            feature_schema_version=inference.get("feature_schema_version"),
         )
     elif error:
         payload["error"] = error
+        # SALVAGE THE FEATURES. The raw events live only on the transient `behavioral_payload`
+        # and are dropped when this cycle ends, so if inference fails and we persist nothing,
+        # this window is gone permanently. A missing or stale ONNX file is precisely the failure
+        # that would otherwise silently destroy an entire collection session — and
+        # `/health/pipeline` does not check the model, so nothing upstream catches it.
+        # Extraction is independent of inference and cheap, so redo it on the error path.
+        try:
+            salvaged = behavioral_inference.extract_window_features(
+                data.get("events") or [], data.get("capture_started_at_wall")
+            )
+            payload["features"] = salvaged["features"]
+            payload["n_bins"] = salvaged["n_bins"]
+            payload["feature_schema_version"] = salvaged["feature_schema_version"]
+            payload["features_salvaged"] = True
+        except Exception:
+            logger.exception("behavioral_feature_salvage_failed", user_id=user_id, cycle=cycle)
     else:
         payload["empty_cycle"] = True
 
