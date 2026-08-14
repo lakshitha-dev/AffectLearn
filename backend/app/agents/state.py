@@ -63,7 +63,8 @@ class AgentState(TypedDict, total=False):
     # Control flags
     phase: str                   # one of PHASES
     group: str                   # one of GROUPS
-    should_adapt: bool
+    should_adapt: bool           # eligibility AND the adaptation gate (see agents.edges)
+    adaptation_gate_reason: str  # GATE_* constant explaining the should_adapt decision
     # Transient per-cycle input (NOT persisted — see module docstring)
     facial_payload: dict
     behavioral_payload: dict
