@@ -190,6 +190,7 @@ async def _handle_facial_features(
             session_id=session_id,
             cycle_number=cycle,
             facial_payload=data,
+            **_seed_counterpart(session_id, "facial"),
             db=db,
             phase=phase,
             group=group,
@@ -279,6 +280,7 @@ async def _handle_behavioral_window(
             session_id=session_id,
             cycle_number=cycle,
             behavioral_payload=data,
+            **_seed_counterpart(session_id, "behavioral"),
             db=db,
             phase=phase,
             group=group,
@@ -359,6 +361,21 @@ async def _handle_behavioral_window(
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
     await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group)
+
+
+def _seed_counterpart(session_id: str, modality: str) -> dict[str, Any]:
+    """Kwargs seeding the opposite modality's buffered result for in-graph late fusion.
+
+    PEEKS rather than takes: `_maybe_fuse` still owns consumption, and popping here would leave the
+    research event unpaired, so the live decision and the log would disagree about whether a pair
+    existed. Returns {} when unpaired or stale, in which case the graph falls through to its
+    single-modality path unchanged.
+    """
+    other = "behavioral" if modality == "facial" else "facial"
+    res = fusion_buffer.peek_counterpart(session_id, modality, _now_ms())
+    if not res:
+        return {}
+    return {"counterpart_inference": res, "counterpart_modality": other}
 
 
 async def _maybe_fuse(

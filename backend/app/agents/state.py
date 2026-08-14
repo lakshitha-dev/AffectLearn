@@ -68,6 +68,15 @@ class AgentState(TypedDict, total=False):
     # Transient per-cycle input (NOT persisted — see module docstring)
     facial_payload: dict
     behavioral_payload: dict
+    # Late-fusion counterpart (Story 4.4c, decision path). The two modalities arrive on
+    # SEPARATE WebSocket messages at independent cadences, so a cycle only ever carries one
+    # payload. To fuse into the LIVE decision the handler passes the counterpart's already
+    # computed inference result from `fusion_buffer` — the other model is NOT re-run, which
+    # is what makes this late fusion rather than a second forward pass.
+    counterpart_inference: dict   # the opposite modality's recent result, or {} if unpaired
+    counterpart_modality: str     # "facial" | "behavioral" — which modality that result is
+    fusion_applied: bool          # True when affect_state came from fuse_modalities
+    fusion_weights: dict          # per-modality weights used, for the research event
     db: Any              # transient WS-connection AsyncSession for the profiler cold store (Story 4.5)
     content_context: dict  # transient: current section topic/difficulty for the strategist (Story 5.1)
 
@@ -79,6 +88,8 @@ def make_initial_state(
     cycle_number: int,
     facial_payload: dict[str, Any] | None = None,
     behavioral_payload: dict[str, Any] | None = None,
+    counterpart_inference: dict[str, Any] | None = None,
+    counterpart_modality: str = "",
     db: Any = None,
     content_context: dict[str, Any] | None = None,
     phase: str = "phase_a",
@@ -101,6 +112,8 @@ def make_initial_state(
         group=group,
         facial_payload=facial_payload or {},
         behavioral_payload=behavioral_payload or {},
+        counterpart_inference=counterpart_inference or {},
+        counterpart_modality=counterpart_modality,
         db=db,
         content_context=content_context or {},
     )
