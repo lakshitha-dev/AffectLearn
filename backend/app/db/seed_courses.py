@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session
 from app.db.course_content.building import build as build_building
+from app.db.course_content.foundations import build as build_foundations
+from app.db.course_content.multiagent import build as build_multiagent
 from app.db.course_content.warmup import build as build_warmup
 from app.models.course import Course
 
@@ -28,8 +30,15 @@ def _build_courses() -> list[Course]:
     # Pilot design: ALL participants take ONE study course — "Building AI Agents" — after the
     # neutral warm-up baseline. Building gives the best balance of the four affect states
     # (esp. the rare bored/confused/frustrated). `foundations.py` and `multiagent.py` are kept
-    # in source (retired from the pilot, easily re-addable) but are NOT seeded.
-    return [build_warmup(), build_building()]
+    # in source (retired from the pilot, easily re-addable).
+    #
+    # BOOTSTRAP OVERRIDE (single-subject collection, Aug 2026): the two retired courses ARE
+    # seeded here. One subject makes exactly one genuine pass, so Building alone (17 sections:
+    # 3 confused / 2 bored / 3 frustrated) yields too few windows per minority class to train
+    # on. Re-adding both takes the content universe to 49 sections — confused 3→9, bored 2→7,
+    # frustrated 3→6. REVERT to `[build_warmup(), build_building()]` before the Phase A pilot,
+    # which keeps the single-study-course design documented in AFFECT_SECTION_CODEBOOK.md.
+    return [build_warmup(), build_building(), build_foundations(), build_multiagent()]
 
 
 # Titles this seeder MANAGES on `--reset`. A superset of what `_build_courses` creates: it

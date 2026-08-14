@@ -9,7 +9,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * existing "sections viewed" counter and no per-section route. The "every 2-3 sections /
  * ~10-15 min" pause point is therefore DERIVED from the cleanest signal the page already
  * has: SECTION COMPLETION (`completedSectionIds` / `handleMarkComplete`). We count distinct
- * completions since the last prompt; once the delta reaches `SECTIONS_PER_PROMPT` (= 2) the
+ * completions since the last prompt; once the delta reaches `SECTIONS_PER_PROMPT` (currently 1
+ * under the bootstrap override below; 2 in the Phase A design) the
  * widget shows, then the boundary resets after a report/skip. This maps "every 2-3 sections"
  * to a concrete, testable rule and reuses existing state — a scroll-spy / IntersectionObserver
  * is deliberately avoided (over-engineering for a pilot instrument; Dev Notes "Pause-point
