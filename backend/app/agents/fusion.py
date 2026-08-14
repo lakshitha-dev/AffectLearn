@@ -66,6 +66,18 @@ def facial_to_canonical(facial_result: dict[str, Any], kind: str | None = None) 
         kind = _model_kind()
     if kind == "category":
         return np.array([float(p) for p in probs], dtype=float)
+    if kind == "binary_confusion":
+        # cnn_lstm_confusion_anycut: [P(not_confused), P(confused)]. This is the first artifact
+        # that lets the FACIAL channel vote on `confused` at all — the engagement stand-in below
+        # pins it at 0, so before this the fused confusion estimate came entirely from the
+        # behavioural branch however "multimodal" the event claimed to be.
+        # bored and frustrated stay 0: this model cannot see them, and a channel that cannot see
+        # a state must not vote on it.
+        if len(probs) < 2:
+            return np.zeros(len(CANONICAL_ORDER), dtype=float)
+        p_conf = float(probs[1])
+        # CANONICAL_ORDER = (bored, confused, engaged, frustrated)
+        return np.array([0.0, p_conf, 1.0 - p_conf, 0.0], dtype=float)
     if len(probs) < 4:
         return np.zeros(len(CANONICAL_ORDER), dtype=float)
     bored = float(probs[0]) + float(probs[1])      # very_low + low

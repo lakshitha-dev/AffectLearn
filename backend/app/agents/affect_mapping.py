@@ -56,8 +56,35 @@ def engagement_to_affect(level: int) -> str:
     return "bored"
 
 
+#: Index of the positive class in the binary confusion facial artifact
+#: (`cnn_lstm_confusion_anycut.onnx`, logits over [not_confused, confused]).
+BINARY_CONFUSED_INDEX = 1
+
+
+def binary_confusion_to_affect(index: int) -> str:
+    """Map the binary confusion model's class index to an affect category.
+
+    1 -> confused ; 0 -> engaged (the do-nothing state, which `ADAPT_STATES` excludes).
+
+    "engaged" is the honest reading of the negative class here, not a detection of
+    engagement: the model was trained on DAiSEE's Confusion dimension under the ANY cut,
+    so class 0 means "no confusion annotated", nothing more. It is mapped to engaged
+    rather than bored because bored is an ACTIONABLE state the model cannot see, and
+    routing a negative into an actionable state would fire interventions on absence of
+    evidence. Engagement itself is separately unusable on DAiSEE (4 disengaged clips in
+    1638 test clips), which is why this artifact targets confusion at all.
+    """
+    return "confused" if index == BINARY_CONFUSED_INDEX else "engaged"
+
+
 def _model_kind() -> str:
-    """Which facial artifact is loaded. Mirrors model_inference's os.getenv pattern."""
+    """Which facial artifact is loaded. Mirrors model_inference's os.getenv pattern.
+
+        engagement (default) DAiSEE engagement stand-in, 4 intensity levels
+        category             a true 4-category model, indices map to AFFECT_CLASS_ORDER
+        binary_confusion     cnn_lstm_confusion_anycut.onnx, 2 logits, AUC 0.6414 on the
+                             DAiSEE test split (kappa 0.2119, n=1638)
+    """
     return os.getenv("AFFECT_MODEL_KIND", "engagement").strip().lower()
 
 
@@ -93,6 +120,21 @@ def category_confidence(inference: dict[str, Any], affect_state: str, kind: str)
     return float(sum(probs[i] for i in levels if 0 <= i < len(probs)))
 
 
+def _positive_prob(inference: dict[str, Any]) -> float:
+    """P(confused) from a binary artifact, independent of which class won the argmax.
+
+    Recorded on every cycle because the CATEGORY alone is lossy: a window at 0.51 and one at
+    0.99 both resolve to `confused`, and only the raw probability lets the gate threshold be
+    recalibrated from logged research data later without re-running inference.
+    """
+    probs = inference.get("probs")
+    if probs and len(probs) > BINARY_CONFUSED_INDEX:
+        return float(probs[BINARY_CONFUSED_INDEX])
+    # No probs vector: recover it from the confidence, which belongs to whichever class won.
+    conf = float(inference.get("confidence", 0.0))
+    return conf if int(inference.get("engagement_level", 0)) == BINARY_CONFUSED_INDEX else 1.0 - conf
+
+
 def resolve_affect(
     inference: dict[str, Any], kind: str | None = None
 ) -> tuple[str, str, float, dict[str, Any]]:
@@ -113,6 +155,15 @@ def resolve_affect(
     if kind == "category":
         affect = index_to_affect(index)
         return affect, AFFECT_SOURCE_CATEGORY, category_confidence(inference, affect, kind), {}
+
+    if kind == "binary_confusion":
+        # Two logits, so the argmax prob IS the confidence — nothing to aggregate. Reported
+        # under AFFECT_SOURCE_CATEGORY because, unlike the engagement stand-in, this artifact
+        # genuinely predicts an affect category rather than having one inferred from intensity.
+        affect = binary_confusion_to_affect(index)
+        return (affect, AFFECT_SOURCE_CATEGORY,
+                float(inference.get("confidence", 0.0)),
+                {"p_confused": _positive_prob(inference)})
 
     # engagement stand-in (default)
     affect = engagement_to_affect(index)
