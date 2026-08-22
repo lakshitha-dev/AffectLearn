@@ -18,6 +18,7 @@ import pytest
 import app.agents.nodes.affect_detection as ad
 from app.agents.graph import build_graph
 from app.agents.state import make_initial_state
+from app.services.feature_engineering import N_FEATURES
 
 pytestmark = pytest.mark.asyncio
 
@@ -68,7 +69,7 @@ async def test_behavioral_graph_latency_under_budget(monkeypatch, capsys):
 
     fake_model = bi.BehavioralModel(
         session=type("S", (), {"run": lambda self, _o, f: [np.array([[2.0, 0.1, 0.1, 0.1]], np.float32)]})(),
-        stats={"mean": np.zeros(13, np.float32), "std": np.ones(13, np.float32)},
+        stats={"mean": np.zeros(N_FEATURES, np.float32), "std": np.ones(N_FEATURES, np.float32)},
     )
     monkeypatch.setattr(bi, "get_behavioral_model", lambda: fake_model)
     # node imported predict_from_window by reference; keep it pointed at the real fn

@@ -2,7 +2,14 @@
 # Secrets required (repo settings -> Secrets and variables -> Actions):
 #   AZURE_WEBAPP_PUBLISH_PROFILE           - backend App Service publish profile XML
 #   AZURE_WEBAPP_PUBLISH_PROFILE_FRONTEND  - frontend App Service publish profile XML
-#   FACIAL_MODEL_URL                       - read-SAS URL to cnn_lstm_best.onnx in Blob (gitignored, 46MB)
+#   FACIAL_CONFUSION_MODEL_URL             - read-SAS URL to cnn_lstm_confusion_anycut.onnx (48MB).
+#                                            The WIRED facial model (binary confusion, AUC 0.641).
+#   FACIAL_MODEL_URL                       - read-SAS URL to cnn_lstm_best.onnx (48MB). The
+#                                            engagement stand-in, kept as the rollback target.
+# Both facial secrets are OPTIONAL: if a URL is unset the fetch is skipped with a warning and the
+# backend degrades to behavioural-only (which is the stronger channel anyway). A URL that resolves
+# but returns an error body is caught by a size check — an expired SAS otherwise writes XML to a
+# .onnx path and only surfaces as a corrupt graph at the first inference.
 # Backend: Python code, Oryx build on App Service (SCM_DO_BUILD_DURING_DEPLOYMENT=true),
 #          startup runs backend/startup.sh (alembic upgrade -> uvicorn).
 # Frontend: Next.js standalone build done HERE on the runner (B1 plan would OOM on
@@ -29,10 +36,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch facial model from Blob (gitignored, 46MB)
+      - name: Fetch facial models from Blob (gitignored, 48MB each)
+        env:
+          FACIAL_MODEL_URL: ${{ secrets.FACIAL_MODEL_URL }}
+          FACIAL_CONFUSION_MODEL_URL: ${{ secrets.FACIAL_CONFUSION_MODEL_URL }}
         run: |
+          set -euo pipefail
           mkdir -p backend/models
-          curl -fsSL "${{ secrets.FACIAL_MODEL_URL }}" -o backend/models/cnn_lstm_best.onnx
+
+          # Two facial artifacts are fetched so rollback is an env-var change, not a redeploy:
+          #   cnn_lstm_confusion_anycut.onnx  the wired model (binary confusion, AUC 0.641)
+          #   cnn_lstm_best.onnx              the engagement stand-in, rollback target
+          # `curl -f` fails the job on an HTTP error rather than writing an HTML error page to a
+          # .onnx path, which would only surface as a corrupt-graph error at the first inference.
+          fetch() {  # fetch <url> <dest> <required>
+            local url="$1" dest="$2" required="$3"
+            if [ -z "$url" ]; then
+              if [ "$required" = "required" ]; then
+                echo "::error::missing secret for $dest"; exit 1
+              fi
+              echo "::warning::no URL configured for $dest — skipping (the backend degrades to behavioural-only)"
+              return 0
+            fi
+            curl -fsSL "$url" -o "$dest"
+            # A SAS that resolves but returns XML/HTML lands here as a small file; catch it now.
+            local size; size=$(stat -c%s "$dest")
+            if [ "$size" -lt 1000000 ]; then
+              echo "::error::$dest is only ${size} bytes — expected ~48MB. Likely an expired SAS returning an error body."
+              head -c 300 "$dest" || true
+              exit 1
+            fi
+            echo "fetched $dest (${size} bytes)"
+          }
+
+          fetch "${FACIAL_CONFUSION_MODEL_URL:-}" backend/models/cnn_lstm_confusion_anycut.onnx optional
+          fetch "${FACIAL_MODEL_URL:-}"           backend/models/cnn_lstm_best.onnx            optional
+
           echo "models present:"; ls -la backend/models
 
       - name: Deploy backend to Azure App Service

@@ -5,6 +5,11 @@ topic-natural so they do NOT bias participants; this codebook is the analysis ke
 truth: `backend/app/db/course_content/*.py` (see the `# affect:` comments). States: **engaged /
 bored / confused / frustrated**, plus **neutral (baseline)** for the warm-up.
 
+> **Pilot scope (live):** every participant takes the **same single study course — *Building AI
+> Agents* — after the neutral warm-up baseline.** *Foundations of Agentic AI* and *Multi-Agent
+> Systems & Orchestration* are **retired from the pilot** (kept in source, not seeded); their tables
+> below are retained for reference only.
+
 ## Getting Comfortable: A Warm-Up  (baseline task — do FIRST)
 Every participant completes this short, calm course **before** the study courses. It targets no
 affect; its behavioral windows are the participant's **resting baseline** for per-person

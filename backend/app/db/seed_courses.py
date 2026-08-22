@@ -27,11 +27,22 @@ from app.models.course import Course
 
 
 def _build_courses() -> list[Course]:
-    # Warm-up first: participants complete it before the study courses so its behavioral
-    # windows serve as each learner's resting baseline (see AFFECT_SECTION_CODEBOOK.md).
-    return [build_warmup(), build_foundations(), build_building(), build_multiagent()]
+    # Pilot design: ALL participants take ONE study course — "Building AI Agents" — after the
+    # neutral warm-up baseline. Building gives the best balance of the four affect states
+    # (esp. the rare bored/confused/frustrated). `foundations.py` and `multiagent.py` are kept
+    # in source (retired from the pilot, easily re-addable).
+    #
+    # BOOTSTRAP OVERRIDE (single-subject collection, Aug 2026): the two retired courses ARE
+    # seeded here. One subject makes exactly one genuine pass, so Building alone (17 sections:
+    # 3 confused / 2 bored / 3 frustrated) yields too few windows per minority class to train
+    # on. Re-adding both takes the content universe to 49 sections — confused 3→9, bored 2→7,
+    # frustrated 3→6. REVERT to `[build_warmup(), build_building()]` before the Phase A pilot,
+    # which keeps the single-study-course design documented in AFFECT_SECTION_CODEBOOK.md.
+    return [build_warmup(), build_building(), build_foundations(), build_multiagent()]
 
 
+# Titles this seeder MANAGES on `--reset`. A superset of what `_build_courses` creates: it
+# keeps the two retired titles so a `--reset` DELETES them from any DB that still has them.
 _TITLES = [
     "Getting Comfortable: A Warm-Up",
     "Foundations of Agentic AI",

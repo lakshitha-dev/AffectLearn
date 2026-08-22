@@ -190,6 +190,7 @@ async def _handle_facial_features(
             session_id=session_id,
             cycle_number=cycle,
             facial_payload=data,
+            **_seed_counterpart(session_id, "facial"),
             db=db,
             phase=phase,
             group=group,
@@ -279,6 +280,7 @@ async def _handle_behavioral_window(
             session_id=session_id,
             cycle_number=cycle,
             behavioral_payload=data,
+            **_seed_counterpart(session_id, "behavioral"),
             db=db,
             phase=phase,
             group=group,
@@ -317,9 +319,26 @@ async def _handle_behavioral_window(
             # persisted so Phase A data is trainable (guide §7 train/serve parity). Aggregate
             # stats only (not raw events) → honours NFR10 / the consent's "only aggregate features".
             features=inference.get("features"),
+            feature_schema_version=inference.get("feature_schema_version"),
         )
     elif error:
         payload["error"] = error
+        # SALVAGE THE FEATURES. The raw events live only on the transient `behavioral_payload`
+        # and are dropped when this cycle ends, so if inference fails and we persist nothing,
+        # this window is gone permanently. A missing or stale ONNX file is precisely the failure
+        # that would otherwise silently destroy an entire collection session — and
+        # `/health/pipeline` does not check the model, so nothing upstream catches it.
+        # Extraction is independent of inference and cheap, so redo it on the error path.
+        try:
+            salvaged = behavioral_inference.extract_window_features(
+                data.get("events") or [], data.get("capture_started_at_wall")
+            )
+            payload["features"] = salvaged["features"]
+            payload["n_bins"] = salvaged["n_bins"]
+            payload["feature_schema_version"] = salvaged["feature_schema_version"]
+            payload["features_salvaged"] = True
+        except Exception:
+            logger.exception("behavioral_feature_salvage_failed", user_id=user_id, cycle=cycle)
     else:
         payload["empty_cycle"] = True
 
@@ -342,6 +361,21 @@ async def _handle_behavioral_window(
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
     await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group)
+
+
+def _seed_counterpart(session_id: str, modality: str) -> dict[str, Any]:
+    """Kwargs seeding the opposite modality's buffered result for in-graph late fusion.
+
+    PEEKS rather than takes: `_maybe_fuse` still owns consumption, and popping here would leave the
+    research event unpaired, so the live decision and the log would disagree about whether a pair
+    existed. Returns {} when unpaired or stale, in which case the graph falls through to its
+    single-modality path unchanged.
+    """
+    other = "behavioral" if modality == "facial" else "facial"
+    res = fusion_buffer.peek_counterpart(session_id, modality, _now_ms())
+    if not res:
+        return {}
+    return {"counterpart_inference": res, "counterpart_modality": other}
 
 
 async def _maybe_fuse(
