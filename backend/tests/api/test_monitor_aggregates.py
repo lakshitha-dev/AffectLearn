@@ -130,3 +130,69 @@ async def test_rbac_designer_forbidden(client, designer_headers):
 
 async def test_rbac_unauthenticated(client):
     assert (await client.get(BASE)).status_code in (401, 403)
+
+
+# --- modalityStats: the measured basis for "this channel never reached the gate" -------------
+
+
+async def _seed_modalities(db):
+    """A facial channel stuck near 0.5 and a behavioural one that crosses the gate.
+
+    This is the shape the live pipeline actually produced while the facial crop geometry was
+    mismatched: facial pinned in a narrow band under threshold, behavioural confident.
+    """
+    rows = []
+    for i, pc in enumerate([0.48, 0.51, 0.55, 0.49]):
+        rows.append(_ev("facial_affect_detected", cycle=i, affect_state="engaged", p_confused=pc))
+    for i, pc in enumerate([0.02, 0.18, 0.72, 0.31]):
+        rows.append(
+            _ev("behavioral_affect_detected", cycle=i, affect_state="engaged", p_confused=pc)
+        )
+    # An older-format row carrying only the softmax.
+    rows.append(_ev("multimodal_affect_detected", cycle=9, affect_state="engaged",
+                    probs=[0.4, 0.6]))
+    db.add_all(rows)
+    await db.commit()
+
+
+async def test_modality_stats_report_observed_range(client, db, admin_headers):
+    await _seed_modalities(db)
+    body = (await client.get(f"{BASE}?hours=24", headers=admin_headers)).json()
+    ms = body["modalityStats"]
+
+    assert ms["facial"]["n"] == 4
+    assert ms["facial"]["min"] == 0.48
+    assert ms["facial"]["max"] == 0.55
+    assert ms["behavioral"]["n"] == 4
+    assert ms["behavioral"]["max"] == 0.72
+
+
+async def test_facial_never_reaching_threshold_is_measured_not_assumed(client, db, admin_headers):
+    """The whole point: the UI's warning must come from data, so it disappears when the data changes."""
+    await _seed_modalities(db)
+    body = (await client.get(f"{BASE}?hours=24", headers=admin_headers)).json()
+    ms = body["modalityStats"]
+
+    threshold = body["adaptMinConfidence"]
+    assert threshold is not None
+
+    # Facial tops out at 0.55; behavioural reaches 0.72. At the default 0.70 gate only one crosses.
+    if threshold > 0.55:
+        assert ms["facial"]["reachedThreshold"] is False
+        assert ms["facial"]["overThreshold"] == 0
+    if threshold <= 0.72:
+        assert ms["behavioral"]["reachedThreshold"] is True
+        assert ms["behavioral"]["overThreshold"] >= 1
+
+
+async def test_modality_stats_recover_p_confused_from_probs(client, db, admin_headers):
+    await _seed_modalities(db)
+    ms = (await client.get(f"{BASE}?hours=24", headers=admin_headers)).json()["modalityStats"]
+    assert ms["multimodal"]["n"] == 1
+    assert ms["multimodal"]["max"] == 0.6
+
+
+async def test_modality_stats_empty_window(client, admin_headers):
+    ms = (await client.get(f"{BASE}?hours=1", headers=admin_headers)).json()["modalityStats"]
+    for m in ("behavioral", "facial", "multimodal"):
+        assert ms[m] == {"n": 0}

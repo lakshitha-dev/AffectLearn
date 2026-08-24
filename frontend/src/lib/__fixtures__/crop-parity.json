@@ -1,0 +1,77 @@
+{
+  "note": "Generated from the Python reference geometry (crop_gap_eval.py::_haar_crop). Pins 10% padding + clamping + ImageNet CHW normalisation.",
+  "frame": {
+    "width": 40,
+    "height": 30
+  },
+  "bbox": {
+    "originX": 10.0,
+    "originY": 8.0,
+    "width": 12.0,
+    "height": 10.0
+  },
+  "expectedPaddedBox": {
+    "originX": 8.8,
+    "originY": 7.0,
+    "width": 14.399999999999999,
+    "height": 12.0
+  },
+  "samples": [
+    {
+      "c": 0,
+      "y": 0,
+      "x": 0,
+      "v": -1.295916
+    },
+    {
+      "c": 1,
+      "y": 0,
+      "x": 0,
+      "v": -1.055322
+    },
+    {
+      "c": 2,
+      "y": 0,
+      "x": 0,
+      "v": -0.758693
+    },
+    {
+      "c": 0,
+      "y": 48,
+      "x": 48,
+      "v": -0.473928
+    },
+    {
+      "c": 1,
+      "y": 48,
+      "x": 48,
+      "v": -0.214986
+    },
+    {
+      "c": 2,
+      "y": 48,
+      "x": 48,
+      "v": 0.217342
+    },
+    {
+      "c": 0,
+      "y": 95,
+      "x": 95,
+      "v": 0.245312
+    },
+    {
+      "c": 1,
+      "y": 95,
+      "x": 95,
+      "v": 0.485294
+    },
+    {
+      "c": 2,
+      "y": 95,
+      "x": 95,
+      "v": 1.053944
+    }
+  ],
+  "expectedMean": -0.220897,
+  "expectedStd": 0.513437
+}

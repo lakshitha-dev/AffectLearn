@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from datetime import UTC, datetime
 import uuid as uuid_mod
 
 import structlog
@@ -26,7 +28,7 @@ from app.core.security import decode_token
 from app.models.user import Role, User
 from app.services import redis_service
 from app.services.connection_manager import connection_manager
-from app.services import llm_health, monitor_aggregate_service
+from app.services import llm_health, monitor_aggregate_service, monitor_export_service
 from app.services.model_report import model_report
 from app.services.monitor_bus import monitor_bus
 
@@ -182,6 +184,41 @@ async def aggregates(
     `monitor_aggregate_service` for why payload extraction happens in Python.
     """
     return await monitor_aggregate_service.aggregates(db, hours=hours)
+
+
+@router.get("/export.csv")
+async def export_csv(
+    hours: int = Query(24, ge=1, le=720, description="look-back window in hours"),
+    session_id: str | None = Query(None),
+    event_types: list[str] | None = Query(None, description="repeatable; omit for all types"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(Role.admin)),
+):
+    """Download the window's research events as CSV, one row per event.
+
+    Streamed, and ordered by the same `(session_id, sequence_number, timestamp)` invariant the
+    export API uses, so a download can be diffed against `/admin/research/events`.
+    """
+    now_ms = int(time.time() * 1000)
+    start_ms = now_ms - hours * 3_600_000
+    stamp = datetime.fromtimestamp(now_ms / 1000, tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    name = f"affectlearn-events-{stamp}-{hours}h.csv"
+
+    return StreamingResponse(
+        monitor_export_service.stream_csv(
+            db,
+            start_ts=start_ms,
+            end_ts=now_ms,
+            session_id=session_id,
+            event_types=event_types,
+        ),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            # The browser must not serve a stale window from cache on a re-export.
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/health")

@@ -33,7 +33,9 @@ import { useConnectionStore } from "@/stores/connection-store";
 import { useWebcamStore } from "@/stores/webcam-store";
 import { loadFaceDetector } from "@/lib/mediapipe-loader";
 import {
+  centerCropAndNormalize,
   cropAndNormalize,
+  largestBox,
   framesToBase64,
   PREPROCESS_CONTRACT,
   type BoundingBox,
@@ -201,27 +203,42 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
         }
 
         const detections = result?.detections ?? [];
-        const first = detections[0];
-        const score = first?.categories?.[0]?.score ?? 0;
-        const bbox = first?.boundingBox as BoundingBox | undefined;
+        const frameDims = { width: video.videoWidth, height: video.videoHeight };
 
-        if (!first || !bbox) {
+        // Training selected the LARGEST detection, not the first one returned. With a bystander
+        // in shot, detections[0] could be the wrong face entirely.
+        const usable = detections.filter((d) => {
+          const sc = d?.categories?.[0]?.score ?? 0;
+          return Boolean(d?.boundingBox) && sc >= CONFIDENCE_DROP_THRESHOLD;
+        });
+        const chosen = largestBox(
+          usable.map((d) => d.boundingBox as BoundingBox),
+        );
+
+        // Bookkeeping is unchanged in shape so the monitor's drop breakdown stays comparable:
+        // these now count FALLBACKS rather than discarded frames.
+        if (detections.length === 0) {
           dropped.no_face += 1;
-        } else if (score < CONFIDENCE_DROP_THRESHOLD) {
+        } else if (usable.length === 0) {
           dropped.low_confidence += 1;
-        } else {
-          try {
-            const tensor = cropAndNormalize(video, bbox);
-            // Enforce ring-buffer bound: never exceed expectedFramesPerCycle frames
-            // between cycle resets. Drops the oldest frame (shift) if timers drift.
-            if (frames.length >= PREPROCESS_CONTRACT.expectedFramesPerCycle) {
-              frames.shift();
-            }
-            frames.push(tensor);
-          } catch (err) {
-            console.warn("[useMediaPipe] cropAndNormalize failed", err);
-            dropped.low_confidence += 1;
+        }
+
+        try {
+          // Training emitted a centre crop for faceless frames rather than dropping them, so
+          // clips contained occasional non-face frames and the LSTM was fitted over that
+          // distribution. Dropping them changed the temporal statistics of every served clip.
+          const tensor = chosen
+            ? cropAndNormalize(video, chosen, frameDims)
+            : centerCropAndNormalize(video, frameDims);
+          // Enforce ring-buffer bound: never exceed expectedFramesPerCycle frames
+          // between cycle resets. Drops the oldest frame (shift) if timers drift.
+          if (frames.length >= PREPROCESS_CONTRACT.expectedFramesPerCycle) {
+            frames.shift();
           }
+          frames.push(tensor);
+        } catch (err) {
+          console.warn("[useMediaPipe] crop failed", err);
+          dropped.low_confidence += 1;
         }
 
         const elapsed = performance.now() - tStart;
