@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import uuid as uuid_mod
 
 import structlog
@@ -27,22 +26,21 @@ from app.core.security import decode_token
 from app.models.user import Role, User
 from app.services import redis_service
 from app.services.connection_manager import connection_manager
+from app.services import llm_health, monitor_aggregate_service
+from app.services.model_report import model_report
 from app.services.monitor_bus import monitor_bus
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-# Behavioral / facial model file locations (env-overridable; mirrors the inference services).
-_BEHAVIORAL_MODEL_PATH = os.getenv("BEHAVIORAL_MODEL_PATH", "models/behavioral_bilstm.onnx")
-_FACIAL_MODEL_PATH = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_best.onnx")
-
 # Static graph topology — the single source of truth for the dashboard flow diagram.
 # `kind: "stub"` marks pass-through nodes (Story 5.x) so the UI never implies real work.
 _GRAPH_TOPOLOGY: dict = {
     "nodes": [
         {"id": "affect_detection", "label": "Affect Detection", "kind": "active",
-         "desc": "Facial CNN-LSTM / behavioral Bi-LSTM → 4-class affect"},
+         "desc": "Facial CNN-LSTM (binary confusion) / behavioural GBDT → confused vs engaged. "
+                 "Fusion of the two runs in the WS handler BEFORE the graph, not as a node here"},
         {"id": "learner_profiler", "label": "Learner Profiler", "kind": "active",
          "desc": "Fold affect into profile (Redis hot + Postgres cold)"},
         {"id": "log_only", "label": "Log Only", "kind": "active",
@@ -172,6 +170,20 @@ async def graph(_: User = Depends(require_role(Role.admin))):
     return _GRAPH_TOPOLOGY
 
 
+@router.get("/aggregates")
+async def aggregates(
+    hours: int = Query(24, ge=1, le=720, description="look-back window in hours"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(Role.admin)),
+):
+    """Pipeline behaviour over a window: gate-reason distribution, rate, fallback share.
+
+    The live stream shows single cycles; this shows whether the gate is calibrated. See
+    `monitor_aggregate_service` for why payload extraction happens in Python.
+    """
+    return await monitor_aggregate_service.aggregates(db, hours=hours)
+
+
 @router.get("/health")
 async def health(
     db: AsyncSession = Depends(get_db),
@@ -184,17 +196,16 @@ async def health(
     except Exception:
         db_ok = False
 
+    # Same report `/health/pipeline` serves, so the dashboard and the liveness probe can never
+    # disagree. `available` is kept alongside `exists` for the existing frontend contract.
+    models = model_report()
+    for key in ("behavioral", "facial"):
+        models[key]["available"] = bool(models[key].get("exists"))
+
     return {
-        "models": {
-            "behavioral": {
-                "path": _BEHAVIORAL_MODEL_PATH,
-                "available": os.path.exists(_BEHAVIORAL_MODEL_PATH),
-            },
-            "facial": {
-                "path": _FACIAL_MODEL_PATH,
-                "available": os.path.exists(_FACIAL_MODEL_PATH),
-            },
-        },
+        "models": models,
+        # Whether adaptations are actually GENERATED or coming from the deterministic fallback.
+        "llm": await llm_health.probe(),
         "redis": {"enabled": not getattr(redis_service, "_disabled", False)},
         "database": {"ok": db_ok},
         "websocket": {"active_connections": len(connection_manager.active_user_ids())},

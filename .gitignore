@@ -30,8 +30,14 @@ Thumbs.db
 # Large facial affect model (46MB ResNet18 CNN-LSTM) — fetch from Google Drive into
 # backend/models/, not committed. See backend/models/README.md.
 # (behavioral_bilstm.onnx is small and stays tracked.)
-backend/models/cnn_lstm_best.onnx
+# Facial CNN-LSTM artifacts are ~48MB each; they are fetched from Blob at deploy time
+# (.github/workflows/deploy.yml). Ignore the SIZE CLASS, not one filename -- naming a single
+# file meant the next export slipped past the rule and would have been committed.
+backend/models/cnn_lstm_*.onnx
 backend/models/*.onnx.data
+# The small provenance cards ARE committed: they carry the honest metrics and must travel
+# with the code that loads them.
+!backend/models/cnn_lstm_*.json
 
 # Azure deploy local secrets/names
 deploy/azure/.deploy-secrets
