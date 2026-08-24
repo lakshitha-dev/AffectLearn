@@ -73,3 +73,51 @@ async def test_stream_rejects_learner_token(client, test_user):
 async def test_stream_rejects_invalid_token(client):
     r = await client.get("/api/v1/monitor/stream", params={"token": "not-a-jwt"})
     assert r.status_code == 401
+
+
+# --- health: shared model report + vLLM reachability (added with the admin monitor update) ---
+
+
+async def test_health_reports_resolved_model_kind_not_just_presence(client, admin_headers):
+    """`/monitor/health` used to report only `available`, from its OWN stale path defaults.
+
+    It now shares `/health/pipeline`'s report, so a kind/artifact mismatch is visible here too.
+    """
+    from app.services import llm_health
+
+    llm_health._reset_cache()
+    body = (await client.get("/api/v1/monitor/health", headers=admin_headers)).json()
+
+    for key in ("behavioral", "facial"):
+        m = body["models"][key]
+        assert "path" in m
+        assert "exists" in m
+        # Back-compat: the existing frontend reads `available`.
+        assert m["available"] == bool(m["exists"])
+    # The decision-path config travels with the models, so thresholds are auditable here.
+    assert "decision" in body["models"]
+
+
+async def test_health_surfaces_unreachable_llm_without_raising(client, admin_headers):
+    """A dead vLLM must report, not 500 — and must say what it means for adaptations."""
+    from app.services import llm_health
+
+    llm_health._reset_cache()
+    r = await client.get("/api/v1/monitor/health", headers=admin_headers)
+    assert r.status_code == 200
+
+    llm = r.json()["llm"]
+    assert llm["reachable"] is False  # no vLLM in the test env
+    assert llm["adaptationsGenerated"] is False
+    assert "error" in llm
+    assert "endpoint" in llm and "model" in llm
+
+
+async def test_llm_probe_is_cached(client, admin_headers):
+    """The dashboard polls health every 5s; a dead host must not cost a timeout each time."""
+    from app.services import llm_health
+
+    llm_health._reset_cache()
+    first = await llm_health.probe()
+    second = await llm_health.probe()
+    assert first is second  # same object -> served from cache, no second network attempt

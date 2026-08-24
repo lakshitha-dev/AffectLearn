@@ -70,91 +70,15 @@ async def health_check():
 
 
 def _model_report() -> dict:
-    """Which affect models are ACTUALLY loaded, and how the code will interpret them.
+    """Delegates to `app.services.model_report` -- shared with the admin monitor endpoint.
 
-    Deploy verification exists because the failure modes here are silent. Pointing
-    AFFECT_MODEL_KIND at `binary_confusion` while AFFECT_MODEL_PATH still resolves to the
-    4-level engagement artifact produces confident nonsense, not an error — and the only
-    previous way to notice was reading App Service logs after a learner had already been
-    affected. Reporting the resolved kind next to the file that is actually on disk makes
-    that mismatch a single curl.
-
-    Deliberately NOT part of the `status` verdict: a missing facial ONNX is a documented
-    degradation (the pipeline runs behavioural-only, see models/README.md), not an outage.
-    Never raises — every probe is guarded so a broken artifact reports rather than 500s.
-    No secrets: paths and shapes only.
+    Kept as a thin wrapper so `/health/pipeline`'s response shape is unchanged and existing
+    tests keep their seam. The body moved out because `monitor.py` had its own divergent copy
+    with superseded model-path defaults; one implementation means the two can never disagree.
     """
-    import os
+    from app.services.model_report import model_report
 
-    report: dict = {}
-
-    def _onnx_io(path: str) -> dict:
-        """Input/output names and shapes, so a width mismatch is visible before inference."""
-        try:
-            import onnxruntime as ort
-
-            sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
-            return {
-                "inputs": [{"name": i.name, "shape": i.shape} for i in sess.get_inputs()],
-                "outputs": [{"name": o.name, "shape": o.shape} for o in sess.get_outputs()],
-            }
-        except Exception as exc:
-            return {"error": f"{type(exc).__name__}: {exc}"}
-
-    # ---- behavioural ----
-    try:
-        from app.services.behavioral_inference import (
-            _DEFAULT_MODEL_PATH,
-            BehavioralModel,
-        )
-
-        beh_path = os.getenv("BEHAVIORAL_MODEL_PATH", _DEFAULT_MODEL_PATH)
-        beh: dict = {"path": beh_path, "exists": os.path.exists(beh_path)}
-        if beh["exists"]:
-            try:
-                beh["kind"] = BehavioralModel(model_path=beh_path)._kind()
-            except Exception as exc:
-                beh["kind"] = f"unresolved: {type(exc).__name__}"
-            beh.update(_onnx_io(beh_path))
-        report["behavioral"] = beh
-    except Exception as exc:
-        report["behavioral"] = {"error": f"{type(exc).__name__}: {exc}"}
-
-    # ---- facial ----
-    try:
-        from app.agents.affect_mapping import _model_kind
-
-        fac_path = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_best.onnx")
-        fac: dict = {"path": fac_path, "exists": os.path.exists(fac_path), "kind": _model_kind()}
-        if fac["exists"]:
-            fac.update(_onnx_io(fac_path))
-        report["facial"] = fac
-    except Exception as exc:
-        report["facial"] = {"error": f"{type(exc).__name__}: {exc}"}
-
-    # ---- decision-path config ----
-    try:
-        from app.agents.edges import (
-            ADAPT_COOLDOWN_CYCLES,
-            ADAPT_MIN_CONFIDENCE,
-            ADAPT_MIN_CONSECUTIVE,
-            ADAPT_STATES,
-        )
-        from app.agents.fusion import forced_mode
-        from app.agents.nodes.affect_detection import fusion_drives_decision
-
-        report["decision"] = {
-            "adaptStates": list(ADAPT_STATES),
-            "adaptMinConfidence": ADAPT_MIN_CONFIDENCE,
-            "adaptMinConsecutive": ADAPT_MIN_CONSECUTIVE,
-            "adaptCooldownCycles": ADAPT_COOLDOWN_CYCLES,
-            "fusionDrivesDecision": fusion_drives_decision(),
-            "forcedMode": forced_mode(),
-        }
-    except Exception as exc:
-        report["decision"] = {"error": f"{type(exc).__name__}: {exc}"}
-
-    return report
+    return model_report()
 
 
 @app.get("/health/pipeline")
