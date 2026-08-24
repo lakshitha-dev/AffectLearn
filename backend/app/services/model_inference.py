@@ -39,8 +39,41 @@ FRAMES_PER_WINDOW = 16                       # framesPerInferenceWindow
 FLOATS_PER_FRAME = CHANNELS * INPUT_SIZE * INPUT_SIZE          # 27_648
 BYTES_PER_FRAME = FLOATS_PER_FRAME * 4                          # 110_592
 
-# DAiSEE engagement ordinal classes 0..3
-CLASS_LABELS = ("very_low", "low", "high", "very_high")
+# Labels depend on WHICH artifact is loaded, so they cannot be a single fixed tuple.
+#
+# The deployed confusion model has a 2-class head, but this was hardcoded to the 4-level DAiSEE
+# engagement vocabulary, so every facial label written to `research_events` came out as
+# "very_low"/"low" -- a 2-class argmax indexed into a 4-name list. Prediction was unaffected
+# (downstream reads the index and `probs`), but the durable record was garbage.
+_LABELS_BY_KIND: dict[str, tuple[str, ...]] = {
+    # DAiSEE engagement ordinal classes 0..3
+    "engagement": ("very_low", "low", "high", "very_high"),
+    # index 1 == confused (see affect_mapping.BINARY_CONFUSED_INDEX)
+    "binary_confusion": ("not_confused", "confused"),
+    # 4 canonical affect categories, in AFFECT_CLASS_ORDER
+    "category": ("bored", "confused", "engaged", "frustrated"),
+}
+
+# Retained for backwards compatibility with existing importers; the engagement vocabulary is the
+# historical default. Prefer `class_labels()`.
+CLASS_LABELS = _LABELS_BY_KIND["engagement"]
+
+
+def class_labels(kind: str | None = None) -> tuple[str, ...]:
+    """Label vocabulary for the resolved adapter kind.
+
+    Resolves the kind from `affect_mapping._model_kind()` (the single source of truth, read from
+    env per call) unless one is supplied. Falls back to the engagement vocabulary for an unknown
+    kind so this can never raise on a mislabelled deployment.
+    """
+    if kind is None:
+        try:
+            from app.agents.affect_mapping import _model_kind
+
+            kind = _model_kind()
+        except Exception:  # pragma: no cover - defensive; labels must never break inference
+            kind = "engagement"
+    return _LABELS_BY_KIND.get(kind, _LABELS_BY_KIND["engagement"])
 
 # ONNX export used input name "clip", output name "logits" (1, T, 3, 96, 96) -> (1, 4)
 _ONNX_INPUT = "clip"
@@ -115,12 +148,28 @@ class EngagementModel:
         logits = np.asarray(self.session.run(None, {_ONNX_INPUT: batch})[0])[0]
         probs = _softmax(logits)
         level = int(probs.argmax())
+        labels = class_labels()
         return {
             "engagement_level": level,
-            "label": CLASS_LABELS[level],
+            # Guarded index: a kind/artifact mismatch (e.g. `binary_confusion` configured against a
+            # 4-class file) must report rather than IndexError mid-cycle.
+            "label": labels[level] if level < len(labels) else f"class_{level}",
             "confidence": float(probs[level]),
             "probs": [float(p) for p in probs],
+            "model_kind": _resolved_kind(),
+            # Only meaningful for a binary confusion head; index 1 == confused.
+            "p_confused": float(probs[1]) if len(probs) == 2 else None,
         }
+
+
+def _resolved_kind() -> str:
+    """The adapter kind as the code will interpret this artifact. Never raises."""
+    try:
+        from app.agents.affect_mapping import _model_kind
+
+        return _model_kind()
+    except Exception:  # pragma: no cover - defensive
+        return "engagement"
 
 
 _MODEL: EngagementModel | None = None

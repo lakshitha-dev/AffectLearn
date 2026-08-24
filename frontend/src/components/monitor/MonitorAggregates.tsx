@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMonitorAggregates } from "@/hooks/use-monitor";
+import { exportMonitorCsv, useMonitorAggregates, useMonitorHealth } from "@/hooks/use-monitor";
 
 const WINDOWS = [
   { value: "1", label: "Last hour" },
@@ -39,7 +39,7 @@ const WINDOWS = [
 
 // Why each reason fires, so the chart is readable without opening the source.
 const REASON_HELP: Record<string, string> = {
-  state_not_actionable: "detected state is not in ADAPT_STATES (only confused is actionable)",
+  state_not_actionable: "detected state is not in the configured ADAPT_STATES",
   low_confidence: "confidence below ADAPT_MIN_CONFIDENCE",
   not_sustained: "state not held for ADAPT_MIN_CONSECUTIVE cycles",
   cooldown: "an intervention fired too recently",
@@ -80,9 +80,25 @@ function Tile({
   );
 }
 
-export function MonitorAggregates() {
+export function MonitorAggregates({ sessionId }: { sessionId?: string | null }) {
   const [hours, setHours] = useState("24");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const { data, isPending, isError, error, refetch } = useMonitorAggregates(Number(hours));
+  // Thresholds come from the live config, so nothing here states a target from memory.
+  const decision = useMonitorHealth().data?.models.decision;
+
+  async function onExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportMonitorCsv(Number(hours), sessionId);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const picker = (
     <Select value={hours} onValueChange={setHours}>
@@ -155,14 +171,40 @@ export function MonitorAggregates() {
             </p>
           ) : null}
         </div>
-        {picker}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onExport}
+            disabled={exporting}
+            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+          >
+            {exporting ? "Exporting…" : "Export CSV"}
+          </button>
+          {picker}
+        </div>
       </div>
+      {exportError ? (
+        <p className="text-xs text-red-600 dark:text-red-400">Export failed: {exportError}</p>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tile
           label="Interventions"
           value={String(data.interventions.delivered)}
-          hint={data.interventions.perHour + "/hour — designed operating point is ~1.5"}
+          hint={
+            data.interventions.perHour +
+            "/hour at " +
+            [
+              decision?.adaptMinConfidence != null ? "conf " + decision.adaptMinConfidence : null,
+              decision?.adaptMinConsecutive != null
+                ? decision.adaptMinConsecutive + " consecutive"
+                : null,
+              decision?.adaptCooldownCycles != null
+                ? "cooldown " + decision.adaptCooldownCycles
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          }
         />
         <Tile
           label="Cycles"
@@ -230,11 +272,76 @@ export function MonitorAggregates() {
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="text-sm font-semibold text-foreground">Per-modality confidence</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Observed P(confused) per channel against the gate. A channel whose max never reaches the
+          threshold cannot have triggered an intervention on its own, whatever its held-out AUC says.
+        </p>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-xs">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="py-1.5 text-left font-medium">channel</th>
+                <th className="py-1.5 text-right font-medium">n</th>
+                <th className="py-1.5 text-right font-medium">min</th>
+                <th className="py-1.5 text-right font-medium">max</th>
+                <th className="py-1.5 text-right font-medium">mean</th>
+                <th className="py-1.5 text-right font-medium">over gate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(data.modalityStats ?? {}).map(([name, st]) => (
+                <tr key={name} className="border-b border-border last:border-0">
+                  <td className="py-1.5 font-mono text-foreground">{name}</td>
+                  <td className="py-1.5 text-right">{st.n}</td>
+                  <td className="py-1.5 text-right font-mono">{st.min?.toFixed(3) ?? "—"}</td>
+                  <td className="py-1.5 text-right font-mono">{st.max?.toFixed(3) ?? "—"}</td>
+                  <td className="py-1.5 text-right font-mono">{st.mean?.toFixed(3) ?? "—"}</td>
+                  <td
+                    className={
+                      "py-1.5 text-right " +
+                      (st.n > 0 && st.reachedThreshold === false
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "")
+                    }
+                  >
+                    {st.n === 0 ? "—" : (st.overThreshold ?? 0) + "/" + st.n}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="text-sm font-semibold text-foreground">Events by type</h3>
+        <dl className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {Object.entries(data.eventsByType ?? {})
+            .sort((a, b) => b[1] - a[1])
+            .map(([t, n]) => (
+              <div
+                key={t}
+                className="flex items-baseline justify-between gap-2 border-b border-border py-1"
+              >
+                <dt className="font-mono text-[11px] text-muted-foreground">{t}</dt>
+                <dd className="text-sm font-semibold text-foreground">{n.toLocaleString()}</dd>
+              </div>
+            ))}
+        </dl>
+      </div>
+
+      <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
         <h3 className="text-sm font-semibold text-foreground">Detections</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Only <code>confused</code> and <code>engaged</code> are detectable — both deployed models
-          are binary confusion detectors, so <code>bored</code> and <code>frustrated</code> are
-          pinned to zero server-side and are not shown.
+          {decision?.adaptStates?.length ? (
+            <>
+              Actionable states are <code>{decision.adaptStates.join(", ")}</code>. A state the
+              deployed models cannot emit simply never appears below.
+            </>
+          ) : (
+            <>A state the deployed models cannot emit never appears below.</>
+          )}
         </p>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {affect.length === 0 ? (

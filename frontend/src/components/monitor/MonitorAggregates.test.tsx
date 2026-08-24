@@ -29,8 +29,12 @@ vi.mock("recharts", () => {
 });
 
 const useMonitorAggregates = vi.fn();
+const useMonitorHealth = vi.fn(() => ({ data: undefined }));
+const exportMonitorCsv = vi.fn(async () => {});
 vi.mock("@/hooks/use-monitor", () => ({
   useMonitorAggregates: (...a: unknown[]) => useMonitorAggregates(...a),
+  useMonitorHealth: () => useMonitorHealth(),
+  exportMonitorCsv: (...a: unknown[]) => exportMonitorCsv(...(a as [])),
 }));
 
 vi.mock("@/components/ui/select", () => ({
@@ -63,6 +67,14 @@ function agg(over: Partial<Aggregates> = {}): Aggregates {
     gateReasonsUnknown: {},
     gatedCycles: 60,
     affectCounts: { engaged: 40, confused: 20 },
+    // The facial channel pinned below the gate is the shape the live pipeline produced while the
+    // crop geometry was mismatched.
+    modalityStats: {
+      behavioral: { n: 40, min: 0.02, max: 0.72, mean: 0.21, overThreshold: 2, reachedThreshold: true },
+      facial: { n: 40, min: 0.48, max: 0.55, mean: 0.51, overThreshold: 0, reachedThreshold: false },
+      multimodal: { n: 0 },
+    },
+    adaptMinConfidence: 0.7,
     confidence: "high",
     insufficient_data: false,
     ...over,
@@ -71,6 +83,9 @@ function agg(over: Partial<Aggregates> = {}): Aggregates {
 
 beforeEach(() => {
   useMonitorAggregates.mockReset();
+  useMonitorHealth.mockReset();
+  useMonitorHealth.mockReturnValue({ data: undefined } as never);
+  exportMonitorCsv.mockReset();
 });
 
 describe("MonitorAggregates", () => {
@@ -110,10 +125,25 @@ describe("MonitorAggregates", () => {
     expect(screen.getByText(/no adaptations delivered yet/i)).toBeInTheDocument();
   });
 
-  it("explains that bored and frustrated are not detectable", () => {
+  it("names the actionable states from live config rather than a hardcoded claim", () => {
     useMonitorAggregates.mockReturnValue({ data: agg(), isPending: false });
+    useMonitorHealth.mockReturnValue({
+      data: { models: { decision: { adaptStates: ["confused"], adaptMinConfidence: 0.7 } } },
+    } as never);
     render(createElement(MonitorAggregates));
-    expect(screen.getByText(/are pinned to zero server-side/i)).toBeInTheDocument();
+    // "confused" also appears in the detections panel, so scope the assertion to the caption.
+    const caption = screen.getByText(/Actionable states are/i);
+    expect(caption).toBeInTheDocument();
+    expect(caption.textContent).toContain("confused");
+  });
+
+  it("degrades to a neutral sentence when the config has not loaded", () => {
+    useMonitorAggregates.mockReturnValue({ data: agg(), isPending: false });
+    useMonitorHealth.mockReturnValue({ data: undefined } as never);
+    render(createElement(MonitorAggregates));
+    expect(
+      screen.getByText(/deployed models cannot emit never appears below/i),
+    ).toBeInTheDocument();
   });
 
   it("flags an unrecognised gate reason instead of hiding it", () => {
@@ -151,5 +181,38 @@ describe("MonitorAggregates", () => {
     render(createElement(MonitorAggregates));
     expect(screen.getByText(/no gated cycles in this window yet/i)).toBeInTheDocument();
     expect(screen.getByText(/no detections in this window/i)).toBeInTheDocument();
+  });
+});
+
+
+describe("MonitorAggregates — measured verdicts and export", () => {
+  it("flags a channel that never reached the gate, using measured values", () => {
+    useMonitorAggregates.mockReturnValue({ data: agg(), isPending: false });
+    render(createElement(MonitorAggregates));
+    // facial: 0/40 over the gate, rendered as a ratio rather than a claim.
+    expect(screen.getByText("0/40")).toBeInTheDocument();
+    expect(screen.getByText("0.550")).toBeInTheDocument();
+  });
+
+  it("renders the event histogram that was previously collected and discarded", () => {
+    useMonitorAggregates.mockReturnValue({ data: agg(), isPending: false });
+    render(createElement(MonitorAggregates));
+    expect(screen.getByText("Events by type")).toBeInTheDocument();
+    expect(screen.getByText("learner_profile_updated")).toBeInTheDocument();
+  });
+
+  it("no longer asserts an invented operating point", () => {
+    useMonitorAggregates.mockReturnValue({ data: agg(), isPending: false });
+    render(createElement(MonitorAggregates));
+    expect(screen.queryByText(/designed operating point/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/~1\.5/)).not.toBeInTheDocument();
+  });
+
+  it("exports the window currently on screen", async () => {
+    useMonitorAggregates.mockReturnValue({ data: agg(), isPending: false });
+    render(createElement(MonitorAggregates, { sessionId: "sess-1" }));
+    const btn = screen.getByRole("button", { name: /export csv/i });
+    btn.click();
+    await vi.waitFor(() => expect(exportMonitorCsv).toHaveBeenCalledWith(24, "sess-1"));
   });
 });

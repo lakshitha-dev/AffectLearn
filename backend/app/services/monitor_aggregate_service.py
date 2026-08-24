@@ -60,6 +60,12 @@ _AFFECT_EVENTS = (
     "behavioral_affect_detected",
     "multimodal_affect_detected",
 )
+_MODALITY_BY_EVENT = {
+    "behavioral_affect_detected": "behavioral",
+    "facial_affect_detected": "facial",
+    "multimodal_affect_detected": "multimodal",
+}
+
 _DELIVERED = "adaptation_delivered"
 _TRIGGERED = "adaptation_triggered"
 
@@ -85,6 +91,10 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
     affect_counts: dict[str, int] = {}
     delivered = 0
     fallback = 0
+    # Per-modality confidence distribution. This exists so the UI can state "this channel never
+    # reached the gate in this window" as a MEASUREMENT rather than a hardcoded claim -- and so it
+    # stops saying it the moment the channel starts reaching it.
+    mod_vals: dict[str, list[float]] = {"behavioral": [], "facial": [], "multimodal": []}
 
     for r in rows:
         events_by_type[r.event_type] = events_by_type.get(r.event_type, 0) + 1
@@ -108,6 +118,18 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
             if isinstance(label, str):
                 affect_counts[label] = affect_counts.get(label, 0) + 1
 
+            modality = _MODALITY_BY_EVENT.get(r.event_type)
+            if modality:
+                pc = pl.get("p_confused")
+                if pc is None:
+                    # Older rows predate p_confused being emitted; recover it from the raw
+                    # softmax where the head is binary (index 1 == confused).
+                    probs = pl.get("probs")
+                    if isinstance(probs, list) and len(probs) == 2:
+                        pc = probs[1]
+                if isinstance(pc, (int, float)):
+                    mod_vals[modality].append(float(pc))
+
         elif r.event_type == _DELIVERED:
             delivered += 1
             if pl.get("fallback") is True:
@@ -118,6 +140,31 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
             fallback += 1
 
     gated_cycles = sum(gate_counts.values()) + sum(gate_other.values())
+
+    # Compare against the LIVE threshold, so the reported verdict tracks configuration changes.
+    try:
+        from app.agents.edges import ADAPT_MIN_CONFIDENCE
+
+        threshold = float(ADAPT_MIN_CONFIDENCE)
+    except Exception:  # pragma: no cover - defensive
+        threshold = None
+
+    modality_stats: dict[str, Any] = {}
+    for name, vals in mod_vals.items():
+        if not vals:
+            modality_stats[name] = {"n": 0}
+            continue
+        over = sum(1 for v in vals if threshold is not None and v >= threshold)
+        modality_stats[name] = {
+            "n": len(vals),
+            "min": round(min(vals), 4),
+            "max": round(max(vals), 4),
+            "mean": round(sum(vals) / len(vals), 4),
+            "overThreshold": over,
+            # The headline: a channel that never crossed the gate cannot have driven an
+            # intervention, no matter what its AUC says.
+            "reachedThreshold": over > 0,
+        }
 
     return {
         "windowHours": hours,
@@ -141,6 +188,8 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
         "gateReasonsUnknown": gate_other,
         "gatedCycles": gated_cycles,
         "affectCounts": affect_counts,
+        "modalityStats": modality_stats,
+        "adaptMinConfidence": threshold,
         # Reuse the designer analytics confidence rule so "not enough data yet" reads the same
         # way across the product.
         **_confidence(gated_cycles),

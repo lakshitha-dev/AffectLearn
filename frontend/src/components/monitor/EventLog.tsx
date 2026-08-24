@@ -18,11 +18,34 @@ const EVENT_COLORS: Record<string, string> = {
 function summary(e: MonitorEvent): string {
   if (e.node) {
     const dur = e.duration_ms != null ? ` ${e.duration_ms}ms` : "";
-    return `${e.node}${dur}`;
+    // A node_error's message was colour-coded but never shown, so a failing cycle looked
+    // identical to a fast one.
+    const err = e.event_type === "node_error" && e.error ? ` — ${String(e.error)}` : "";
+    return `${e.node}${dur}${err}`;
   }
-  if (e.event_type === "route_decision") return `→ ${e.chosen}`;
+  if (e.event_type === "route_decision") {
+    const why = e.reason ? ` (${String(e.reason)})` : "";
+    return `→ ${e.chosen}${why}`;
+  }
+
   const p = (e.payload as Record<string, unknown>) ?? {};
-  if (p.affect_state) return `${p.affect_state} (${Math.round((p.affect_confidence as number) * 100)}%)`;
+
+  // The gate decision, which appears nowhere else in the live UI — only aggregated.
+  if (typeof p.adaptation_gate === "string") {
+    const state = p.affect_state ? `${p.affect_state} · ` : "";
+    return `${state}gate: ${p.adaptation_gate}`;
+  }
+
+  if (p.affect_state) {
+    // Guard on the field being FORMATTED, not a sibling. Guarding on affect_state while
+    // formatting affect_confidence rendered "engaged (NaN%)" for every learner_profile_updated
+    // event, which carries a state but has never carried a confidence.
+    const c = p.affect_confidence ?? p.confidence;
+    if (typeof c === "number" && Number.isFinite(c)) {
+      return `${p.affect_state} (${Math.round(c * 100)}%)`;
+    }
+    return String(p.affect_state);
+  }
   return "";
 }
 

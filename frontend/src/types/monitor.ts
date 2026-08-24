@@ -123,6 +123,26 @@ export interface MonitorAggregates {
     fallbackRate: number | null;
   };
   gateReasons: Record<string, number>;
+  /**
+   * Per-modality confidence distribution over the window.
+   *
+   * `reachedThreshold` is the operationally important field: a channel whose observed max never
+   * crossed the gate cannot have driven an intervention, whatever its held-out AUC says. It is
+   * measured per window, so it stops being reported the moment the channel starts crossing.
+   */
+  modalityStats: Record<
+    string,
+    {
+      n: number;
+      min?: number;
+      max?: number;
+      mean?: number;
+      overThreshold?: number;
+      reachedThreshold?: boolean;
+    }
+  >;
+  /** The live gate threshold the stats above were compared against. */
+  adaptMinConfidence: number | null;
   gateReasonsUnknown: Record<string, number>;
   gatedCycles: number;
   affectCounts: Record<string, number>;
