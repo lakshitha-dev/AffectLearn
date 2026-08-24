@@ -14,6 +14,18 @@ export function affectColor(a?: string): string {
   return (a && AFFECT_COLORS[a]) || "#64748b";
 }
 
+/**
+ * The affect states the DEPLOYED models can actually produce.
+ *
+ * Both models are binary confusion detectors, so `bored` and `frustrated` can never be
+ * emitted — they measured at chance in the available data and are pinned to 0.0 server-side.
+ * The monitor renders only these two rather than four lanes, three of which would sit flat at
+ * zero and read as "this learner was never bored" instead of "boredom is not detectable".
+ *
+ * AFFECT_COLORS deliberately keeps all four: the designer heatmap still uses the full palette.
+ */
+export const DETECTABLE_AFFECTS = ["confused", "engaged"] as const;
+
 export const NODE_STATUS_COLORS: Record<NodeRuntimeStatus, string> = {
   idle: "#64748b", // slate-500
   running: "#3b82f6", // blue-500
