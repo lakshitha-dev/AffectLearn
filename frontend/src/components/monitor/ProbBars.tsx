@@ -4,12 +4,15 @@ import { AFFECT_LABELS } from "@/types/monitor";
 import { affectColor } from "./shared";
 
 /**
- * Renders a model's softmax distribution as labelled horizontal bars. Defaults to the
- * 4 affect categories (the Bi-LSTM / engagement output order). The argmax is emphasised.
+ * Renders a model's softmax distribution as labelled horizontal bars, argmax emphasised.
+ *
+ * Label count follows the DATA, not a hardcoded assumption: the behavioural GBDT and the
+ * facial CNN-LSTM both emit 2 classes, while the superseded artifacts emitted 4. Rendering
+ * `labels.map` over a fixed 4 previously produced two phantom 0% rows for a 2-class head.
  */
 export function ProbBars({
   probs,
-  labels = AFFECT_LABELS as readonly string[],
+  labels,
 }: {
   probs?: number[] | null;
   labels?: readonly string[];
@@ -17,10 +20,18 @@ export function ProbBars({
   if (!probs || probs.length === 0) {
     return <p className="text-xs text-muted-foreground">no distribution</p>;
   }
+  // Fall back to the 4-category names only when the payload really has 4 slots.
+  const resolved: readonly string[] =
+    labels ??
+    (probs.length === (AFFECT_LABELS as readonly string[]).length
+      ? (AFFECT_LABELS as readonly string[])
+      : probs.map((_, i) => `class ${i}`));
+  // Never render more rows than the model produced.
+  const shown = resolved.slice(0, probs.length);
   const max = Math.max(...probs);
   return (
     <div className="space-y-1.5">
-      {labels.map((label, i) => {
+      {shown.map((label, i) => {
         const v = probs[i] ?? 0;
         const isMax = v === max;
         return (

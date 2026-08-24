@@ -9,17 +9,27 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { AFFECT_LABELS, type AffectPoint } from "@/types/monitor";
-import { affectColor, fmtTime } from "./shared";
+import { type AffectPoint } from "@/types/monitor";
+import { DETECTABLE_AFFECTS, affectColor, fmtTime } from "./shared";
 
 // Map affect category → numeric lane so we can plot it as a step series.
-const LANE: Record<string, number> = { bored: 0, confused: 1, engaged: 2, frustrated: 3 };
+//
+// Only the two states the deployed models can emit get a lane. The chart used to reserve four,
+// so `bored` and `frustrated` drew as permanently-empty tracks — which reads as "this learner
+// was never bored" rather than "boredom is not measurable with these models". They are pinned
+// to 0.0 server-side, so a lane for them could never carry a point.
+const LANES: readonly string[] = DETECTABLE_AFFECTS;
+const LANE: Record<string, number> = LANES.reduce<Record<string, number>>((acc, a, i) => {
+  acc[a] = i;
+  return acc;
+}, {});
 
 export function AffectStream({ series }: { series: AffectPoint[] }) {
   const latest = series[series.length - 1];
   const data = series.map((p) => ({
     t: p.t,
-    lane: LANE[p.affect] ?? 0,
+    // An out-of-vocabulary state would otherwise silently render as lane 0 (`confused`).
+    lane: LANE[p.affect],
     affect: p.affect,
     confidence: p.confidence,
   }));
@@ -50,9 +60,9 @@ export function AffectStream({ series }: { series: AffectPoint[] }) {
             <XAxis dataKey="t" tickFormatter={fmtTime} tick={{ fontSize: 10 }} minTickGap={40} />
             <YAxis
               type="number"
-              domain={[-0.5, 3.5]}
-              ticks={[0, 1, 2, 3]}
-              tickFormatter={(v: number) => AFFECT_LABELS[v] ?? ""}
+              domain={[-0.5, LANES.length - 0.5]}
+              ticks={LANES.map((_, i) => i)}
+              tickFormatter={(v: number) => LANES[v] ?? ""}
               tick={{ fontSize: 10 }}
               width={70}
             />
@@ -70,6 +80,7 @@ export function AffectStream({ series }: { series: AffectPoint[] }) {
               strokeWidth={2}
               dot={{ r: 3 }}
               isAnimationActive={false}
+              connectNulls={false}
             />
           </LineChart>
         </ResponsiveContainer>
