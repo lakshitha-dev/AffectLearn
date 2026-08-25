@@ -49,6 +49,13 @@ export function FacialPanel({
   const label = data?.label as string | undefined;
   const legacyLevel = data?.engagement_level as number | undefined;
   const dist = facialDistribution(probs);
+  // Face presence. `frames_captured` stopped meaning "frames with a face" when faceless frames
+  // became centre crops, so presence is reported separately. `undefined` means a legacy event
+  // that predates the field -- NOT zero faces.
+  const facesSeen = data?.frames_with_face as number | undefined;
+  const faceRatio = data?.face_ratio as number | undefined;
+  const faceAbsent = data?.face_absent as boolean | undefined;
+  const emptyCycle = Boolean(data?.empty_cycle);
 
   return (
     <div className="space-y-3">
@@ -76,6 +83,12 @@ export function FacialPanel({
               <span className="italic">fallback breakdown not reported this cycle</span>
             )}
           </p>
+          <FacePresence
+            seen={facesSeen}
+            captured={(data.frames_captured as number) ?? 0}
+            ratio={faceRatio}
+            absent={faceAbsent}
+          />
           {error ? (
             <p className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/30 dark:text-red-400">
               inference: {error}
@@ -100,12 +113,81 @@ export function FacialPanel({
                 <ProbBars probs={dist?.probs} labels={dist?.labels} />
               </div>
             </div>
+          ) : emptyCycle || faceAbsent ? (
+            // Distinguish "suppressed on purpose" from "the model said nothing" -- these looked
+            // identical before, so a learner who walked away read as a broken pipeline.
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              affect suppressed for this cycle — behavioural signals only
+            </p>
           ) : (
             <p className="text-xs text-muted-foreground">no classification this cycle</p>
           )}
           <FacialCalibration stats={stats} threshold={threshold} />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Is there actually a learner in front of the camera?
+ *
+ * Without this, an empty chair is indistinguishable from a calm reader: faceless frames are kept
+ * as centre crops for training parity, so `frames_captured` stays at 30 either way. `seen` is the
+ * honest count.
+ *
+ * `undefined` seen means the event predates the field, which is reported as unknown rather than as
+ * zero -- the same distinction the fallback-breakdown line makes, and for the same reason.
+ */
+function FacePresence({
+  seen,
+  captured,
+  ratio,
+  absent,
+}: {
+  seen?: number;
+  captured: number;
+  ratio?: number;
+  absent?: boolean;
+}) {
+  if (seen == null) {
+    return (
+      <p className="text-xs italic text-muted-foreground">
+        face presence not reported this cycle
+      </p>
+    );
+  }
+
+  const pct = Math.round((typeof ratio === "number" ? ratio : captured ? seen / captured : 0) * 100);
+  const present = absent === false || (absent == null && pct >= 50);
+
+  return (
+    <div className="rounded-md border border-border bg-background px-3 py-2">
+      <p className="flex items-center gap-2 text-xs">
+        <span
+          aria-hidden
+          className={
+            "h-2 w-2 shrink-0 rounded-full " + (present ? "bg-green-500" : "bg-amber-500")
+          }
+        />
+        <span
+          className={
+            "font-semibold " +
+            (present ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400")
+          }
+        >
+          {present ? "FACE PRESENT" : "NO FACE"}
+        </span>
+        <span className="font-mono text-muted-foreground">
+          {seen}/{captured} frames ({pct}%)
+        </span>
+      </p>
+      {!present ? (
+        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+          Too few frames contained a face for this cycle to describe a learner, so facial affect
+          was suppressed rather than read from an empty frame.
+        </p>
+      ) : null}
     </div>
   );
 }

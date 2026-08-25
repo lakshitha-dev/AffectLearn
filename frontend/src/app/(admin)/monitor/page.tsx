@@ -14,6 +14,7 @@ import { AffectStream } from "@/components/monitor/AffectStream";
 import { BehaviorPanel } from "@/components/monitor/BehaviorPanel";
 import { CycleTimeline } from "@/components/monitor/CycleTimeline";
 import { EventLog } from "@/components/monitor/EventLog";
+import { FacePresenceStrip } from "@/components/monitor/FacePresenceStrip";
 import { FacialPanel } from "@/components/monitor/FacialPanel";
 import { MetricsBar } from "@/components/monitor/MetricsBar";
 import { MonitorAggregates } from "@/components/monitor/MonitorAggregates";
@@ -119,8 +120,9 @@ export default function MonitorPage() {
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base">Affect Stream</CardTitle>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-4">
                       <AffectStream series={stream.affectSeries} />
+                      <FacePresenceStrip series={stream.facePresenceSeries} />
                     </CardContent>
                   </Card>
 

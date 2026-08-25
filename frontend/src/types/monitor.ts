@@ -6,6 +6,23 @@ export type NodeKind = "active" | "stub";
 
 /** The four affect categories, in the index order the models emit `probs`. */
 export const AFFECT_LABELS = ["bored", "confused", "engaged", "frustrated"] as const;
+
+/**
+ * One cycle's face-presence measurement.
+ *
+ * `seen` is frames containing a real detected face; `captured` is total frames in the cycle.
+ * They diverged once faceless frames became centre crops instead of drops, which is exactly why
+ * presence needs reporting rather than being inferred from `captured`.
+ */
+export interface FacePresencePoint {
+  t: number;
+  cycle: number | null;
+  seen: number;
+  captured: number;
+  ratio: number;
+  /** True when too few frames had a face for the cycle to describe a present learner. */
+  absent: boolean;
+}
 export type AffectLabel = (typeof AFFECT_LABELS)[number];
 
 export interface MonitorEventBase {
@@ -190,4 +207,8 @@ export interface MonitorMetrics {
   eventsPerSec: number;
   cyclesObserved: number;
   avgNodeMs: number | null;
+  /** Latest cycle's face ratio, or null when no facial cycle has reported presence yet. */
+  faceRatio: number | null;
+  /** Latest cycle's presence verdict. null when unknown (no facial cycle, or a legacy event). */
+  facePresent: boolean | null;
 }

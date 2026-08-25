@@ -61,7 +61,8 @@ describe("FacialPanel — drop breakdown", () => {
   it("distinguishes 'not reported' from a measured zero", () => {
     // No dropped_reasons key at all: the panel must NOT claim zero drops.
     render(createElement(FacialPanel, { data: CYCLE, modelAvailable: true }));
-    expect(screen.getByText(/not reported this cycle/i)).toBeInTheDocument();
+    // Two "not reported" lines exist now (fallback breakdown and face presence); scope to this one.
+    expect(screen.getByText(/fallback breakdown not reported/i)).toBeInTheDocument();
     expect(screen.queryByText(/no face: 0/)).not.toBeInTheDocument();
   });
 
@@ -126,5 +127,57 @@ describe("FacialPanel — calibration verdict", () => {
       createElement(FacialPanel, { data: CYCLE, modelAvailable: true, stats: stuck }),
     );
     expect(screen.queryByText(/never reached the gate/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("FacialPanel — face presence", () => {
+  it("shows PRESENT with the frame ratio when a face was detected", () => {
+    render(
+      createElement(FacialPanel, {
+        data: { ...CYCLE, frames_with_face: 28, face_ratio: 0.933, face_absent: false },
+        modelAvailable: true,
+      }),
+    );
+    expect(screen.getByText("FACE PRESENT")).toBeInTheDocument();
+    expect(screen.getByText(/28\/30 frames \(93%\)/)).toBeInTheDocument();
+  });
+
+  it("shows NO FACE and explains the suppression", () => {
+    render(
+      createElement(FacialPanel, {
+        data: {
+          frames_captured: 30,
+          dropped_frames: 30,
+          frames_with_face: 2,
+          face_ratio: 0.067,
+          face_absent: true,
+          empty_cycle: true,
+        },
+        modelAvailable: true,
+      }),
+    );
+    expect(screen.getByText("NO FACE")).toBeInTheDocument();
+    expect(screen.getByText(/Too few frames contained a face/i)).toBeInTheDocument();
+    // The key distinction: deliberate suppression, not a broken model.
+    expect(screen.getByText(/affect suppressed for this cycle/i)).toBeInTheDocument();
+  });
+
+  it("reports unknown rather than zero for an event predating the field", () => {
+    // The same fake-zero trap as dropped_reasons: 0/30 would read as "nobody was there".
+    render(createElement(FacialPanel, { data: CYCLE, modelAvailable: true }));
+    expect(screen.getByText(/face presence not reported/i)).toBeInTheDocument();
+    expect(screen.queryByText("NO FACE")).not.toBeInTheDocument();
+    expect(screen.queryByText(/0\/30 frames/)).not.toBeInTheDocument();
+  });
+
+  it("still distinguishes a suppressed cycle from one with no classification", () => {
+    render(
+      createElement(FacialPanel, {
+        data: { frames_captured: 30, dropped_frames: 0, frames_with_face: 29, face_absent: false },
+        modelAvailable: true,
+      }),
+    );
+    expect(screen.getByText(/no classification this cycle/i)).toBeInTheDocument();
+    expect(screen.queryByText(/affect suppressed/i)).not.toBeInTheDocument();
   });
 });

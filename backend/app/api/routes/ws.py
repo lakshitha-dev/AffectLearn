@@ -212,6 +212,13 @@ async def _handle_facial_features(
     # It is the diagnostic that tells you whether the facial channel is even seeing a face.
     if isinstance(data.get("dropped_reasons"), dict):
         payload["dropped_reasons"] = data["dropped_reasons"]
+    # Face presence. `frames_captured` stopped meaning "frames with a face" once faceless frames
+    # became centre crops instead of drops, so presence needs its own fields -- and this payload
+    # is built from a whitelist, so anything not lifted here is silently discarded (which is how
+    # `dropped_reasons` came to render a permanent fake zero).
+    for key in ("frames_with_face", "face_ratio", "face_absent"):
+        if data.get(key) is not None:
+            payload[key] = data[key]
     if result_state is not None and result_state.get("affect_state"):
         inference = result_state.get("facial_inference") or {}
         payload.update(
