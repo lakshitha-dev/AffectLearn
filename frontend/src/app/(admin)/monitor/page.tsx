@@ -4,11 +4,17 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs } from "@/components/ui/tabs";
 import { useMonitorStream } from "@/hooks/use-monitor-stream";
-import { useMonitorGraph, useMonitorHealth, useMonitorSessions } from "@/hooks/use-monitor";
+import {
+  useMonitorAggregates,
+  useMonitorGraph,
+  useMonitorHealth,
+  useMonitorSessions,
+} from "@/hooks/use-monitor";
 import { AffectStream } from "@/components/monitor/AffectStream";
 import { BehaviorPanel } from "@/components/monitor/BehaviorPanel";
 import { CycleTimeline } from "@/components/monitor/CycleTimeline";
 import { EventLog } from "@/components/monitor/EventLog";
+import { FacePresenceStrip } from "@/components/monitor/FacePresenceStrip";
 import { FacialPanel } from "@/components/monitor/FacialPanel";
 import { MetricsBar } from "@/components/monitor/MetricsBar";
 import { MonitorAggregates } from "@/components/monitor/MonitorAggregates";
@@ -38,6 +44,18 @@ export default function MonitorPage() {
 
   const behavioralKind = healthQ.data?.models.behavioral.kind;
   const facialKind = healthQ.data?.models.facial.kind;
+  const decision = healthQ.data?.models.decision;
+
+  // The Live tab's calibration verdict needs the windowed distribution, which only the aggregate
+  // endpoint computes. Cheap (30s poll) and shared with the Aggregate tab's query cache.
+  const aggQ = useMonitorAggregates(24);
+  const facialStats = aggQ.data?.modalityStats?.facial;
+
+  // Which session ids are actually connected right now. `sessions.active` was fetched and
+  // discarded, so a dead id in the picker looked identical to a live one.
+  const activeIds = new Set(
+    (sessionsQ.data?.active ?? []).map((a) => a.session_id).filter(Boolean) as string[],
+  );
 
   return (
     <div className="space-y-5">
@@ -51,12 +69,29 @@ export default function MonitorPage() {
               and kept saying "Bi-LSTM" for weeks after the GBDT replaced it. */}
           {(behavioralKind || facialKind) && (
             <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-              behavioural: {behavioralKind ?? "—"} · facial: {facialKind ?? "—"} · only{" "}
-              <span className="font-semibold">confused</span> is detectable
+              behavioural: {behavioralKind ?? "—"} · facial: {facialKind ?? "—"}
+              {/* Actionable states come from the live config, not a literal — a deploy that
+                  changes ADAPT_STATES used to leave this caption quietly wrong. */}
+              {decision?.adaptStates?.length
+                ? ` · actionable: ${decision.adaptStates.join(", ")}`
+                : null}
+              {decision?.adaptMinConfidence != null
+                ? ` · gate ${decision.adaptMinConfidence}`
+                : null}
+              {decision?.forcedMode && decision.forcedMode !== "auto" ? (
+                <span className="ml-1 rounded bg-amber-100 px-1 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                  mode forced: {decision.forcedMode}
+                </span>
+              ) : null}
             </p>
           )}
         </div>
-        <SessionPicker value={sessionId} onChange={setSessionId} sessionIds={sessionIds} />
+        <SessionPicker
+          value={sessionId}
+          onChange={setSessionId}
+          sessionIds={sessionIds}
+          activeIds={activeIds}
+        />
       </div>
 
       <Tabs tabs={TABS} defaultValue="live">
@@ -85,8 +120,9 @@ export default function MonitorPage() {
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base">Affect Stream</CardTitle>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-4">
                       <AffectStream series={stream.affectSeries} />
+                      <FacePresenceStrip series={stream.facePresenceSeries} />
                     </CardContent>
                   </Card>
 
@@ -104,7 +140,12 @@ export default function MonitorPage() {
                         <CardTitle className="text-base">Facial Analysis</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <FacialPanel data={stream.facial} modelAvailable={facialAvailable} />
+                        <FacialPanel
+                          data={stream.facial}
+                          modelAvailable={facialAvailable}
+                          stats={facialStats}
+                          threshold={aggQ.data?.adaptMinConfidence}
+                        />
                       </CardContent>
                     </Card>
                   </div>
@@ -130,7 +171,7 @@ export default function MonitorPage() {
               </div>
             </div>
           ) : (
-            <MonitorAggregates />
+            <MonitorAggregates sessionId={sessionId} />
           )
         }
       </Tabs>

@@ -33,7 +33,9 @@ import { useConnectionStore } from "@/stores/connection-store";
 import { useWebcamStore } from "@/stores/webcam-store";
 import { loadFaceDetector } from "@/lib/mediapipe-loader";
 import {
+  centerCropAndNormalize,
   cropAndNormalize,
+  largestBox,
   framesToBase64,
   PREPROCESS_CONTRACT,
   type BoundingBox,
@@ -68,6 +70,8 @@ export interface DebugMetrics {
   meanFrameLatencyMs: number;
   framesCaptured: number;
   droppedFrames: number;
+  /** Frames this cycle that contained a real detected face (vs a centre-crop fallback). */
+  facesSeen: number;
   mediaPipeLoadedAt: number | null;
   cycleNumber: number;
 }
@@ -83,6 +87,7 @@ function makeEmptyMetrics(): DebugMetrics {
     meanFrameLatencyMs: 0,
     framesCaptured: 0,
     droppedFrames: 0,
+    facesSeen: 0,
     mediaPipeLoadedAt: null,
     cycleNumber: 0,
   };
@@ -118,6 +123,13 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
     let cycleInterval: ReturnType<typeof setInterval> | null = null;
     const frames: Float32Array[] = [];
     const dropped: DroppedReasons = { no_face: 0, low_confidence: 0 };
+    // Frames in the current cycle that contained a real detected face.
+    //
+    // NOT derivable from `frames.length - droppedTotal`: the crop-failure path also increments
+    // `low_confidence`, and since faceless frames are now kept as centre crops rather than
+    // dropped, `frames.length` no longer means "frames with a face". This counter is what tells
+    // the pipeline whether a learner was actually in front of the camera.
+    let facesSeen = 0;
     let cycleNumber = 0;
     let cycleStartedAt = 0;
     const latencyHistory: number[] = [];
@@ -128,11 +140,13 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
       frames.length = 0;
       dropped.no_face = 0;
       dropped.low_confidence = 0;
+      facesSeen = 0;
       cycleStartedAt = Date.now();
       latencyHistory.length = 0;
       if (IS_DEV && debugRef.current) {
         debugRef.current.framesCaptured = 0;
         debugRef.current.droppedFrames = 0;
+        debugRef.current.facesSeen = 0;
       }
     }
 
@@ -201,27 +215,45 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
         }
 
         const detections = result?.detections ?? [];
-        const first = detections[0];
-        const score = first?.categories?.[0]?.score ?? 0;
-        const bbox = first?.boundingBox as BoundingBox | undefined;
+        const frameDims = { width: video.videoWidth, height: video.videoHeight };
 
-        if (!first || !bbox) {
+        // Training selected the LARGEST detection, not the first one returned. With a bystander
+        // in shot, detections[0] could be the wrong face entirely.
+        const usable = detections.filter((d) => {
+          const sc = d?.categories?.[0]?.score ?? 0;
+          return Boolean(d?.boundingBox) && sc >= CONFIDENCE_DROP_THRESHOLD;
+        });
+        const chosen = largestBox(
+          usable.map((d) => d.boundingBox as BoundingBox),
+        );
+
+        // These now count FALLBACKS rather than discarded frames -- the frame is still kept,
+        // as a centre crop. `facesSeen` is the separate, honest count of frames that actually
+        // contained a face, and is what decides whether this cycle describes a learner at all.
+        if (chosen) {
+          facesSeen += 1;
+        } else if (detections.length === 0) {
           dropped.no_face += 1;
-        } else if (score < CONFIDENCE_DROP_THRESHOLD) {
-          dropped.low_confidence += 1;
         } else {
-          try {
-            const tensor = cropAndNormalize(video, bbox);
-            // Enforce ring-buffer bound: never exceed expectedFramesPerCycle frames
-            // between cycle resets. Drops the oldest frame (shift) if timers drift.
-            if (frames.length >= PREPROCESS_CONTRACT.expectedFramesPerCycle) {
-              frames.shift();
-            }
-            frames.push(tensor);
-          } catch (err) {
-            console.warn("[useMediaPipe] cropAndNormalize failed", err);
-            dropped.low_confidence += 1;
+          dropped.low_confidence += 1;
+        }
+
+        try {
+          // Training emitted a centre crop for faceless frames rather than dropping them, so
+          // clips contained occasional non-face frames and the LSTM was fitted over that
+          // distribution. Dropping them changed the temporal statistics of every served clip.
+          const tensor = chosen
+            ? cropAndNormalize(video, chosen, frameDims)
+            : centerCropAndNormalize(video, frameDims);
+          // Enforce ring-buffer bound: never exceed expectedFramesPerCycle frames
+          // between cycle resets. Drops the oldest frame (shift) if timers drift.
+          if (frames.length >= PREPROCESS_CONTRACT.expectedFramesPerCycle) {
+            frames.shift();
           }
+          frames.push(tensor);
+        } catch (err) {
+          console.warn("[useMediaPipe] crop failed", err);
+          dropped.low_confidence += 1;
         }
 
         const elapsed = performance.now() - tStart;
@@ -241,6 +273,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
             latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length;
           debugRef.current.framesCaptured = frames.length;
           debugRef.current.droppedFrames = dropped.no_face + dropped.low_confidence;
+          debugRef.current.facesSeen = facesSeen;
         }
       };
 
@@ -248,6 +281,12 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
         const now = Date.now();
         const framesCaptured = frames.length;
         const droppedTotal = dropped.no_face + dropped.low_confidence;
+        const faceRatio = framesCaptured === 0 ? 0 : facesSeen / framesCaptured;
+        // An empty chair must not yield an affect reading. Below the floor the server skips
+        // inference and records an empty cycle, restoring the behaviour that existed before the
+        // centre-crop fallback was added for training parity.
+        const faceAbsent =
+          framesCaptured === 0 || faceRatio < PREPROCESS_CONTRACT.minFaceFrameRatio;
         const message: FacialFeaturesMessage = {
           type: "facial_features",
           ts: now,
@@ -261,6 +300,9 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
               no_face: dropped.no_face,
               low_confidence: dropped.low_confidence,
             },
+            frames_with_face: facesSeen,
+            face_ratio: Math.round(faceRatio * 1000) / 1000,
+            face_absent: faceAbsent,
             frames_b64: framesCaptured === 0 ? "" : framesToBase64(frames),
             contract_version: CONTRACT_VERSION,
             crop_size: PREPROCESS_CONTRACT.cropSize,
@@ -327,6 +369,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
       frames.length = 0;
       dropped.no_face = 0;
       dropped.low_confidence = 0;
+      facesSeen = 0;
     }
 
     void start();

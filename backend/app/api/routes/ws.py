@@ -43,7 +43,10 @@ from app.services.connection_manager import (
     connection_manager,
 )
 from app.services.research_logger import emit as emit_research_event
-from app.services import fusion_buffer, study_service
+# `behavioral_inference` was referenced by the feature-salvage path below but never
+# imported, so that path raised NameError, was swallowed by its own `except Exception`,
+# and salvage NEVER ran -- the exact failure it was written to prevent.
+from app.services import behavioral_inference, fusion_buffer, study_service
 from app.agents.fusion import forced_mode, fuse_modalities
 from app.agents.graph import get_graph
 from app.agents.state import make_initial_state
@@ -204,6 +207,18 @@ async def _handle_facial_features(
         logger.exception("affect_inference_failed", user_id=user_id, cycle=cycle)
 
     payload: dict[str, Any] = {"frames_captured": frames_captured, "dropped_frames": dropped}
+    # The browser sends a per-reason breakdown, and it was being discarded here -- so the monitor
+    # rendered "no face: 0 / low confidence: 0" permanently, a fake zero rather than a measurement.
+    # It is the diagnostic that tells you whether the facial channel is even seeing a face.
+    if isinstance(data.get("dropped_reasons"), dict):
+        payload["dropped_reasons"] = data["dropped_reasons"]
+    # Face presence. `frames_captured` stopped meaning "frames with a face" once faceless frames
+    # became centre crops instead of drops, so presence needs its own fields -- and this payload
+    # is built from a whitelist, so anything not lifted here is silently discarded (which is how
+    # `dropped_reasons` came to render a permanent fake zero).
+    for key in ("frames_with_face", "face_ratio", "face_absent"):
+        if data.get(key) is not None:
+            payload[key] = data[key]
     if result_state is not None and result_state.get("affect_state"):
         inference = result_state.get("facial_inference") or {}
         payload.update(
@@ -219,6 +234,15 @@ async def _handle_facial_features(
             confidence=round(float(inference["confidence"]), 4) if "confidence" in inference else None,
             probs=inference.get("probs"),
             frames_used=inference.get("frames_used"),
+            # Which artifact produced this, so the record carries provenance per cycle rather than
+            # relying on the deployment config being remembered later.
+            model_kind=inference.get("model_kind"),
+            # NOTE p_confused is NOT on `inference`. `resolve_affect` returns it in its extras
+            # slot, which `affect_detection` spreads into TOP-LEVEL state -- so it must be read
+            # from `result_state`. Reading `inference` here yields None and the UI silently falls
+            # back to the legacy 4-level display.
+            p_confused=result_state.get("p_confused"),
+            engagement_label=result_state.get("engagement_label"),
         )
     elif error:
         payload["error"] = error
@@ -320,6 +344,12 @@ async def _handle_behavioral_window(
             # stats only (not raw events) → honours NFR10 / the consent's "only aggregate features".
             features=inference.get("features"),
             feature_schema_version=inference.get("feature_schema_version"),
+            # `_infer_aggregate` already returns both of these; the update above simply never
+            # copied them out, so the monitor rendered a bare "model ->" and the research record
+            # carried no per-cycle model provenance. The Bi-LSTM (`sequence`) branch returns
+            # neither, hence the `.get` -- absent is a valid state, not an error.
+            model_kind=inference.get("model_kind"),
+            p_confused=inference.get("p_confused"),
         )
     elif error:
         payload["error"] = error

@@ -1,8 +1,21 @@
 /**
  * SINGLE SOURCE OF TRUTH for preprocessing.
  *
- * Must match `affectlearn-ml/training/facial/preprocess.py` byte-for-byte.
- * Do not modify without a coordinated change in the ML repo.
+ * Must match the geometry the DEPLOYED model was trained with.
+ *
+ * WARNING, learned the hard way: the committed `training/facial/preprocess.py` documents
+ * RAW-BBOX cropping, but the artifact actually in production
+ * (`cnn_lstm_confusion_anycut.onnx`) was trained by `crops_mp.py` -- a Colab working copy that
+ * was never committed -- using 10% box padding, largest-face selection and a centre-crop
+ * fallback. Its model card states this; `preprocess.py` contradicts it.
+ *
+ * Serving raw boxes against those weights made a face fill 100% of the frame where training had
+ * it fill ~69%, and because the ResNet18 backbone is FULLY FROZEN the head had no adapted
+ * response to the shifted framing: live P(confused) collapsed into a ~0.05 band around 0.5 while
+ * the same model spread properly on its own test set (413/1638 predicted positive).
+ *
+ * The authoritative geometry reference is `affectlearn-ml/evaluation/crop_gap_eval.py::_haar_crop`,
+ * which is what `crops_mp.py` replicated. `preprocess.parity.test.ts` pins it.
  *
  * Architecture refs:
  *   - architecture.md line 370 — 96×96 crop locked.
@@ -26,6 +39,23 @@ export const PREPROCESS_CONTRACT = {
   cycleDurationSeconds: 30, // matches architecture 30s cycle
   expectedFramesPerCycle: 30, // 1 fps × 30s; dropped frames reduce this
   framesPerInferenceWindow: 16, // CNN-LSTM training used 16-frame samples
+  // --- crop geometry: these were implicit before, and being implicit is what let them drift ---
+  boxPadFraction: 0.1, // 10% of w/h added on EACH side -> 1.44x detection area
+  faceSelection: "largest" as const, // by area; NOT detections[0]
+  facelessFallback: "center_crop" as const, // keep the frame, do not drop it
+  /**
+   * Minimum share of a cycle's frames that must contain a detected face for the cycle to be
+   * treated as a real observation of a learner.
+   *
+   * The centre-crop fallback above exists for MOMENTARY detector misses -- training clips always
+   * contained a person, so a stray non-face frame was in-distribution. A learner who walked away
+   * is a different situation: without this floor, an empty chair yields a full 16-frame clip and
+   * the model returns a confident-looking affect reading for nobody.
+   *
+   * Below this ratio the cycle is reported as face-absent and the facial channel is excluded,
+   * which is what the pipeline did before the fallback was introduced.
+   */
+  minFaceFrameRatio: 0.5,
 } as const;
 
 export type PreprocessContract = typeof PREPROCESS_CONTRACT;
@@ -95,6 +125,7 @@ export function normalizeRgbaToChwFloat32(
 export function cropAndNormalize(
   source: CanvasImageSource,
   bbox: BoundingBox,
+  frame?: { width: number; height: number },
 ): Float32Array {
   const size = PREPROCESS_CONTRACT.cropSize;
   const canvas = new OffscreenCanvas(size, size);
@@ -103,20 +134,84 @@ export function cropAndNormalize(
     throw new Error("cropAndNormalize: OffscreenCanvas 2d context unavailable");
   }
 
-  ctx.drawImage(
-    source,
-    bbox.originX,
-    bbox.originY,
-    bbox.width,
-    bbox.height,
-    0,
-    0,
-    size,
-    size,
-  );
+  // Frame bounds are needed to clamp the padded box. When the caller does not supply them we
+  // clamp only at the origin, which is the best that can be done without knowing the extent.
+  const box = padBox(bbox, frame);
+
+  ctx.drawImage(source, box.originX, box.originY, box.width, box.height, 0, 0, size, size);
 
   const imageData = ctx.getImageData(0, 0, size, size);
   return normalizeRgbaToChwFloat32(imageData.data);
+}
+
+/**
+ * Expand a detection box by `boxPadFraction` on each side, clamped to the frame.
+ *
+ * Training padded by 10% per side, so the crop covered 1.44x the detection area and the face
+ * occupied ~69% of the 96x96 input. Serving the raw box put the face at ~100% and misregistered
+ * every conv filter the frozen backbone relies on.
+ */
+export function padBox(
+  bbox: BoundingBox,
+  frame?: { width: number; height: number },
+): BoundingBox {
+  const pad = PREPROCESS_CONTRACT.boxPadFraction;
+  const px = bbox.width * pad;
+  const py = bbox.height * pad;
+
+  const x1 = Math.max(0, bbox.originX - px);
+  const y1 = Math.max(0, bbox.originY - py);
+  const x2raw = bbox.originX + bbox.width + px;
+  const y2raw = bbox.originY + bbox.height + py;
+  const x2 = frame ? Math.min(frame.width, x2raw) : x2raw;
+  const y2 = frame ? Math.min(frame.height, y2raw) : y2raw;
+
+  return { originX: x1, originY: y1, width: Math.max(1, x2 - x1), height: Math.max(1, y2 - y1) };
+}
+
+/**
+ * The largest-area detection. Training used `max(faces, key=w*h)`; taking `detections[0]` meant
+ * a bystander could be picked over the learner.
+ */
+export function largestBox<T extends BoundingBox>(boxes: readonly T[]): T | undefined {
+  if (boxes.length === 0) return undefined;
+  return boxes.reduce((best, b) => (b.width * b.height > best.width * best.height ? b : best));
+}
+
+/**
+ * Centred square covering the frame, as the crop for a frame with no detected face.
+ *
+ * Training emitted this rather than dropping the frame, so training clips contained occasional
+ * non-face frames and the LSTM learned over that distribution. Dropping them here changed the
+ * temporal statistics of every served clip.
+ */
+export function centerCropBox(frame: { width: number; height: number }): BoundingBox {
+  const side = Math.min(frame.width, frame.height);
+  return {
+    originX: Math.floor((frame.width - side) / 2),
+    originY: Math.floor((frame.height - side) / 2),
+    width: side,
+    height: side,
+  };
+}
+
+/**
+ * Centre-crop a frame with no usable detection. Bypasses `padBox` -- the square is already the
+ * full extent, so padding it would only re-clamp to the same box.
+ */
+export function centerCropAndNormalize(
+  source: CanvasImageSource,
+  frame: { width: number; height: number },
+): Float32Array {
+  const size = PREPROCESS_CONTRACT.cropSize;
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("centerCropAndNormalize: OffscreenCanvas 2d context unavailable");
+  }
+  const b = centerCropBox(frame);
+  ctx.drawImage(source, b.originX, b.originY, b.width, b.height, 0, 0, size, size);
+  return normalizeRgbaToChwFloat32(ctx.getImageData(0, 0, size, size).data);
 }
 
 /**

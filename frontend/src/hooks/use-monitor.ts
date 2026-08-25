@@ -9,7 +9,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiFetchBlob, saveBlob } from "@/lib/api-client";
 import type {
   GraphTopology,
   MonitorAggregates,
@@ -59,4 +59,20 @@ export function useMonitorAggregates(hours: number) {
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
+}
+
+/**
+ * Download the window's events as CSV.
+ *
+ * Not a `useQuery` — a download is an imperative user action with no cached result, and caching a
+ * multi-megabyte Blob in the query client would be actively harmful.
+ */
+export async function exportMonitorCsv(hours: number, sessionId?: string | null): Promise<void> {
+  const params = new URLSearchParams({ hours: String(hours) });
+  if (sessionId) params.set("session_id", sessionId);
+  const blob = await apiFetchBlob(`/monitor/export.csv?${params.toString()}`);
+  // The server sets its own filename on Content-Disposition, but fetch cannot read it here
+  // without exposing the header via CORS, so mirror its naming client-side.
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+  saveBlob(blob, `affectlearn-events-${stamp}-${hours}h.csv`);
 }

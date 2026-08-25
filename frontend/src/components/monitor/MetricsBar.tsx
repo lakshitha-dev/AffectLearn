@@ -32,7 +32,7 @@ export function MetricsBar({
   connected: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
       <Stat label="Events/sec" value={metrics.eventsPerSec} hint={`${metrics.total} buffered`} />
       <Stat label="Cycles" value={metrics.cyclesObserved} />
       <Stat label="Avg node" value={fmtMs(metrics.avgNodeMs)} />
@@ -46,6 +46,26 @@ export function MetricsBar({
           <span className="flex items-center gap-1.5 text-base">
             <Dot ok={connected} /> {connected ? "live" : "offline"}
           </span>
+        }
+      />
+      {/* Per-cycle learner state, deliberately a Stat rather than a row in "Components" below --
+          that list is server component health, and whether a face is in frame is not that. */}
+      <Stat
+        label="Face"
+        value={
+          metrics.facePresent == null ? (
+            <span className="text-base text-muted-foreground">—</span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-base">
+              <Dot ok={metrics.facePresent} />
+              {metrics.facePresent ? "present" : "absent"}
+            </span>
+          )
+        }
+        hint={
+          metrics.faceRatio == null
+            ? "no facial cycle yet"
+            : `${Math.round(metrics.faceRatio * 100)}% of frames`
         }
       />
       <div className="rounded-lg border border-border bg-surface px-3 py-2">
