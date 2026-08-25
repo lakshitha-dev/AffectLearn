@@ -68,6 +68,16 @@ export interface FacialFeaturesMessage extends WSMessage {
     frames_captured: number;
     dropped_frames: number;
     dropped_reasons: { no_face: number; low_confidence: number };
+    /** Frames in this cycle where a face was actually detected above threshold. */
+    frames_with_face: number;
+    /** frames_with_face / frames_captured, rounded. 0 when nothing was captured. */
+    face_ratio: number;
+    /**
+     * True when too few frames contained a face for this cycle to describe a present learner.
+     * The server skips facial inference and records the cycle as empty, so an absent learner
+     * cannot produce an affect reading.
+     */
+    face_absent: boolean;
     frames_b64: string;
     contract_version: number;
     crop_size: number;

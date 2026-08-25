@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "@/stores/session-store";
 import type {
   AffectPoint,
+  FacePresencePoint,
   MonitorEvent,
   MonitorMetrics,
   NodeRuntimeState,
@@ -25,6 +26,14 @@ interface DerivedState {
   nodeStates: Record<string, NodeRuntimeState>;
   lastRoute: RouteDecision | null;
   affectSeries: AffectPoint[];
+  /**
+   * Per-cycle face presence.
+   *
+   * `facial` below is last-write-wins, which cannot answer "when did they walk away". This series
+   * is built the same way `affectSeries` is, from the bounded SSE buffer -- so it is only as deep
+   * as the current connection (the buffer is cleared on a session-filter change).
+   */
+  facePresenceSeries: FacePresencePoint[];
   behavioral: Record<string, unknown> | null;
   facial: Record<string, unknown> | null;
   fusion: Record<string, unknown> | null;
@@ -35,6 +44,7 @@ function derive(events: MonitorEvent[]): DerivedState {
   const nodeStates: Record<string, NodeRuntimeState> = {};
   let lastRoute: RouteDecision | null = null;
   const affectSeries: AffectPoint[] = [];
+  const facePresenceSeries: FacePresencePoint[] = [];
   let behavioral: Record<string, unknown> | null = null;
   let facial: Record<string, unknown> | null = null;
   let fusion: Record<string, unknown> | null = null;
@@ -113,7 +123,23 @@ function derive(events: MonitorEvent[]): DerivedState {
         });
       }
       if (e.event_type === "behavioral_affect_detected") behavioral = p;
-      if (e.event_type === "facial_affect_detected") facial = p;
+      if (e.event_type === "facial_affect_detected") {
+        facial = p;
+        // Only record presence when the payload actually reports it. A legacy event has no
+        // frames_with_face, and inventing a zero would read as "nobody was there".
+        const seen = p.frames_with_face;
+        if (typeof seen === "number") {
+          const captured = (p.frames_captured as number) ?? 0;
+          facePresenceSeries.push({
+            t: e.timestamp as number,
+            cycle: (e.cycle_number as number) ?? null,
+            seen,
+            captured,
+            ratio: typeof p.face_ratio === "number" ? p.face_ratio : 0,
+            absent: Boolean(p.face_absent),
+          });
+        }
+      }
       if (e.event_type === "multimodal_affect_detected") fusion = p;
     }
   }
@@ -125,9 +151,24 @@ function derive(events: MonitorEvent[]): DerivedState {
     eventsPerSec: Math.round((recentCount / 10) * 100) / 100,
     cyclesObserved: cycles.size,
     avgNodeMs: nodeMsCount ? Math.round((nodeMsSum / nodeMsCount) * 100) / 100 : null,
+    faceRatio: facePresenceSeries.length
+      ? facePresenceSeries[facePresenceSeries.length - 1].ratio
+      : null,
+    facePresent: facePresenceSeries.length
+      ? !facePresenceSeries[facePresenceSeries.length - 1].absent
+      : null,
   };
 
-  return { nodeStates, lastRoute, affectSeries: affectSeries.slice(-60), behavioral, facial, fusion, metrics };
+  return {
+    nodeStates,
+    lastRoute,
+    affectSeries: affectSeries.slice(-60),
+    facePresenceSeries: facePresenceSeries.slice(-60),
+    behavioral,
+    facial,
+    fusion,
+    metrics,
+  };
 }
 
 /**

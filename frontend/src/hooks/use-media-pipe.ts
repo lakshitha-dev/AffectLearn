@@ -70,6 +70,8 @@ export interface DebugMetrics {
   meanFrameLatencyMs: number;
   framesCaptured: number;
   droppedFrames: number;
+  /** Frames this cycle that contained a real detected face (vs a centre-crop fallback). */
+  facesSeen: number;
   mediaPipeLoadedAt: number | null;
   cycleNumber: number;
 }
@@ -85,6 +87,7 @@ function makeEmptyMetrics(): DebugMetrics {
     meanFrameLatencyMs: 0,
     framesCaptured: 0,
     droppedFrames: 0,
+    facesSeen: 0,
     mediaPipeLoadedAt: null,
     cycleNumber: 0,
   };
@@ -120,6 +123,13 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
     let cycleInterval: ReturnType<typeof setInterval> | null = null;
     const frames: Float32Array[] = [];
     const dropped: DroppedReasons = { no_face: 0, low_confidence: 0 };
+    // Frames in the current cycle that contained a real detected face.
+    //
+    // NOT derivable from `frames.length - droppedTotal`: the crop-failure path also increments
+    // `low_confidence`, and since faceless frames are now kept as centre crops rather than
+    // dropped, `frames.length` no longer means "frames with a face". This counter is what tells
+    // the pipeline whether a learner was actually in front of the camera.
+    let facesSeen = 0;
     let cycleNumber = 0;
     let cycleStartedAt = 0;
     const latencyHistory: number[] = [];
@@ -130,11 +140,13 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
       frames.length = 0;
       dropped.no_face = 0;
       dropped.low_confidence = 0;
+      facesSeen = 0;
       cycleStartedAt = Date.now();
       latencyHistory.length = 0;
       if (IS_DEV && debugRef.current) {
         debugRef.current.framesCaptured = 0;
         debugRef.current.droppedFrames = 0;
+        debugRef.current.facesSeen = 0;
       }
     }
 
@@ -215,11 +227,14 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
           usable.map((d) => d.boundingBox as BoundingBox),
         );
 
-        // Bookkeeping is unchanged in shape so the monitor's drop breakdown stays comparable:
-        // these now count FALLBACKS rather than discarded frames.
-        if (detections.length === 0) {
+        // These now count FALLBACKS rather than discarded frames -- the frame is still kept,
+        // as a centre crop. `facesSeen` is the separate, honest count of frames that actually
+        // contained a face, and is what decides whether this cycle describes a learner at all.
+        if (chosen) {
+          facesSeen += 1;
+        } else if (detections.length === 0) {
           dropped.no_face += 1;
-        } else if (usable.length === 0) {
+        } else {
           dropped.low_confidence += 1;
         }
 
@@ -258,6 +273,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
             latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length;
           debugRef.current.framesCaptured = frames.length;
           debugRef.current.droppedFrames = dropped.no_face + dropped.low_confidence;
+          debugRef.current.facesSeen = facesSeen;
         }
       };
 
@@ -265,6 +281,12 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
         const now = Date.now();
         const framesCaptured = frames.length;
         const droppedTotal = dropped.no_face + dropped.low_confidence;
+        const faceRatio = framesCaptured === 0 ? 0 : facesSeen / framesCaptured;
+        // An empty chair must not yield an affect reading. Below the floor the server skips
+        // inference and records an empty cycle, restoring the behaviour that existed before the
+        // centre-crop fallback was added for training parity.
+        const faceAbsent =
+          framesCaptured === 0 || faceRatio < PREPROCESS_CONTRACT.minFaceFrameRatio;
         const message: FacialFeaturesMessage = {
           type: "facial_features",
           ts: now,
@@ -278,6 +300,9 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
               no_face: dropped.no_face,
               low_confidence: dropped.low_confidence,
             },
+            frames_with_face: facesSeen,
+            face_ratio: Math.round(faceRatio * 1000) / 1000,
+            face_absent: faceAbsent,
             frames_b64: framesCaptured === 0 ? "" : framesToBase64(frames),
             contract_version: CONTRACT_VERSION,
             crop_size: PREPROCESS_CONTRACT.cropSize,
@@ -344,6 +369,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
       frames.length = 0;
       dropped.no_face = 0;
       dropped.low_confidence = 0;
+      facesSeen = 0;
     }
 
     void start();

@@ -478,4 +478,93 @@ describe("useMediaPipe", () => {
     );
     expect(typeof msg.data.frames_b64).toBe("string");
   });
+
+  /**
+   * Face presence — the safety property that an empty chair must not produce an affect reading.
+   *
+   * IMPORTANT jsdom caveat, so these are not over-read: `centerCropAndNormalize` is NOT mocked and
+   * uses `OffscreenCanvas`, which does not exist in jsdom. So on the no-face path the fallback
+   * THROWS, is caught, and the frame is not pushed — meaning these tests see `frames_captured: 0`
+   * where a real browser would see 30 centre crops. They therefore verify the COUNTERS and the
+   * `face_absent` verdict, not the fallback crop itself. The fallback geometry is covered by
+   * `preprocess.parity.test.ts`.
+   */
+  describe("useMediaPipe — face presence reporting", () => {
+    it("reports frames_with_face and face_absent=false when a face is detected", async () => {
+      useWebcamStore.setState({ mode: "adaptive" });
+      renderHook(() => useMediaPipe({ send, captureMs: 100, cycleMs: 500 }));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      const msg = send.mock.calls[0][0];
+      expect(msg.data.frames_with_face).toBeGreaterThanOrEqual(4);
+      expect(msg.data.frames_with_face).toBe(msg.data.frames_captured);
+      expect(msg.data.face_ratio).toBe(1);
+      expect(msg.data.face_absent).toBe(false);
+    });
+
+    it("reports face_absent=true when no face is detected all cycle", async () => {
+      mocks.loadFaceDetectorSpy.mockResolvedValueOnce(makeDetector(0.0, false));
+      useWebcamStore.setState({ mode: "adaptive" });
+      renderHook(() => useMediaPipe({ send, captureMs: 100, cycleMs: 300 }));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+
+      const msg = send.mock.calls[0][0];
+      expect(msg.data.frames_with_face).toBe(0);
+      expect(msg.data.face_ratio).toBe(0);
+      // The whole point: the backend must skip inference for this cycle.
+      expect(msg.data.face_absent).toBe(true);
+    });
+
+    it("treats a low-confidence detection as no face", async () => {
+      // A box exists but scores below CONFIDENCE_DROP_THRESHOLD, so it is not a usable face.
+      mocks.loadFaceDetectorSpy.mockResolvedValueOnce(makeDetector(0.1, true));
+      useWebcamStore.setState({ mode: "adaptive" });
+      renderHook(() => useMediaPipe({ send, captureMs: 100, cycleMs: 300 }));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+
+      const msg = send.mock.calls[0][0];
+      expect(msg.data.frames_with_face).toBe(0);
+      expect(msg.data.face_absent).toBe(true);
+    });
+
+    it("resets the face counter between cycles", async () => {
+      useWebcamStore.setState({ mode: "adaptive" });
+      renderHook(() => useMediaPipe({ send, captureMs: 100, cycleMs: 300 }));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+
+      expect(send).toHaveBeenCalledTimes(2);
+      const first = send.mock.calls[0][0].data;
+      const second = send.mock.calls[1][0].data;
+      // Not cumulative: a leaked counter would make cycle 2 roughly double cycle 1.
+      expect(second.frames_with_face).toBeLessThanOrEqual(first.frames_with_face + 1);
+      expect(second.face_ratio).toBe(1);
+    });
+  });
 });

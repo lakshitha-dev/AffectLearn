@@ -43,6 +43,19 @@ export const PREPROCESS_CONTRACT = {
   boxPadFraction: 0.1, // 10% of w/h added on EACH side -> 1.44x detection area
   faceSelection: "largest" as const, // by area; NOT detections[0]
   facelessFallback: "center_crop" as const, // keep the frame, do not drop it
+  /**
+   * Minimum share of a cycle's frames that must contain a detected face for the cycle to be
+   * treated as a real observation of a learner.
+   *
+   * The centre-crop fallback above exists for MOMENTARY detector misses -- training clips always
+   * contained a person, so a stray non-face frame was in-distribution. A learner who walked away
+   * is a different situation: without this floor, an empty chair yields a full 16-frame clip and
+   * the model returns a confident-looking affect reading for nobody.
+   *
+   * Below this ratio the cycle is reported as face-absent and the facial channel is excluded,
+   * which is what the pipeline did before the fallback was introduced.
+   */
+  minFaceFrameRatio: 0.5,
 } as const;
 
 export type PreprocessContract = typeof PREPROCESS_CONTRACT;

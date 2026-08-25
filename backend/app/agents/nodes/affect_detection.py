@@ -35,13 +35,34 @@ async def detect_engagement(data: dict[str, Any]) -> dict[str, Any] | None:
     `frames_b64`, `frames_captured`, `dropped_frames`, `cycle_number`, ...
 
     Returns the inference dict (`engagement_level`, `label`, `confidence`,
-    `probs`, `frames_used`) or None for an empty cycle (no face detected the
-    whole window) — in which case the caller falls back to behavioural-only
-    weighting for that cycle.
+    `probs`, `frames_used`) or None when the cycle contains no USABLE face — in
+    which case the caller falls back to behavioural-only weighting for that cycle.
+
+    "No usable face" used to be the same thing as "no frames": faceless frames were
+    dropped browser-side, so an absent learner produced `frames_captured == 0`. That
+    stopped being true when the capture path started emitting a CENTRE CROP for
+    faceless frames to match the training distribution — a necessary change, but it
+    meant an empty chair produced a full 16-frame clip and the model returned a
+    confident-looking affect reading for nobody, which the adaptation gate could then
+    act on.
+
+    So the browser now reports `face_absent` (fewer than `minFaceFrameRatio` of the
+    cycle's frames contained a face) and it is honoured here, at the same boundary.
+    The centre-crop fallback still covers MOMENTARY detector misses, which is what
+    training actually contained.
     """
     frames_b64 = data.get("frames_b64", "") or ""
     frames_captured = int(data.get("frames_captured", 0) or 0)
     if frames_captured <= 0 or not frames_b64:
+        return None
+    if data.get("face_absent"):
+        logger.info(
+            "affect_detection_face_absent",
+            cycle=data.get("cycle_number"),
+            frames_captured=frames_captured,
+            frames_with_face=data.get("frames_with_face"),
+            face_ratio=data.get("face_ratio"),
+        )
         return None
     return await asyncio.to_thread(predict_from_payload, frames_b64, frames_captured)
 
