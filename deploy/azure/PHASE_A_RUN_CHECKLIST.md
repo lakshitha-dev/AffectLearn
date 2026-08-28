@@ -5,8 +5,8 @@ platform captures behavioral signals + self-report labels and triggers **no** ad
 Its output is the training set for the behavioral Bi-LSTM (see
 `_bmad-output/planning-artifacts/ml-training-guide-behavioral.md`).
 
-Prod: frontend `https://affectlearn.tech` · backend `affectlearn-api-4905` ·
-Postgres `affectlearn-pg-4905` · Redis ACI `affectlearn-redis-aci` · rg `affectlearn-rg`.
+Prod: frontend `https://affectlearn.tech` · backend `affectlearn-api-2026` ·
+Postgres `affectlearn-pg-2026` · Redis ACI `affectlearn-redis-aci` · rg `affectlearn-rg`.
 All admin routes are under `/api/v1/admin/...` and require an admin account.
 
 ---
@@ -17,7 +17,7 @@ All admin routes are under `/api/v1/admin/...` and require an admin account.
 - [ ] Courses seeded: **4 courses / 49 sections incl the warm-up** ("Getting Comfortable"). Re-seed if needed:
       `DATABASE_URL=<prod> python -m app.db.seed_courses --reset` (prod URL is in the App Service appsettings, not local `.env`).
 - [ ] Consent + end-of-study debrief copy live (onboarding + Thank-You screen).
-- [ ] **Pipeline liveness = ok**: `GET https://affectlearn-api-4905.azurewebsites.net/health/pipeline`
+- [ ] **Pipeline liveness = ok**: `GET https://affectlearn-api-2026.azurewebsites.net/health/pipeline`
       → `{"status":"ok","redis":true,"postgres":true,"worker":{"running":true,...}}`.
 - [ ] Behavioral model present (`backend/models/behavioral_bilstm.onnx`) so behavioral-only detection works. Facial model optional.
 - [ ] Global phase = **phase_a**: `GET /api/v1/admin/study/phase` (default is phase_a).
@@ -42,7 +42,7 @@ All admin routes are under `/api/v1/admin/...` and require an admin account.
 ## 4. Monitoring (daily + explicit mid-pilot)
 - [ ] Poll `GET /health/pipeline` — must be **ok**. If **degraded**:
       check Redis ACI is `Running` (`az container show -g affectlearn-rg -n affectlearn-redis-aci`),
-      then `az webapp restart -g affectlearn-rg -n affectlearn-api-4905`. (The worker now auto-recovers from transient Redis blips, but a dead Redis/ACI needs attention.)
+      then `az webapp restart -g affectlearn-rg -n affectlearn-api-2026`. (The worker now auto-recovers from transient Redis blips, but a dead Redis/ACI needs attention.)
 - [ ] **Mid-pilot label-distribution check (the #1 pilot risk, PRD line 235):** export the `self_report` labels and inspect the class balance. If ≳80% are "engaged", intervene (re-brief participants, verify the widget) — do NOT wait until the end.
 - [ ] Data quality: run `affectlearn-ml/training/behavioral/data_quality.py` on an interim export — flag degenerate (single-class) participants and sub-15-min sessions.
 - [ ] Sequence-gap check per session (NFR23): `GET /api/v1/research/.../gaps` — large gaps hint at Redis drops.
@@ -64,10 +64,10 @@ All admin routes are under `/api/v1/admin/...` and require an admin account.
 ### Quick reference
 | Action | Command / URL |
 |---|---|
-| Pipeline health | `GET https://affectlearn-api-4905.azurewebsites.net/health/pipeline` |
+| Pipeline health | `GET https://affectlearn-api-2026.azurewebsites.net/health/pipeline` |
 | Assign group | `POST /api/v1/admin/study/groups` `{user_id, group}` |
 | Lock groups (pilot begins) | `POST /api/v1/admin/study/groups/lock` |
 | Get / set phase | `GET` / `POST /api/v1/admin/study/phase` |
 | Export training set | `GET /api/v1/research/phase-a-dataset` |
 | Reset-seed courses | `DATABASE_URL=<prod> python -m app.db.seed_courses --reset` |
-| Restart backend | `az webapp restart -g affectlearn-rg -n affectlearn-api-4905` |
+| Restart backend | `az webapp restart -g affectlearn-rg -n affectlearn-api-2026` |
