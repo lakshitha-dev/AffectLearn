@@ -324,3 +324,51 @@ async def test_assessment_blocks_never_reach_the_prompt(monkeypatch, events):
 async def test_system_prompt_forbids_answering_questions():
     """Second layer: prose questions no block filter can catch."""
     assert "NEVER answer" in ca._SYSTEM_PROMPT
+
+
+# ── markdown sanitising (2026-08-29) ──────────────────────────────────────────
+#
+# Observed in production: a delivered breakdown read
+#   "**Class and Main Method**: The program starts with a class named `Report`"
+# `AdaptiveHintCallout` renders the reply as plain text, so markdown reaches the learner as
+# literal asterisks and backticks. The system prompt forbids markdown and that IS enough for
+# `show_hint` — but `show_breakdown` reverts to bold-labelled lists regardless of instruction.
+
+
+def test_strips_bold_and_backticks():
+    out = ca._strip_markdown("**Class**: use `equals()` not `==`")
+    assert "**" not in out and "`" not in out
+    assert "Class: use equals() not ==" in out
+
+
+def test_preserves_numbering_for_the_ordered_list_parser():
+    """The breakdown variant parses `1.` / `2.` into an <ol>; stripping them would break it."""
+    out = ca._strip_markdown("1. First step\n2. Second step")
+    assert out.startswith("1. First step")
+    assert "2. Second step" in out
+
+
+def test_strips_bullet_and_heading_markers():
+    out = ca._strip_markdown("## Heading\n- bullet one\n* bullet two")
+    assert not out.startswith("#")
+    assert "bullet one" in out and "- bullet" not in out and "* bullet" not in out
+
+
+def test_system_prompt_demands_plain_text_and_brevity():
+    assert "PLAIN TEXT ONLY" in ca._SYSTEM_PROMPT
+    assert "80 words" in ca._SYSTEM_PROMPT
+
+
+async def test_generated_text_has_markdown_removed(monkeypatch, events):
+    """The sanitiser must sit on the real generation path, not just exist as a helper."""
+    _use_client(monkeypatch, _FakeClient(content="**Bold** and `code` here"))
+    out = await ca.content_adapter_node(_state("show_hint"))
+    text = out["adaptation_content"]["text"]
+    assert "**" not in text and "`" not in text
+    assert "Bold and code here" in text
+
+
+def test_max_tokens_headroom_against_truncation():
+    """A breakdown was cut off mid-sentence at 256 tokens (181 words ~ 280 tokens)."""
+    from app.core.config import settings as _s
+    assert _s.VLLM_MAX_TOKENS >= 400
