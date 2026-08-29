@@ -24,7 +24,8 @@ from app.db.course_content.foundations import build as build_foundations
 from app.db.course_content.java import build as build_java
 from app.db.course_content.multiagent import build as build_multiagent
 from app.db.course_content.warmup import build as build_warmup
-from app.models.course import Course
+from app.models.assessment import Assessment
+from app.models.course import Course, Module
 
 
 def _build_courses() -> list[Course]:
@@ -91,6 +92,35 @@ async def seed_courses(db: AsyncSession) -> list[str]:
     return created
 
 
+async def seed_assessments(db: AsyncSession) -> list[str]:
+    """Insert the pre/post assessments if absent (idempotent by title). Returns created titles.
+
+    Runs AFTER `seed_courses` because an assessment attaches to a `module_id`, so the module must
+    already exist. Skips silently when the module is missing rather than raising: a deployment that
+    seeds only the warm-up course should not fail because a study assessment has nowhere to attach.
+    """
+    from app.db.assessment_content import building as building_assess
+
+    created: list[str] = []
+    module = (
+        await db.execute(
+            select(Module).where(Module.title == building_assess.MODULE_TITLE)
+        )
+    ).scalars().first()
+    if module is None:
+        return created
+
+    for build in (building_assess.build_pre, building_assess.build_post):
+        a = build()
+        existing = await db.execute(select(Assessment).where(Assessment.title == a.title))
+        if existing.scalar_one_or_none() is None:
+            a.module_id = module.id
+            db.add(a)
+            created.append(a.title)
+    await db.commit()
+    return created
+
+
 async def run_seed(reset: bool = False) -> None:
     async with async_session() as db:
         if reset:
@@ -101,6 +131,13 @@ async def run_seed(reset: bool = False) -> None:
             print(f"Seeded courses: {', '.join(created)}")
         else:
             print("All courses already exist — no changes.")
+
+        # After courses: an assessment needs an existing `module_id` to attach to.
+        assessments = await seed_assessments(db)
+        if assessments:
+            print(f"Seeded assessments: {', '.join(assessments)}")
+        else:
+            print("No assessments seeded (already present, or the study module is absent).")
 
 
 if __name__ == "__main__":
