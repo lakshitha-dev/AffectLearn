@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { AdaptiveHintCallout } from "@/components/learning/AdaptiveHintCallout";
+import { cn } from "@/lib/cn";
 import { useAdaptationStore } from "@/stores/adaptation-store";
 import type { AdaptationAction } from "@/types/ws-messages";
 
@@ -52,33 +55,55 @@ export function InlineAdaptations() {
 
   if (!active) return null;
 
+  return <CenteredHint key={active.id} adaptation={active} />;
+}
+
+/**
+ * Centred, animated hint overlay.
+ *
+ * Previously this rendered inline BELOW the lesson content, so a delivered hint landed off-screen
+ * and a confused learner had to scroll past everything to find the help meant for them.
+ *
+ * NO DIMMED BACKDROP, unlike `BreakSuggestionCard` (`fixed inset-0 z-50 bg-background/70`). A hint
+ * is grounded in the section the learner is reading — dimming the page would hide the very thing
+ * the hint refers to. The wrapper is `pointer-events-none` so the lesson stays scrollable and
+ * clickable underneath; only the card itself captures clicks. A strong shadow and a ring make it
+ * read as floating without blocking anything.
+ *
+ * z-40 keeps it BELOW the break-suggestion overlay (z-50), so a break card is never obscured.
+ */
+function CenteredHint({ adaptation }: { adaptation: Parameters<typeof AdaptiveHintCallout>[0]["adaptation"] }) {
+  // Deferred by one frame so the browser paints the "before" state first; without this the
+  // element mounts already-visible and the transition never runs.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   return (
-    // Fixed bottom-right, NOT in the content flow. This component was mounted below the lesson
-    // body, so a delivered hint landed off-screen and a confused learner had to scroll past
-    // everything to find the help meant for them.
-    //
-    // Deliberately NOT a blocking modal like `BreakSuggestionCard` (`fixed inset-0` + dimmed
-    // backdrop): a hint is grounded in the section the learner is reading, and dimming that
-    // section hides the very thing the hint refers to. It would also undo the adaptation-gate
-    // work whose whole purpose was to stop interrupting learners.
-    //
-    // z-40 keeps it BELOW the break-suggestion overlay (z-50) so a break card is never obscured.
-    // `aria-live="polite"` announces a hint that arrives outside the viewport instead of it
-    // appearing silently; `pointer-events-none` on the wrapper keeps the rest of the page
-    // clickable, with pointer events restored on the card itself.
     <div
       aria-live="polite"
-      className="pointer-events-none fixed bottom-4 right-4 z-40 w-[min(24rem,calc(100vw-2rem))]"
+      className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center p-4"
     >
-      <div className="pointer-events-auto">
-        <AdaptiveHintCallout
-          key={active.id}
-          adaptation={active}
-          onDismiss={() => {
-            /* Local UI dismiss only — the callout owns its dismissed/re-access state
-               and we deliberately leave the item in the queue (queue-ownership decision). */
-          }}
-        />
+      <div
+        className={cn(
+          "pointer-events-auto w-[min(32rem,100%)] rounded-lg bg-background shadow-2xl ring-1 ring-border",
+          // Scale + fade entrance. `transition-duration` is neutralised globally under
+          // `prefers-reduced-motion: reduce` (globals.css), so this needs no separate guard.
+          "transition-[opacity,transform] duration-300 ease-out",
+          entered ? "scale-100 opacity-100" : "scale-95 opacity-0",
+        )}
+      >
+        <div className="px-5">
+          <AdaptiveHintCallout
+            adaptation={adaptation}
+            onDismiss={() => {
+              /* Local UI dismiss only — the callout owns its dismissed/re-access state
+                 and we deliberately leave the item in the queue (queue-ownership decision). */
+            }}
+          />
+        </div>
       </div>
     </div>
   );
