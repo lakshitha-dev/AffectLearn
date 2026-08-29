@@ -28,6 +28,8 @@ from typing import Any
 import numpy as np
 import structlog
 
+from app.services import onnx_session
+
 from app.services.feature_engineering import (
     FEATURE_SCHEMA_VERSION,
     N_FEATURES,
@@ -169,7 +171,9 @@ class BehavioralModel:
                     "or place behavioral_bilstm.onnx there (it lives on Drive, gitignored)."
                 )
             self._session = ort.InferenceSession(
-                self.model_path, providers=["CPUExecutionProvider"]
+                self.model_path,
+                sess_options=onnx_session.session_options(ort),
+                providers=["CPUExecutionProvider"],
             )
             logger.info("behavioral_model_loaded", path=self.model_path)
         return self._session
