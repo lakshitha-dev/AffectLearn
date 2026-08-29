@@ -14,7 +14,11 @@ class Settings(BaseSettings):
     VLLM_MODEL: str = "affectlearn/llama-3-8b-pedagogical"
     VLLM_API_KEY: str = "not-needed"  # vLLM ignores the key; OpenAI client requires a non-empty value
     VLLM_TIMEOUT_SECONDS: float = 3.0  # NFR5/architecture line 632 — fall back to rules past this
-    VLLM_MAX_TOKENS: int = 256  # strategy output is compact; cap protects the latency budget
+    # Raised from 256 after a delivered breakdown was cut off mid-sentence in production
+    # ("...This condition checks" — 181 words ≈ 280 tokens against a 256 cap). The system prompt
+    # now asks for under 80 words, so this is headroom against truncation rather than a licence
+    # to be verbose: a hint that stops mid-sentence is worse than no hint.
+    VLLM_MAX_TOKENS: int = 400
 
     ENVIRONMENT: str = "development"
     EXPOSE_DEV_CREDENTIALS: bool = False

@@ -36,6 +36,7 @@ sequence-numbered, never raises). `no_action` emits nothing.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import Any
 
@@ -59,7 +60,12 @@ _SYSTEM_PROMPT = (
     "should see — no labels, no preamble, no quotation marks.\n"
     "The section may pose questions to the learner, in prose or as an exercise. NEVER answer "
     "them. Help the learner reason toward the answer themselves — a hint that states the "
-    "answer removes the thinking the question was set to provoke."
+    "answer removes the thinking the question was set to provoke.\n"
+    "Write PLAIN TEXT ONLY. No markdown: no **bold**, no headings, no bullet characters. The UI "
+    "renders your reply verbatim, so markdown syntax reaches the learner as literal asterisks.\n"
+    "Be BRIEF. This appears in a small popup over the lesson, not on a page of its own — keep it "
+    "under 80 words (a step-by-step breakdown: at most 4 short steps). A long message overflows "
+    "the card and buries the point."
 )
 
 # Per-action instruction appended to the user prompt to enforce the AC content shape
@@ -126,6 +132,29 @@ def _build_human_prompt(action_type: str, profile: dict, content_context: dict) 
     return "\n".join(lines)
 
 
+_MD_INLINE = re.compile(r"(\*\*|__|`)")
+_MD_LEADING = re.compile(r"^\s{0,3}(#{1,6}\s+|[-*+]\s+)", re.MULTILINE)
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown syntax the UI would show verbatim. Pure; never raises.
+
+    `AdaptiveHintCallout` renders the reply as plain text, so `**bold**` and backticked code reach
+    the learner as literal asterisks and backticks. Observed in production: a delivered breakdown
+    read "**Class and Main Method**: The program starts with a class named `Report`".
+
+    The system prompt already forbids markdown, and that IS enough for `show_hint`. It is NOT
+    enough for `show_breakdown`, where a numbered list with bold labels is the model's natural
+    format and it reverts to it regardless of instruction. An instruction can be ignored; this
+    cannot — so both layers exist, the same belt-and-braces approach used for the answer leak.
+
+    Numbering (`1.`, `2.`) is deliberately PRESERVED: the callout parses it into an ordered list.
+    """
+    text = _MD_INLINE.sub("", text)
+    text = _MD_LEADING.sub("", text)
+    return text.strip()
+
+
 def _content_text(content: Any) -> str:
     """Normalise a chat message's content to a string (str or list-of-blocks).
 
@@ -180,7 +209,7 @@ async def _generate(
         logger.warning("content_adapter_vllm_error", action_type=action_type, error=str(exc))
         return _fallback("vllm_error")
 
-    text = _content_text(getattr(resp, "content", resp)).strip()
+    text = _strip_markdown(_content_text(getattr(resp, "content", resp)))
     if not text:
         logger.warning("content_adapter_parse_error", action_type=action_type)
         return _fallback("parse_error")

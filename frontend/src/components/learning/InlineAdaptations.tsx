@@ -59,16 +59,19 @@ export function InlineAdaptations() {
 }
 
 /**
- * Centred, animated hint overlay.
+ * Bottom-centred, animated hint sheet.
  *
- * Previously this rendered inline BELOW the lesson content, so a delivered hint landed off-screen
- * and a confused learner had to scroll past everything to find the help meant for them.
+ * Position history, because it has moved twice for concrete reasons:
+ *   1. Inline below the lesson content — a delivered hint landed off-screen entirely.
+ *   2. Vertically centred — visible, but it sat on top of the code block and exercise the hint was
+ *      explaining. On a laptop viewport it covered most of the reading area.
+ *   3. Bottom-centred (here) — horizontally centred so it is unmissable, anchored to the bottom so
+ *      the material above it stays readable while the learner acts on the advice.
  *
  * NO DIMMED BACKDROP, unlike `BreakSuggestionCard` (`fixed inset-0 z-50 bg-background/70`). A hint
- * is grounded in the section the learner is reading — dimming the page would hide the very thing
- * the hint refers to. The wrapper is `pointer-events-none` so the lesson stays scrollable and
- * clickable underneath; only the card itself captures clicks. A strong shadow and a ring make it
- * read as floating without blocking anything.
+ * is grounded in the section the learner is reading — dimming the page hides the very thing the
+ * hint refers to. The wrapper is `pointer-events-none` so the lesson stays scrollable and
+ * clickable underneath; only the card itself captures clicks.
  *
  * z-40 keeps it BELOW the break-suggestion overlay (z-50), so a break card is never obscured.
  */
@@ -84,15 +87,19 @@ function CenteredHint({ adaptation }: { adaptation: Parameters<typeof AdaptiveHi
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center p-4"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-4"
     >
       <div
         className={cn(
-          "pointer-events-auto w-[min(32rem,100%)] rounded-lg bg-background shadow-2xl ring-1 ring-border",
-          // Scale + fade entrance. `transition-duration` is neutralised globally under
+          "pointer-events-auto w-[min(34rem,100%)] rounded-lg bg-background shadow-2xl ring-1 ring-border",
+          // Bounded height with its own scrollbar. A `show_breakdown` can run to several steps;
+          // unbounded it overflowed the card and the last line was clipped mid-sentence, which
+          // looked like a truncation bug. The card scrolls, the page never does.
+          "max-h-[45vh] overflow-y-auto",
+          // Slide-up + fade entrance. `transition-duration` is neutralised globally under
           // `prefers-reduced-motion: reduce` (globals.css), so this needs no separate guard.
           "transition-[opacity,transform] duration-300 ease-out",
-          entered ? "scale-100 opacity-100" : "scale-95 opacity-0",
+          entered ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
         )}
       >
         <div className="px-5">
