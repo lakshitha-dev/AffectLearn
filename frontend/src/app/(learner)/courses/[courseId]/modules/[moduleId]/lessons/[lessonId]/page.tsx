@@ -22,6 +22,7 @@ import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
 import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
 import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
+import { useSectionSignals } from "@/hooks/use-section-signals";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -99,12 +100,6 @@ export default function LessonPage({ params }: PageProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [focusMode, toggleFocusMode]);
 
-  const handleMarkComplete = useCallback((sectionId: string) => {
-    markComplete.mutate({ sectionId }, {
-      onError: () => toast.error("Could not save your progress. Try again."),
-      onSuccess: () => toast.success("Section complete"),
-    });
-  }, [markComplete]);
 
   const sections = (lessonQuery.data?.sections ?? []).slice().sort(
     (a, b) => a.sortOrder - b.sortOrder,
@@ -124,8 +119,30 @@ export default function LessonPage({ params }: PageProps) {
     sectionId: currentSectionId,
   });
 
+  // Per-section interaction counters for confusion detection (dark-shipped: logged for future
+  // model training, never shown to the learner and never fed to the live model).
+  const sectionSignals = useSectionSignals();
+  useEffect(() => {
+    sectionSignals.enterSection(currentSectionId);
+  }, [currentSectionId, sectionSignals]);
+
+  // Declared AFTER `sectionSignals` deliberately: a useCallback dependency array is evaluated
+  // during render, so referencing a `const` declared further down would throw a TDZ error.
+  const handleMarkComplete = useCallback((sectionId: string) => {
+    markComplete.mutate(
+      { sectionId, interactionSignals: sectionSignals.snapshot(sectionId) },
+      {
+        onError: () => toast.error("Could not save your progress. Try again."),
+        onSuccess: () => toast.success("Section complete"),
+      },
+    );
+  }, [markComplete, sectionSignals]);
+
   const handleSectionNav = (idx: number) => {
     if (idx < 0 || idx >= sections.length) return;
+    // Backwards navigation is the paginated equivalent of scrolling back to re-read — one of the
+    // clearest confusion signals this UI produces, and previously not recorded at all.
+    if (idx < currentIndex) sectionSignals.recordBackNav(currentSectionId);
     setCurrentIndex(idx);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -336,15 +353,17 @@ export default function LessonPage({ params }: PageProps) {
               onNext={() => { if (idx === sections.length - 1) handleLastSectionCta(); else handleSectionNav(idx + 1); }}
               onPrev={() => handleSectionNav(idx - 1)}
               isSaving={markComplete.isPending}
-              onQuizAnswered={(sectionId, blockId, selectedIds, isCorrect, responseTimeMs) =>
+              onShowAnswer={(sectionId) => sectionSignals.recordShowAnswer(sectionId)}
+              onQuizAnswered={(sectionId, blockId, selectedIds, isCorrect, responseTimeMs) => {
+                sectionSignals.recordQuizAttempt(sectionId, isCorrect, responseTimeMs);
                 recordQuiz.mutate({
                   contentBlockId: blockId,
                   selectedAnswers: selectedIds,
                   isCorrect,
                   responseTimeMs,
                   sectionId,
-                })
-              }
+                });
+              }}
             />
           </>
         );

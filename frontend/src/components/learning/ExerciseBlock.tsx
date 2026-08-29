@@ -16,10 +16,23 @@ interface ExerciseBlockProps {
   blockId: string;
   content: ExerciseContent;
   onSubmit?: (blockId: string, answer: string, isCorrect: boolean) => void;
+  /**
+   * Fired when the learner reveals the answer. A learner giving up is probably the single
+   * clearest confusion signal this UI produces, and until now it was discarded entirely — the
+   * button only called `setInput(content.answer)` locally. Logged for future model training;
+   * it does not change anything the learner sees.
+   */
+  onShowAnswer?: (blockId: string) => void;
   previewMode?: boolean;
 }
 
-export function ExerciseBlock({ blockId, content, onSubmit, previewMode }: ExerciseBlockProps) {
+export function ExerciseBlock({
+  blockId,
+  content,
+  onSubmit,
+  onShowAnswer,
+  previewMode,
+}: ExerciseBlockProps) {
   const [input, setInput] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
@@ -72,7 +85,10 @@ export function ExerciseBlock({ blockId, content, onSubmit, previewMode }: Exerc
       {!submitted && (
         <button
           className="text-xs text-muted-foreground hover:text-foreground underline"
-          onClick={() => { setInput(content.answer); }}
+          onClick={() => {
+            setInput(content.answer);
+            onShowAnswer?.(blockId);
+          }}
           type="button"
         >
           Show answer

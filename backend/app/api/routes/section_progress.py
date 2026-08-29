@@ -18,6 +18,7 @@ from pydantic import ConfigDict
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_db, require_role
 from app.models.quiz_response import QuizBlockResponse
@@ -131,7 +132,59 @@ async def mark_section_complete(
         "timestamp": _now_ms(),
         "payload": {**payload, "created": created},
     })
+
+    # Per-section confusion features (ships DARK — logged for future training, never fed to the
+    # live model, whose input width is frozen by the deployed ONNX). Emitted here so the feature
+    # row and the `self_report` label for the same section land in the same store and pair on
+    # learner_id + section_id. Best-effort throughout: a failure here must not affect completion.
+    await _safe_emit_section_features(
+        db, base=base, signals=body.interaction_signals, section_id=body.section_id
+    )
     return progress
+
+
+async def _safe_emit_section_features(
+    db: AsyncSession, *, base: dict, signals, section_id
+) -> None:
+    """Emit the `section_features` row for a completed section. Never raises.
+
+    Counters come from the CLIENT (`signals`), not from reading research events back: `emit`
+    publishes to a Redis stream that a worker later drains into Postgres, so a section's events
+    are not queryable at completion time — and are lost entirely when Redis is down. The lesson
+    page already holds them, so they ride along in the completion body instead.
+
+    Section shape is read from the DB, which is durable and already loaded for this request path.
+    """
+    try:
+        from app.models.course import Section
+        from app.services import section_features
+
+        shape = {}
+        section = (
+            await db.execute(
+                select(Section)
+                .options(selectinload(Section.content_blocks))
+                .where(Section.id == section_id)
+            )
+        ).scalar_one_or_none()
+        if section is not None:
+            shape = section_features.section_shape_from_blocks(section.content_blocks or [])
+
+        features = section_features.from_signals(
+            signals.model_dump() if hasattr(signals, "model_dump") else signals,
+            str(section_id),
+            section_shape=shape,
+        )
+    except Exception:  # noqa: BLE001 — dark-shipped instrumentation, never break a completion
+        logger.exception("section_features_extraction_failed", section_id=str(section_id))
+        return
+
+    await _safe_emit({
+        **base,
+        "event_type": "section_features",
+        "timestamp": _now_ms(),
+        "payload": features,
+    })
 
 
 @router.get(
