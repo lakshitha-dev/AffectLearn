@@ -96,6 +96,17 @@ def _block_text(block: ContentBlock) -> str:
         lang = str(content.get("language") or "")
         code = str(content.get("code") or "")
         return f"[{lang} code]\n{code}" if code else ""
+    if kind == "table":
+        # Flattened pipe-delimited so the model reads it as tabular material. Without this a
+        # table would contribute nothing and the model would be grounding hints on a section it
+        # can only partly see — a silent quality regression rather than a visible failure.
+        headers = [str(h) for h in (content.get("headers") or [])]
+        rows = content.get("rows") or []
+        lines = [" | ".join(headers)] if headers else []
+        for row in rows:
+            if isinstance(row, list):
+                lines.append(" | ".join(str(c) for c in row))
+        return "\n".join(lines)
     # Assessment blocks contribute NOTHING — see the leak documented in the docstring.
     # A placeholder is emitted rather than nothing at all so the model knows the learner is being
     # assessed here (useful for pitching a hint) without seeing what is being asked.
