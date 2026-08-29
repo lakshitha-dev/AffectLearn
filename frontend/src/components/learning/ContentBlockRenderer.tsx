@@ -3,6 +3,7 @@
 import { cn } from "@/lib/cn";
 import { QuizBlock } from "./QuizBlock";
 import { ExerciseBlock } from "./ExerciseBlock";
+import { TableBlock, type TableContent } from "./TableBlock";
 import { MermaidDiagram } from "./MermaidDiagram";
 import type { ContentBlock } from "@/types/course";
 
@@ -83,6 +84,10 @@ export function ContentBlockRenderer({ block, onQuizSubmit, onShowAnswer, previe
             previewMode={previewMode}
           />
         );
+      }
+
+      case "table": {
+        return <TableBlock content={block.content as unknown as TableContent} />;
       }
 
       case "exercise": {

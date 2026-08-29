@@ -1,6 +1,6 @@
 export interface ContentBlock {
   id: string;
-  blockType: "text" | "code" | "image" | "callout" | "exercise" | "quiz";
+  blockType: "text" | "code" | "image" | "callout" | "exercise" | "quiz" | "table";
   content: Record<string, unknown>;
   sortOrder: number;
   variantKey: string;

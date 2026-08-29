@@ -25,6 +25,10 @@ class BlockType(enum.Enum):
     callout = "callout"
     exercise = "exercise"
     quiz = "quiz"
+    # Comparison tables. Stored like every other type: `block_type` is a plain varchar(20) with
+    # no CHECK constraint (migration 005 created it as `sa.String(20)` despite the Enum here), so
+    # adding a value needs no migration.
+    table = "table"
 
 
 class Course(BaseModel):

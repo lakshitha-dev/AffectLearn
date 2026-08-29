@@ -47,6 +47,22 @@ def mermaid(source: str):
     return (BlockType.code, {"language": "mermaid", "code": source})
 
 
+def table(headers: list[str], rows: list[list[str]]):
+    """A comparison table — rendered as a real `<table>` by `TableBlock.tsx`.
+
+    Text blocks are emitted as plain `<p>` paragraphs with no markdown parsing, so a markdown
+    table would render as literal `|` characters. This is the supported way to show tabular
+    material (`int` vs `double`, `==` vs `.equals`, and so on).
+
+    Rows are NOT padded or validated against the header count — a ragged row renders with empty
+    trailing cells rather than raising, so a content typo can never break a lesson at request time.
+    """
+    return (BlockType.table, {
+        "headers": [str(h) for h in headers],
+        "rows": [[str(c) for c in row] for row in rows],
+    })
+
+
 def callout(body: str, variant: str = "info"):
     """variant: info | tip | warning."""
     return (BlockType.callout, {"variant": variant, "text": body})

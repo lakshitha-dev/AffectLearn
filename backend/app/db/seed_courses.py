@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import async_session
 from app.db.course_content.building import build as build_building
 from app.db.course_content.foundations import build as build_foundations
+from app.db.course_content.java import build as build_java
 from app.db.course_content.multiagent import build as build_multiagent
 from app.db.course_content.warmup import build as build_warmup
 from app.models.course import Course
@@ -38,7 +39,23 @@ def _build_courses() -> list[Course]:
     # on. Re-adding both takes the content universe to 49 sections — confused 3→9, bored 2→7,
     # frustrated 3→6. REVERT to `[build_warmup(), build_building()]` before the Phase A pilot,
     # which keeps the single-study-course design documented in AFFECT_SECTION_CODEBOOK.md.
-    return [build_warmup(), build_building(), build_foundations(), build_multiagent()]
+    #
+    # `java.py` is a SECOND SUBJECT DOMAIN (added Aug 2026). Every other section is Agentic AI, so
+    # nothing until now tested whether grounded hints work on unfamiliar material — which is the
+    # platform's core claim. It also carries two `exercise` sections, making the "Show answer"
+    # affordance reachable (only 5 sections platform-wide had one).
+    #
+    # DECIDE BEFORE THE PHASE A PILOT whether Java stays in. It is not affect-balanced like the
+    # study courses and it widens the content universe (49 -> ~57 sections), which changes the
+    # per-class window counts the codebook assumes. Keeping it is a research-design choice, not a
+    # default — see the REVERT note above.
+    return [
+        build_warmup(),
+        build_building(),
+        build_foundations(),
+        build_multiagent(),
+        build_java(),
+    ]
 
 
 # Titles this seeder MANAGES on `--reset`. A superset of what `_build_courses` creates: it
@@ -48,6 +65,7 @@ _TITLES = [
     "Foundations of Agentic AI",
     "Building AI Agents: Tools, Memory & Planning",
     "Multi-Agent Systems & Orchestration",
+    "Java Essentials: From First Program to Objects",
 ]
 
 
