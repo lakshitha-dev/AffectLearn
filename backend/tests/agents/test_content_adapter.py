@@ -217,3 +217,87 @@ async def test_unknown_action_type_returns_empty_and_emits_no_event(monkeypatch,
     out = await ca.content_adapter_node(_state("teleport_learner", affect="confused"))
     assert out == {}
     assert events == []
+
+
+# ── Prompt grounding (2026-08-29) ─────────────────────────────────────────────
+#
+# `content_context` was never populated by either `ws.py` call site, so every prompt read
+# `content_topic: unknown` and the model could only produce generic study advice —
+# indistinguishable from the rule-based fallback sitting next to it. These lock in that the
+# section's real material reaches the prompt.
+
+_SECTION_BODY = (
+    "Structured output constrains the model to emit JSON conforming to a schema you supply, "
+    "so your code can treat it like any other well-behaved API."
+)
+
+
+def _grounded_state(**kw):
+    return _state(
+        content_context={
+            "topic": "Structured Output",
+            "lesson": "Giving Agents Capabilities",
+            "body": _SECTION_BODY,
+            "difficulty": "unknown",
+        },
+        **kw,
+    )
+
+
+async def test_prompt_includes_section_body_and_titles(monkeypatch, events):
+    """The section text, topic and lesson all reach the human prompt."""
+    client = _FakeClient(content="Think about what the schema guarantees your parser.")
+    _use_client(monkeypatch, client)
+    captured = {}
+
+    async def _capture(messages):
+        captured["human"] = messages[-1].content
+        return _FakeResp("Think about what the schema guarantees your parser.")
+
+    client.ainvoke = _capture
+
+    await ca.content_adapter_node(_grounded_state())
+
+    human = captured["human"]
+    assert _SECTION_BODY in human, "section body must reach the model"
+    assert "Structured Output" in human
+    assert "Giving Agents Capabilities" in human
+    assert "content_topic: unknown" not in human
+
+
+async def test_prompt_without_context_omits_body_block(monkeypatch, events):
+    """No section id -> no body block, and the prompt still builds (no crash, no empty fence)."""
+    client = _FakeClient(content="ok")
+    _use_client(monkeypatch, client)
+    captured = {}
+
+    async def _capture(messages):
+        captured["human"] = messages[-1].content
+        return _FakeResp("ok")
+
+    client.ainvoke = _capture
+
+    await ca.content_adapter_node(_state())  # no content_context
+
+    human = captured["human"]
+    assert "currently reading this section" not in human
+    assert "content_topic: unknown" in human
+
+
+async def test_quiz_and_exercise_answers_never_reach_the_prompt(monkeypatch, events):
+    """`show_hint` must not be handed the answer key — `_block_text` excludes answers."""
+    from app.services import content_context_service as ccs
+    from app.models.course import BlockType
+
+    class _Block:
+        def __init__(self, block_type, content, sort_order=0):
+            self.block_type = block_type
+            self.content = content
+            self.sort_order = sort_order
+
+    rendered = ccs._render_body([
+        _Block(BlockType.exercise, {"prompt": "Write a schema.", "answer": "SECRET_ANSWER"}),
+        _Block(BlockType.quiz, {"question": "Which is valid?", "options": [["a", True]]}),
+    ])
+    assert "Write a schema." in rendered
+    assert "SECRET_ANSWER" not in rendered

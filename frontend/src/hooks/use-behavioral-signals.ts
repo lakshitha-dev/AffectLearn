@@ -59,6 +59,12 @@ export interface UseBehavioralSignalsOptions {
   sampleMs?: number;
   /** Override the 30000ms cycle interval (testing only). */
   cycleMs?: number;
+  /**
+   * The section the learner is currently on. Sent with each window so the server can ground
+   * adaptation prompts in the material on screen. Read through a ref internally so that
+   * navigating between sections does not restart the aggregator.
+   */
+  sectionId?: string;
 }
 
 export interface UseBehavioralSignalsReturn {
@@ -86,8 +92,14 @@ interface MousePos {
 export function useBehavioralSignals(
   options: UseBehavioralSignalsOptions = {},
 ): UseBehavioralSignalsReturn {
-  const { send, enabled = true, sampleMs, cycleMs } = options;
+  const { send, enabled = true, sampleMs, cycleMs, sectionId } = options;
   const mode = useWebcamStore((s) => s.mode);
+
+  // Ref rather than a dependency — see the matching note in `use-media-pipe.ts`. The learner
+  // changes section far more often than the 30s window, and restarting the aggregator would
+  // discard the partially-collected window.
+  const sectionIdRef = useRef<string | undefined>(sectionId);
+  sectionIdRef.current = sectionId;
 
   const debugRef = useRef<BehavioralDebug | null>(
     IS_DEV ? makeEmptyDebug() : null,
@@ -350,6 +362,7 @@ export function useBehavioralSignals(
           events: buffer,
           summary,
           dropped_events: dropped,
+          section_id: sectionIdRef.current,
         },
       };
 

@@ -57,10 +57,19 @@ def _build_human_prompt(
     profile: dict,
     content_context: dict,
 ) -> str:
-    """Compact, token-efficient context block for the LLM."""
+    """Compact, token-efficient context block for the LLM.
+
+    Deliberately carries the section/lesson TITLES but not the section body, unlike
+    `content_adapter._build_human_prompt`. The strategist only picks an `action_type` from a
+    locked vocabulary — a classification. Feeding it the full ~2000-char body would roughly
+    double the prompt for every cycle without changing which of nine actions it chooses. The
+    adapter is the node that writes learner-facing prose, so that is where the body belongs.
+    """
     topic = content_context.get("topic", "unknown")
     difficulty = content_context.get("difficulty", "unknown")
+    lesson = content_context.get("lesson")
     recent = (profile.get("affect_history") or [])[-5:]
+    lesson_line = f"content_lesson: {lesson}\n" if lesson and lesson != "unknown" else ""
     return (
         f"affect_state: {affect_state}\n"
         f"affect_confidence: {affect_confidence}\n"
@@ -68,6 +77,7 @@ def _build_human_prompt(
         f"topic_mastery: {profile.get('topic_mastery', {}).get(topic, 'unknown')}\n"
         f"format_preferences: {profile.get('format_preferences', {})}\n"
         f"recent_affect_history: {recent}\n"
+        f"{lesson_line}"
         f"content_topic: {topic}\n"
         f"content_difficulty: {difficulty}"
     )

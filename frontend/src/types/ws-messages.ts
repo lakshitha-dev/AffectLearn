@@ -83,6 +83,12 @@ export interface FacialFeaturesMessage extends WSMessage {
     crop_size: number;
     channel_order: "RGB";
     dtype: "float32";
+    /**
+     * The section the learner is on, so the server can ground the adaptation prompts in the
+     * material actually on screen (`services/content_context_service`). Optional: a cycle with
+     * no section still runs affect detection normally, it just yields a generic hint.
+     */
+    section_id?: string;
   };
 }
 

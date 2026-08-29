@@ -63,6 +63,12 @@ export interface UseMediaPipeOptions {
   captureMs?: number;
   /** Override the 30000ms cycle interval (testing only). */
   cycleMs?: number;
+  /**
+   * The section the learner is currently on. Sent with each cycle so the server can ground
+   * adaptation prompts in the material on screen. Read through a ref internally so that
+   * navigating between sections does not tear down and restart the capture loop.
+   */
+  sectionId?: string;
 }
 
 export interface DebugMetrics {
@@ -99,8 +105,14 @@ interface DroppedReasons {
 }
 
 export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
-  const { send, enabled = true, captureMs, cycleMs } = options;
+  const { send, enabled = true, captureMs, cycleMs, sectionId } = options;
   const mode = useWebcamStore((s) => s.mode);
+
+  // Held in a ref, not a dependency: the capture effect below tears down and rebuilds the
+  // MediaPipe pipeline when its deps change, and the learner changes section far more often
+  // than a 30s cycle. Reading the latest value at cycle time keeps navigation cheap.
+  const sectionIdRef = useRef<string | undefined>(sectionId);
+  sectionIdRef.current = sectionId;
 
   const debugRef = useRef<DebugMetrics | null>(
     IS_DEV ? makeEmptyMetrics() : null,
@@ -308,6 +320,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
             crop_size: PREPROCESS_CONTRACT.cropSize,
             channel_order: PREPROCESS_CONTRACT.channelOrder,
             dtype: PREPROCESS_CONTRACT.dtype,
+            section_id: sectionIdRef.current,
           },
         };
 
