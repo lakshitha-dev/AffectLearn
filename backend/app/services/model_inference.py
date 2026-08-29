@@ -30,6 +30,8 @@ from typing import Any
 import numpy as np
 import structlog
 
+from app.services import onnx_session
+
 logger = structlog.get_logger(__name__)
 
 # ── contract constants (must match preprocess.ts PREPROCESS_CONTRACT) ──────────
@@ -137,7 +139,9 @@ class EngagementModel:
                     "or place cnn_lstm_best.onnx there (it lives on Drive, gitignored)."
                 )
             self._session = ort.InferenceSession(
-                self.model_path, providers=["CPUExecutionProvider"]
+                self.model_path,
+                sess_options=onnx_session.session_options(ort),
+                providers=["CPUExecutionProvider"],
             )
             logger.info("engagement_model_loaded", path=self.model_path)
         return self._session
