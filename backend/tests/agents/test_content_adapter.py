@@ -284,8 +284,15 @@ async def test_prompt_without_context_omits_body_block(monkeypatch, events):
     assert "content_topic: unknown" in human
 
 
-async def test_quiz_and_exercise_answers_never_reach_the_prompt(monkeypatch, events):
-    """`show_hint` must not be handed the answer key — `_block_text` excludes answers."""
+async def test_assessment_blocks_never_reach_the_prompt(monkeypatch, events):
+    """Neither the ANSWER nor the QUESTION may reach the model.
+
+    Regression for a real production leak: the "Constrained Decoding and Grammars" section asks
+    "why can a model ... never emit invalid JSON? What might it give up in exchange?" and the
+    delivered hint answered both halves ("only move along valid paths ... sacrifice some speed
+    or flexibility"). Excluding only the answer was not enough — showing a model a question is
+    enough to leak the answer.
+    """
     from app.services import content_context_service as ccs
     from app.models.course import BlockType
 
@@ -296,8 +303,24 @@ async def test_quiz_and_exercise_answers_never_reach_the_prompt(monkeypatch, eve
             self.sort_order = sort_order
 
     rendered = ccs._render_body([
-        _Block(BlockType.exercise, {"prompt": "Write a schema.", "answer": "SECRET_ANSWER"}),
-        _Block(BlockType.quiz, {"question": "Which is valid?", "options": [["a", True]]}),
+        _Block(BlockType.text, {"text": "Constrained decoding masks invalid tokens."}, 0),
+        _Block(BlockType.exercise, {
+            "prompt": "Why can a model never emit invalid JSON? What might it give up?",
+            "answer": "SECRET_ANSWER",
+        }, 1),
+        _Block(BlockType.quiz, {
+            "question": "Which token set is admissible at position t?",
+            "options": [["A_t", True]],
+        }, 2),
     ])
-    assert "Write a schema." in rendered
+
+    assert "Constrained decoding masks invalid tokens." in rendered
     assert "SECRET_ANSWER" not in rendered
+    assert "What might it give up" not in rendered, "exercise QUESTION leaked"
+    assert "admissible at position t" not in rendered, "quiz QUESTION leaked"
+    assert "asked a question here" in rendered, "should still signal an assessment exists"
+
+
+async def test_system_prompt_forbids_answering_questions():
+    """Second layer: prose questions no block filter can catch."""
+    assert "NEVER answer" in ca._SYSTEM_PROMPT

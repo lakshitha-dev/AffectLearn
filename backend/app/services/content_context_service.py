@@ -66,9 +66,24 @@ def _block_text(block: ContentBlock) -> str:
         quiz     -> {"question": ..., "options": [...]}
         exercise -> {"prompt": ..., "answer": ..., "explanation": ...}
 
-    Answers are deliberately EXCLUDED: the adapter's job is to hint, and `_ACTION_INSTRUCTION`
-    for `show_hint` says "without giving the full answer". Feeding it the answer key invites
-    exactly the leak the instruction forbids.
+    Assessment blocks are EXCLUDED ENTIRELY — both the answer AND the question.
+
+    The first version of this excluded only answers, which was not enough. Observed in production
+    on the "Constrained Decoding and Grammars" section, whose exercise asks:
+
+        "why can a model under grammar-constrained decoding never emit invalid JSON?
+         What might it give up in exchange?"
+
+    The delivered hint was: "the grammar acts as the tracks … so it can only move along valid
+    paths … but it might sacrifice some speed or flexibility." That answers BOTH halves of the
+    question. The learner could paraphrase the hint straight into the answer box.
+
+    Handing the model the question is enough to leak the answer, because a helpful model answers
+    questions it is shown. `_ACTION_INSTRUCTION` for `show_hint` says "without giving the full
+    answer", and the only reliable way to honour that is to keep assessments out of the context:
+    explaining the concept never requires the quiz wording. `content_adapter._SYSTEM_PROMPT`
+    carries a matching instruction as a second layer, since sections can also pose questions in
+    prose that no block-type filter can catch.
     """
     content = block.content if isinstance(block.content, dict) else {}
     kind = getattr(block.block_type, "value", block.block_type)
@@ -81,11 +96,11 @@ def _block_text(block: ContentBlock) -> str:
         lang = str(content.get("language") or "")
         code = str(content.get("code") or "")
         return f"[{lang} code]\n{code}" if code else ""
-    if kind == "quiz":
-        return f"[quiz] {content.get('question') or ''}"
-    if kind == "exercise":
-        # prompt only — never `answer`.
-        return f"[exercise] {content.get('prompt') or ''}"
+    # Assessment blocks contribute NOTHING — see the leak documented in the docstring.
+    # A placeholder is emitted rather than nothing at all so the model knows the learner is being
+    # assessed here (useful for pitching a hint) without seeing what is being asked.
+    if kind in ("quiz", "exercise"):
+        return "[the learner is asked a question here]"
     return ""
 
 
