@@ -55,11 +55,10 @@ export default function LessonPage({ params }: PageProps) {
   // Story 4.2+ hooks (facial features, behavioral window, adaptations) consume this connection
   // via the send function — do NOT open additional connections elsewhere.
   const { send } = useWebSocket();
-  const { debug: affectDebug } = useMediaPipe({ send });
-  // Behavioral signals run in ALL non-error modes (incl. webcam-denied), so this
-  // is mounted unconditionally alongside the facial hook (Story 4.3). The debug
-  // ref surfaces NFR9 data-loss metrics in the dev overlay (AC #10).
-  const { debug: behavioralDebug } = useBehavioralSignals({ send });
+  // NOTE: `useMediaPipe` / `useBehavioralSignals` are mounted further down, after `sections`
+  // and `currentIndex` exist, because they now need the current section id to ground the
+  // adaptation prompts. Their call order is unconditional and stable across renders, which is
+  // all React requires.
 
   const completedSectionIds = new Set(progressQuery.data?.completedSectionIds ?? []);
   const lessonPercentage = progressQuery.data?.lessonPercentage ?? 0;
@@ -110,6 +109,20 @@ export default function LessonPage({ params }: PageProps) {
   const sections = (lessonQuery.data?.sections ?? []).slice().sort(
     (a, b) => a.sortOrder - b.sortOrder,
   ) as SectionDetail[];
+
+  // The section the learner is actually reading. Sent with every affect cycle so the backend
+  // can build `content_context` and ground the hint in this material — without it the LLM only
+  // ever saw `content_topic: unknown` and could only produce generic study advice.
+  const currentSectionId = sections[currentIndex]?.id;
+
+  const { debug: affectDebug } = useMediaPipe({ send, sectionId: currentSectionId });
+  // Behavioral signals run in ALL non-error modes (incl. webcam-denied), so this
+  // is mounted unconditionally alongside the facial hook (Story 4.3). The debug
+  // ref surfaces NFR9 data-loss metrics in the dev overlay (AC #10).
+  const { debug: behavioralDebug } = useBehavioralSignals({
+    send,
+    sectionId: currentSectionId,
+  });
 
   const handleSectionNav = (idx: number) => {
     if (idx < 0 || idx >= sections.length) return;
