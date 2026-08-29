@@ -26,6 +26,8 @@ interface SectionViewProps {
     isCorrect: boolean,
     responseTimeMs: number,
   ) => void;
+  /** Fired when the learner reveals an exercise answer in this section — a giving-up signal. */
+  onShowAnswer?: (sectionId: string, blockId: string) => void;
 }
 
 export function SectionView({
@@ -39,6 +41,7 @@ export function SectionView({
   onPrev,
   isSaving,
   onQuizAnswered,
+  onShowAnswer,
 }: SectionViewProps) {
   const sortedBlocks = useMemo(
     () => section.contentBlocks.slice().sort((a, b) => a.sortOrder - b.sortOrder),
@@ -76,7 +79,12 @@ export function SectionView({
 
       <div className="space-y-6">
         {sortedBlocks.map((block) => (
-          <ContentBlockRenderer key={block.id} block={block} onQuizSubmit={handleQuizSubmit} />
+          <ContentBlockRenderer
+            key={block.id}
+            block={block}
+            onQuizSubmit={handleQuizSubmit}
+            onShowAnswer={(blockId) => onShowAnswer?.(section.id, blockId)}
+          />
         ))}
       </div>
 

@@ -85,7 +85,10 @@ async def test_idempotent_recompletion_emits_only_completed(
     assert resp.status_code == 200
     types = [e["event_type"] for e in section_events]
     assert "section_started" not in types  # not a first completion
-    assert types == ["section_completed"]
+    # `section_features` accompanies EVERY completion (dark-shipped confusion signals), so a
+    # recompletion emits both. The invariant this test protects is that `section_started` fires
+    # once and only once — not the total event count.
+    assert types == ["section_completed", "section_features"]
 
 
 async def test_section_emit_failure_does_not_crash_request(
@@ -202,3 +205,74 @@ async def test_assessment_emit_failure_does_not_crash_request(
         headers=auth_headers,
     )
     assert submit.status_code == 201  # attempt persisted; emit swallowed
+
+
+# ── section_features: client-sent confusion signals (dark-shipped) ────────────
+
+
+async def test_completion_emits_section_features_with_client_signals(
+    client: AsyncClient, enrolled_course, auth_headers, section_events
+):
+    """Counters sent by the lesson page must survive into the research event verbatim."""
+    section = enrolled_course["sections"][0]
+    resp = await client.post(
+        "/api/v1/section-progress",
+        json={
+            "sectionId": str(section.id),
+            "interactionSignals": {
+                "timeOnSectionS": 245.5,
+                "viewCount": 3,
+                "backNavCount": 2,
+                "showAnswerUsed": True,
+                "quizAttemptCount": 3,
+                "quizIncorrectCount": 2,
+                "quizResponseTimeMsMean": 5200.0,
+            },
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code in (200, 201)
+
+    feats = [e for e in section_events if e["event_type"] == "section_features"]
+    assert len(feats) == 1
+    p = feats[0]["payload"]
+    assert p["section_id"] == str(section.id)
+    assert p["time_on_section_s"] == 245.5
+    assert p["back_nav_count"] == 2
+    assert p["show_answer_used"] == 1
+    assert p["quiz_incorrect_count"] == 2
+    # Section shape is resolved server-side from the real content blocks.
+    assert p["n_blocks"] >= 0
+    assert "schema_version" in p
+
+
+async def test_completion_without_signals_still_succeeds(
+    client: AsyncClient, enrolled_course, auth_headers, section_events
+):
+    """An older client that does not send signals must still complete sections normally."""
+    section = enrolled_course["sections"][0]
+    resp = await client.post(
+        "/api/v1/section-progress",
+        json={"sectionId": str(section.id)},
+        headers=auth_headers,
+    )
+    assert resp.status_code in (200, 201)
+    feats = [e for e in section_events if e["event_type"] == "section_features"]
+    assert len(feats) == 1
+    assert feats[0]["payload"]["time_on_section_s"] == 0.0
+
+
+async def test_absurd_signal_values_are_rejected_by_validation(
+    client: AsyncClient, enrolled_course, auth_headers
+):
+    """Bounds keep a buggy or hostile client from poisoning the research dataset."""
+    section = enrolled_course["sections"][0]
+    resp = await client.post(
+        "/api/v1/section-progress",
+        json={
+            "sectionId": str(section.id),
+            "interactionSignals": {"backNavCount": -5},
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 
 import { apiFetch, ApiRequestError } from "@/lib/api-client";
+import type { SectionSignals } from "@/hooks/use-section-signals";
 import type {
   CourseProgressResponse,
   LearnerProgressResponse,
@@ -90,13 +91,20 @@ export function useMarkSectionComplete(
   return useMutation<
     SectionProgress,
     Error,
-    { sectionId: string },
+    { sectionId: string; interactionSignals?: SectionSignals },
     { prev?: CourseProgressResponse }
   >({
-    mutationFn: ({ sectionId }) =>
+    // `interactionSignals` carries the per-section confusion counters (dwell, back-navigation,
+    // show-answer, quiz retries). Sent from the client because the backend cannot derive them:
+    // research events go to a Redis stream drained asynchronously into Postgres, so a section's
+    // events are not queryable at completion time. Optional — omitting it must still complete
+    // the section, which is why the server field is nullable.
+    mutationFn: ({ sectionId, interactionSignals }) =>
       apiFetch<SectionProgress>("/section-progress", {
         method: "POST",
-        body: JSON.stringify({ sectionId }),
+        body: JSON.stringify(
+          interactionSignals ? { sectionId, interactionSignals } : { sectionId },
+        ),
       }),
     retry: (failureCount, error) => {
       if (failureCount >= 3) return false;
