@@ -46,7 +46,12 @@ from app.services.research_logger import emit as emit_research_event
 # `behavioral_inference` was referenced by the feature-salvage path below but never
 # imported, so that path raised NameError, was swallowed by its own `except Exception`,
 # and salvage NEVER ran -- the exact failure it was written to prevent.
-from app.services import behavioral_inference, fusion_buffer, study_service
+from app.services import (
+    behavioral_inference,
+    content_context_service,
+    fusion_buffer,
+    study_service,
+)
 from app.agents.fusion import forced_mode, fuse_modalities
 from app.agents.graph import get_graph
 from app.agents.state import make_initial_state
@@ -197,6 +202,9 @@ async def _handle_facial_features(
             db=db,
             phase=phase,
             group=group,
+            # Grounds the strategist/adapter prompts in the section the learner is actually on.
+            # Omitted before, so every prompt said `content_topic: unknown`.
+            content_context=await content_context_service.build(data.get("section_id"), db),
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:
@@ -308,6 +316,8 @@ async def _handle_behavioral_window(
             db=db,
             phase=phase,
             group=group,
+            # See the facial call site above — same grounding, same reason.
+            content_context=await content_context_service.build(data.get("section_id"), db),
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:

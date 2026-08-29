@@ -89,16 +89,38 @@ _ACTION_INSTRUCTION: dict[str, str] = {
 
 
 def _build_human_prompt(action_type: str, profile: dict, content_context: dict) -> str:
-    """Compact, token-efficient context block + the per-action instruction."""
+    """Compact, token-efficient context block + the per-action instruction.
+
+    Includes the section's actual text (`content_context["body"]`, built by
+    `services.content_context_service`) when available. Without it the model only ever saw a
+    topic label — and until 2026-08-29 not even that, because no call site populated
+    `content_context` at all, so every prompt read `content_topic: unknown`. A hint that cannot
+    name what the learner is reading is indistinguishable from the rule-based fallback.
+
+    The body is already truncated to a character budget upstream; it is NOT re-truncated here so
+    there is a single place that decides how much context a prompt carries.
+    """
     topic = content_context.get("topic", "unknown")
     difficulty = content_context.get("difficulty", "unknown")
+    lesson = content_context.get("lesson")
+    body = (content_context.get("body") or "").strip()
     instruction = _ACTION_INSTRUCTION.get(action_type, "Help the learner with this topic.")
-    return (
-        f"content_topic: {topic}\n"
-        f"content_difficulty: {difficulty}\n"
-        f"learner_skill_level: {profile.get('skill_level', 'unknown')}\n\n"
-        f"Task: {instruction}"
-    )
+
+    lines = [f"content_topic: {topic}"]
+    if lesson and lesson != "unknown":
+        lines.append(f"lesson: {lesson}")
+    lines.append(f"content_difficulty: {difficulty}")
+    lines.append(f"learner_skill_level: {profile.get('skill_level', 'unknown')}")
+    if body:
+        # Fenced so the model treats it as material to reason about, not as instructions to it.
+        lines.append(f"\nThe learner is currently reading this section:\n---\n{body}\n---")
+    lines.append(f"\nTask: {instruction}")
+    if body:
+        lines.append(
+            "Ground your message in the section above — refer to its actual concepts and "
+            "terms rather than giving generic study advice."
+        )
+    return "\n".join(lines)
 
 
 def _content_text(content: Any) -> str:
