@@ -211,4 +211,21 @@ export interface MonitorMetrics {
   faceRatio: number | null;
   /** Latest cycle's presence verdict. null when unknown (no facial cycle, or a legacy event). */
   facePresent: boolean | null;
+  /**
+   * Whether a LEARNER session is currently producing cycles -- distinct from whether this
+   * admin page is connected to the backend. The two were previously conflated: the header
+   * read "Stream: live" and "Face: present 100%" whenever the page was open, because both
+   * were derived from the admin SSE connection and the last event ever received. A closed
+   * camera and an ended session therefore rendered identically to an active learner.
+   *
+   *   active  cycles arriving within STALE_AFTER_MS
+   *   stale   no cycle for longer than that, but no explicit disconnect seen
+   *   ended   `ws_disconnected` observed after the last cycle
+   *   idle    nothing observed yet this page-load
+   */
+  sessionState: "active" | "stale" | "ended" | "idle";
+  /** Epoch ms of the most recent cycle-bearing event; null when none seen. */
+  lastCycleAt: number | null;
+  /** Age of that event in ms, so panels can label values instead of implying they are current. */
+  lastCycleAgeMs: number | null;
 }
