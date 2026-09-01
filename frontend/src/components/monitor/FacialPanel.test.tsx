@@ -181,3 +181,36 @@ describe("FacialPanel — face presence", () => {
     expect(screen.queryByText(/affect suppressed/i)).not.toBeInTheDocument();
   });
 });
+
+describe("a binary head is never described as a 4-level payload", () => {
+  it("derives P(confused) from binary probs when p_confused is absent from the wire", () => {
+    // Production case: the artifact and kind agreed (health reported binary_confusion with a
+    // 2-wide output), `probs` arrived, but `p_confused` did not -- so the panel printed
+    // "level 1 (legacy 4-level payload)" for a model that emits exactly two logits, where
+    // `engagement_level` is nothing but the binary argmax index.
+    const { p_confused: _omitted, ...noPConfused } = CYCLE;
+    render(createElement(FacialPanel, { data: { ...noPConfused, engagement_level: 1 } }));
+    expect(screen.getByText("0.550")).toBeInTheDocument();
+    expect(screen.queryByText(/legacy 4-level payload/)).not.toBeInTheDocument();
+  });
+
+  it("prefers the wire value over the derived one when both are present", () => {
+    render(createElement(FacialPanel, { data: { ...CYCLE, p_confused: 0.611 } }));
+    expect(screen.getByText("0.611")).toBeInTheDocument();
+  });
+
+  it("still labels a genuine 4-level payload as legacy", () => {
+    // Four probs, no p_confused: the engagement stand-in, which the label is FOR.
+    render(
+      createElement(FacialPanel, {
+        data: {
+          frames_captured: 30,
+          dropped_frames: 0,
+          probs: [0.1, 0.2, 0.4, 0.3],
+          engagement_level: 2,
+        },
+      }),
+    );
+    expect(screen.getByText(/legacy 4-level payload/)).toBeInTheDocument();
+  });
+});

@@ -45,7 +45,17 @@ export function FacialPanel({
   // The deployed facial model is a BINARY CONFUSION head; `engagement_level` belonged to the
   // superseded 4-level artifact. Prefer the confusion probability and fall back to the raw
   // argmax index only if an older-shaped payload turns up.
-  const pConfused = data?.p_confused as number | undefined;
+  // `p_confused` is the authoritative field, but it is not always on the wire, and when it is
+  // missing the panel used to fall through to the 4-level engagement display -- printing
+  // "level 1 (legacy 4-level payload)" for a model that emits exactly two logits, with
+  // `engagement_level` being nothing more than the binary argmax index. A two-wide `probs`
+  // array IS the confusion distribution, so P(confused) is recoverable from it: index 1 is the
+  // positive class (see `binary()` in prob-labels). Derive rather than mislabel.
+  const rawPConfused = data?.p_confused as number | undefined;
+  const binaryProbs = probs?.length === 2 ? probs : undefined;
+  const pConfused = rawPConfused ?? binaryProbs?.[1];
+  /** True only for a genuinely 4-level payload -- never for a binary head. */
+  const isLegacyPayload = !binaryProbs && pConfused == null;
   const label = data?.label as string | undefined;
   const legacyLevel = data?.engagement_level as number | undefined;
   const dist = facialDistribution(probs);
@@ -93,7 +103,7 @@ export function FacialPanel({
             <p className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 dark:bg-red-900/30 dark:text-red-400">
               inference: {error}
             </p>
-          ) : pConfused != null || dist || legacyLevel != null ? (
+          ) : pConfused != null || dist || (isLegacyPayload && legacyLevel != null) ? (
             <div>
               <p className="text-xs text-muted-foreground">
                 {pConfused != null ? (

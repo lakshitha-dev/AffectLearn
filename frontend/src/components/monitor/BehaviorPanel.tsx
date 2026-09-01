@@ -40,14 +40,30 @@ export function BehaviorPanel({ data }: { data: Record<string, unknown> | null }
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-sm">
         <span className="font-mono text-[11px] text-muted-foreground">{kind} →</span>
-        <span className="font-semibold text-foreground">{label ?? "—"}</span>
-        <span className="text-muted-foreground">{(confidence * 100).toFixed(0)}%</span>
-        {idle && (
-          <span className="rounded-full bg-slate-100 px-2 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            idle window
+        {/* An idle window is suppressed upstream, so there is no label or confidence to show.
+            Rendering the raw absence as "— 0%" read as a broken panel; it is a deliberate
+            non-observation and now says so, matching how the facial panel explains its own
+            suppression rather than showing an empty distribution. */}
+        {idle ? (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            no interaction this cycle
           </span>
+        ) : (
+          <>
+            <span className="font-semibold text-foreground">{label ?? "—"}</span>
+            <span className="text-muted-foreground">{(confidence * 100).toFixed(0)}%</span>
+          </>
         )}
       </div>
+      {idle && (
+        <p className="text-xs text-muted-foreground">
+          No mouse, key or scroll activity reached this window, so affect was not inferred. An
+          empty window is not evidence that a learner is engaged — the negative class in the
+          training corpus absorbs unannotated time, so classifying it would report the learner
+          as engaged with high confidence whether or not anyone was there. The feature window is
+          still recorded.
+        </p>
+      )}
       {pConfused != null && (
         <p className="text-xs text-muted-foreground">
           P(confused) ={" "}
@@ -61,12 +77,14 @@ export function BehaviorPanel({ data }: { data: Record<string, unknown> | null }
         <Count label="keys" value={counts.keystroke_count ?? 0} />
         <Count label="scroll" value={counts.scroll_event_count ?? 0} />
       </div>
-      <div>
-        <p className="mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-          Classification (softmax) — detectable states only
-        </p>
-        <ProbBars probs={dist?.probs} labels={dist?.labels} />
-      </div>
+      {!idle && (
+        <div>
+          <p className="mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+            Classification (softmax) — detectable states only
+          </p>
+          <ProbBars probs={dist?.probs} labels={dist?.labels} />
+        </div>
+      )}
     </div>
   );
 }
