@@ -13,6 +13,13 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 const MAX_EVENTS = 500;
+/**
+ * A learner cycle arrives roughly every 30s, so nothing for 75s means the session has gone
+ * quiet rather than merely being between cycles. Deliberately not tied to the cycle interval
+ * constant: this is a display tolerance, and making it 2.5x leaves room for the latency tail
+ * (affect_detection has been observed above 5s) without flapping.
+ */
+const STALE_AFTER_MS = 75_000;
 
 export type StreamStatus = "idle" | "connecting" | "open" | "error";
 
@@ -40,7 +47,7 @@ interface DerivedState {
   metrics: MonitorMetrics;
 }
 
-function derive(events: MonitorEvent[]): DerivedState {
+function derive(events: MonitorEvent[], now: number): DerivedState {
   const nodeStates: Record<string, NodeRuntimeState> = {};
   let lastRoute: RouteDecision | null = null;
   const affectSeries: AffectPoint[] = [];
@@ -54,7 +61,9 @@ function derive(events: MonitorEvent[]): DerivedState {
   const cycles = new Set<number>();
   let nodeMsSum = 0;
   let nodeMsCount = 0;
-  const now = Date.now();
+  // `now` is the caller's clock (a 5s tick), not Date.now() read here: the events/sec window
+  // and the staleness verdict must agree, and a tick-driven value is what makes staleness
+  // advance when no events are arriving.
   let recentCount = 0;
 
   for (const e of events) {
@@ -144,6 +153,32 @@ function derive(events: MonitorEvent[]): DerivedState {
     }
   }
 
+  // Session liveness. Read from the events themselves rather than from the admin SSE
+  // connection: the page being open says nothing about whether a learner is present.
+  let lastCycleAt: number | null = null;
+  let lastDisconnectAt: number | null = null;
+  for (const e of events) {
+    const ts = typeof e.timestamp === "number" ? e.timestamp : null;
+    if (ts == null) continue;
+    if (e.event_type === "ws_disconnected") {
+      if (lastDisconnectAt == null || ts > lastDisconnectAt) lastDisconnectAt = ts;
+    } else if (e.cycle_number != null && e.cycle_number > 0) {
+      if (lastCycleAt == null || ts > lastCycleAt) lastCycleAt = ts;
+    }
+  }
+
+  let sessionState: MonitorMetrics["sessionState"];
+  if (lastCycleAt == null) {
+    sessionState = "idle";
+  } else if (lastDisconnectAt != null && lastDisconnectAt >= lastCycleAt) {
+    // An explicit end beats a timeout: report it immediately rather than waiting to go stale.
+    sessionState = "ended";
+  } else if (now - lastCycleAt > STALE_AFTER_MS) {
+    sessionState = "stale";
+  } else {
+    sessionState = "active";
+  }
+
   const metrics: MonitorMetrics = {
     total: events.length,
     domainCount,
@@ -157,6 +192,9 @@ function derive(events: MonitorEvent[]): DerivedState {
     facePresent: facePresenceSeries.length
       ? !facePresenceSeries[facePresenceSeries.length - 1].absent
       : null,
+    sessionState,
+    lastCycleAt,
+    lastCycleAgeMs: lastCycleAt == null ? null : Math.max(0, now - lastCycleAt),
   };
 
   return {
@@ -216,6 +254,14 @@ export function useMonitorStream(sessionId: string | null) {
     };
   }, [accessToken, sessionId]);
 
-  const derived = useMemo(() => derive(events), [events]);
+  // Staleness has to advance on the clock, not on event arrival -- a session going quiet
+  // produces no event to re-render on, which is exactly the case that was rendering as live.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const derived = useMemo(() => derive(events, now), [events, now]);
   return { status, events, ...derived };
 }
