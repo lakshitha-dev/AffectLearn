@@ -56,7 +56,9 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         source = "default"
 
     now_ms = int(time.time() * 1000)
-    profile = profile_service.apply_affect(profile, state.get("affect_state"), cycle, now_ms)
+    profile = profile_service.apply_affect(
+        profile, state.get("affect_state"), cycle, now_ms, source=state.get("affect_source")
+    )
 
     # ---- adaptation gate ----------------------------------------------------------------
     # Evaluated HERE because this is the only point that holds the FRESH profile: the new
@@ -69,10 +71,20 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     # adaptation is about to be attempted, not when one is confirmed delivered. If the LLM then
     # returns `no_action` the cooldown is still consumed; that errs toward fewer interventions,
     # which is the safe direction for an imperfect detector.
+    # The marker is compared against `cycle_number`, which RESTARTS AT 1 each session, while
+    # the profile is keyed by learner and outlives the session. A marker left by an earlier,
+    # longer session therefore exceeds the current cycle and the subtraction goes negative --
+    # permanently below the cooldown window, so the gate withheld `cooldown` forever. Stamping
+    # the session alongside it makes a foreign marker detectable, and a foreign marker is
+    # ignored rather than trusted.
+    session_id = state.get("session_id")
     last_adapt = profile.get("last_adaptation_cycle")
+    if profile.get("last_adaptation_session") != session_id:
+        last_adapt = None
     adapt, gate_reason = adaptation_decision(state, profile, last_adapt)
     if adapt:
         profile["last_adaptation_cycle"] = int(cycle or 0)
+        profile["last_adaptation_session"] = session_id
 
     # Write-through: Redis hot (best-effort) + Postgres cold (best-effort)
     try:

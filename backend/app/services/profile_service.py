@@ -43,12 +43,26 @@ def skill_from_preassessment(ratio: float) -> str:
 
 
 def apply_affect(
-    profile: dict[str, Any], affect_state: str | None, cycle_number: int | None, now_ms: int
+    profile: dict[str, Any],
+    affect_state: str | None,
+    cycle_number: int | None,
+    now_ms: int,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Fold the current affect into the profile, returning a NEW dict.
 
     A None/missing affect (empty or errored cycle) leaves affect fields unchanged but still
     stamps `updated_at`, so the profile reflects that the cycle ran.
+
+    `source` names the channel this verdict came from, and exists because the graph runs once
+    per modality per cycle: the behavioural pass and the facial pass BOTH append here under the
+    same `cycle_number`. `affect_history` therefore interleaves two channels, so the last two
+    entries are typically the two modalities disagreeing within one cycle rather than one state
+    persisting across two cycles -- which is what the adaptation gate's consecutive-cycle
+    condition is meant to test. It could effectively never be satisfied.
+
+    `affect_history` is left exactly as it was (it is the research record, and its shape is
+    persisted), and a per-source history is maintained alongside it for the gate to read.
     """
     p = dict(profile)
     history = list(p.get("affect_history") or [])
@@ -57,10 +71,30 @@ def apply_affect(
         p["affect_history"] = history[-_AFFECT_HISTORY_CAP:]
         p["affect_state"] = affect_state
         p["cycle_count"] = int(p.get("cycle_count", 0)) + 1
+        if source:
+            by_source = dict(p.get("affect_history_by_source") or {})
+            per = list(by_source.get(source) or [])
+            per.append(affect_state)
+            by_source[source] = per[-_AFFECT_HISTORY_CAP:]
+            p["affect_history_by_source"] = by_source
     else:
         p["affect_history"] = history
     p["updated_at"] = now_ms
     return p
+
+
+def sustain_history(profile: dict[str, Any], source: str | None) -> list[str]:
+    """The history the adaptation gate should test for persistence.
+
+    Prefers this channel's own history; falls back to the interleaved `affect_history` when the
+    source is unknown or has no entries yet, so a caller that predates per-source tracking (or
+    a profile persisted before it existed) still behaves as it did.
+    """
+    if source:
+        per = (profile.get("affect_history_by_source") or {}).get(source)
+        if per:
+            return list(per)
+    return list(profile.get("affect_history") or [])
 
 
 def _as_uuid(user_id: Any) -> uuid_mod.UUID | None:
