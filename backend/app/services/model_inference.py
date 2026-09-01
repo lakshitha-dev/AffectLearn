@@ -79,7 +79,7 @@ def class_labels(kind: str | None = None) -> tuple[str, ...]:
 
 # ONNX export used input name "clip", output name "logits" (1, T, 3, 96, 96) -> (1, 4)
 _ONNX_INPUT = "clip"
-_DEFAULT_MODEL_PATH = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_best.onnx")
+_DEFAULT_MODEL_PATH = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_confusion_anycut.onnx")
 
 
 def decode_frames(frames_b64: str, frames_captured: int) -> np.ndarray | None:
