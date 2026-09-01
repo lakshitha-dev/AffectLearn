@@ -59,12 +59,47 @@ def behavioral_report() -> dict[str, Any]:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
+def _kind_artifact_mismatch(rep: dict[str, Any]) -> str | None:
+    """Compare the configured adapter kind against the artifact's actual output width.
+
+    This is the failure the module docstring warns about, and until now it was only
+    *reported* -- both values were printed and a human had to notice they disagreed.
+    A `binary_confusion` adapter reads two logits; the 4-level engagement export emits
+    four. Pointing the kind at the wrong artifact yields confident nonsense with every
+    probability sitting near 0.5, which looks like a working model producing weak
+    predictions rather than like a misconfiguration.
+
+    Returns a human-readable description, or None when kind and width agree.
+    """
+    kind = rep.get("kind")
+    outputs = rep.get("outputs") or []
+    if not kind or not outputs:
+        return None
+
+    width = None
+    for o in outputs:
+        shape = o.get("shape") or []
+        if shape and isinstance(shape[-1], int):
+            width = shape[-1]
+            break
+    if width is None:
+        return None
+
+    expected = {"binary_confusion": 2, "engagement": 4, "category": 4}.get(kind)
+    if expected is None or width == expected:
+        return None
+    return (
+        f"AFFECT_MODEL_KIND={kind} expects {expected} output logits but the artifact at "
+        f"AFFECT_MODEL_PATH emits {width}. Predictions from this pairing are meaningless."
+    )
+
+
 def facial_report() -> dict[str, Any]:
     """Resolved facial artifact: path, presence, adapter kind, ONNX IO."""
     try:
         from app.agents.affect_mapping import _model_kind
 
-        path = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_best.onnx")
+        path = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_confusion_anycut.onnx")
         rep: dict[str, Any] = {
             "path": path,
             "exists": os.path.exists(path),
@@ -72,6 +107,14 @@ def facial_report() -> dict[str, Any]:
         }
         if rep["exists"]:
             rep.update(_onnx_io(path))
+            rep["mismatch"] = _kind_artifact_mismatch(rep)
+            if rep["mismatch"]:
+                logger.error(
+                    "facial_model_kind_artifact_mismatch",
+                    kind=rep["kind"],
+                    path=path,
+                    detail=rep["mismatch"],
+                )
         return rep
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
