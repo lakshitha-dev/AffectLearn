@@ -207,10 +207,13 @@ async def _run_facial(state: AgentState, mode: str) -> dict[str, Any]:
 async def _run_behavioral(state: AgentState, mode: str) -> dict[str, Any]:
     """Behavioral branch (Story 4.4b): Bi-LSTM -> 4-category affect (native classes).
 
-    Inference runs off the event loop (CPU-bound ONNX). An idle window classifies the
-    all-zeros feature window (a valid low-activity input), so a normal behavioral cycle
-    always produces an `affect_state`. Inference errors are NOT swallowed here — the WS
-    handler boundary maps them to a skipped cycle (NFR22).
+    Inference runs off the event loop (CPU-bound ONNX). An idle window — no mouse, keys or
+    scroll at all — runs through the model but does NOT produce an `affect_state`: see
+    `predict_from_window` for why "engaged, 99%" on an empty window is an artefact of the
+    training corpus rather than a reading of the learner. Such a cycle is logged with its
+    features intact and routed as `no_affect`, mirroring how the facial branch suppresses a
+    cycle in which too few frames contained a face. Inference errors are NOT swallowed
+    here — the WS handler boundary maps them to a skipped cycle (NFR22).
     """
     payload: dict[str, Any] = state.get("behavioral_payload") or {}
     events = payload.get("events") or []
@@ -219,6 +222,22 @@ async def _run_behavioral(state: AgentState, mode: str) -> dict[str, Any]:
 
     if result is None:  # forward-compat: only a structurally unusable window
         return {"detection_mode": mode, "empty_cycle": True}
+
+    if result.get("idle_window"):
+        logger.info(
+            "affect_suppressed_idle_window",
+            learner_id=state.get("learner_id"),
+            cycle=state.get("cycle_number"),
+            modality="behavioral",
+            would_have_been=result.get("label"),
+            would_have_been_confidence=round(float(result.get("confidence", 0.0)), 4),
+        )
+        return {
+            "detection_mode": mode,
+            "empty_cycle": True,
+            # Retained so the window still lands in the research record.
+            "behavioral_inference": result,
+        }
 
     update: dict[str, Any] = {
         "affect_state": result["label"],  # Bi-LSTM emits the 4 categories natively

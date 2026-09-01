@@ -324,6 +324,26 @@ def extract_window_features(
     }
 
 
+# `visibility` rows are excluded deliberately. They are not interaction: a learner who has
+# walked away still emits visibility state, and counting it as activity is what let an empty
+# window be reported as engaged. Events outside the window are already clamped away by the
+# adapter. Preferred over testing the feature array, because a single mouse sample produces
+# zero velocity and zero entropy (both need two points) and so read as idle.
+_NON_INTERACTION_TYPES = ("visibility",)
+
+
+def _is_idle(df) -> bool:
+    """True when no mouse, click, key or scroll event landed inside the window."""
+    try:
+        if df.empty:
+            return True
+        return not bool((~df["type"].isin(_NON_INTERACTION_TYPES)).any())
+    except (AttributeError, KeyError, TypeError):
+        # Not a DataFrame, or no `type` column. Fail open: a suppression check must never
+        # silence a cycle because its input surprised it.
+        return False
+
+
 def predict_from_window(
     events: list[dict[str, Any]],
     capture_started_at_wall: int,
@@ -331,9 +351,17 @@ def predict_from_window(
 ) -> dict[str, Any] | None:
     """End-to-end: adapt events -> extract (n_bins, N_FEATURES) -> normalize -> infer.
 
-    An idle window (no events) yields an all-zeros feature window which the model still
-    classifies (a valid low-activity input) — this does NOT return None. None is reserved
-    for a structurally unusable window (none currently arise; kept for forward-compat).
+    An idle window (no events) yields an all-zeros feature window. The model still runs on
+    it — the features are persisted either way, so Phase A keeps the record — but the result
+    is stamped `idle_window`, because a classification of an empty window is not an
+    observation of a learner. DUX never populates `emotion_manual_Neutral`, so the negative
+    class absorbed all calm AND all unannotated time; an all-zeros window therefore looks
+    maximally not-confused and the model returns "engaged" with high confidence. Reporting
+    that as engagement would record a learner who walked away as engaged. The caller drops
+    the affect and logs the cycle instead.
+
+    Still does NOT return None. None is reserved for a structurally unusable window (none
+    currently arise; kept for forward-compat).
     """
     df = _events_to_dataframe(events or [], capture_started_at_wall)
     features = extract_features(df, window_start=0, window_length_ms=WINDOW_LENGTH_MS)
@@ -347,4 +375,8 @@ def predict_from_window(
     result["features"] = features.round(6).tolist()   # (n_bins, N_FEATURES)
     # Stamped so a training set can never silently mix windows from two feature schemas.
     result["feature_schema_version"] = FEATURE_SCHEMA_VERSION
+    # No interaction at all in the window. Kept as a flag rather than a None return so the
+    # feature record still reaches Phase A; `_run_behavioral` is what declines to call it an
+    # affect observation.
+    result["idle_window"] = _is_idle(df)
     return result
