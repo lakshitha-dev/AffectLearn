@@ -157,10 +157,16 @@ def adaptation_decision(
     """
     if not should_adapt(state):
         return False, GATE_NOT_ELIGIBLE
+    # Per-channel history, not the interleaved one: the graph runs once per modality per cycle,
+    # so the last two entries of `affect_history` are usually the two channels disagreeing
+    # inside a single cycle rather than one state holding across two -- which made the
+    # consecutive-cycle condition effectively unsatisfiable. See profile_service.apply_affect.
+    from app.services.profile_service import sustain_history
+
     return passes_adaptation_gate(
         state.get("affect_state"),
         state.get("affect_confidence"),
-        (profile or {}).get("affect_history"),
+        sustain_history(profile or {}, state.get("affect_source")),
         state.get("cycle_number"),
         last_adaptation_cycle,
     )
