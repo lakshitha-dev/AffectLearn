@@ -28,7 +28,15 @@ from __future__ import annotations
 
 import os
 
-from app.agents.state import AgentState
+import structlog
+
+from app.agents.state import (
+    AFFECT_SOURCE_BEHAVIORAL,
+    AFFECT_SOURCE_CATEGORY,
+    AFFECT_SOURCE_ENGAGEMENT,
+    AFFECT_SOURCE_FUSION,
+    AgentState,
+)
 
 # Conditional-edge route keys (graph node names).
 ROUTE_LOG_ONLY = "log_only"
@@ -91,6 +99,8 @@ ADAPT_STATES: tuple[str, ...] = tuple(
 )
 
 # `gate_reason` values — stable strings, safe to aggregate over in analysis.
+logger = structlog.get_logger(__name__)
+
 GATE_OK = "ok"
 GATE_NOT_ELIGIBLE = "not_eligible"
 GATE_NO_AFFECT = "no_affect"
@@ -98,6 +108,8 @@ GATE_STATE_NOT_ACTIONABLE = "state_not_actionable"
 GATE_LOW_CONFIDENCE = "low_confidence"
 GATE_NOT_SUSTAINED = "not_sustained"
 GATE_COOLDOWN = "cooldown"
+# The channel is inferred and logged, but is not authorised to intervene alone.
+GATE_CHANNEL_ADVISORY = "channel_advisory"
 
 
 def should_adapt(state: AgentState) -> bool:
@@ -109,12 +121,76 @@ def should_adapt(state: AgentState) -> bool:
     return state.get("phase") == "phase_b" and state.get("group") == "adaptive"
 
 
+# ── which channels may DRIVE an intervention ──────────────────────────────────────────
+# The gate thresholds a model's SELF-REPORTED confidence in the moment. That is not the same
+# question as whether the channel is any good, and on this platform the two diverge sharply:
+# the behavioural channel reaches AUC 0.7408-0.7473 with a bootstrap interval excluding chance
+# and a within-participant permutation p of 0.0005, while the facial channel is indistinguishable
+# from chance on the only corpus where both are recorded against one human label (AUC 0.5064,
+# p = 0.108) and in production emits P(confused) inside a 0.127-wide band centred on 0.502.
+#
+# Because each modality arrives on its own WebSocket message, each runs the whole graph and each
+# gets its own gate evaluation, so BOTH channels are independently decisive. A fixed threshold
+# against a distribution centred on the threshold fires on roughly half of all cycles whatever
+# signal is carried, which means the weaker channel triggers MORE interventions than the stronger
+# one. `AFFECT_DETECTION_MODE=behavioral_only` does not prevent this -- it only skips fusion
+# pairing, leaving both channels deciding alone.
+#
+# So intervention authority is granted by measured reliability rather than momentary confidence.
+# A non-decisive channel is still inferred, still logged, and still available for fusion research
+# and for corroboration; it simply cannot interrupt a learner on its own. Set to an empty string
+# to let every channel decide, which restores the previous behaviour exactly.
+DECISIVE_AFFECT_SOURCES: tuple[str, ...] = tuple(
+    s.strip() for s in os.getenv(
+        "DECISIVE_AFFECT_SOURCES",
+        f"{AFFECT_SOURCE_BEHAVIORAL},{AFFECT_SOURCE_FUSION}",
+    ).split(",") if s.strip()
+)
+
+
+# The provenance markers that exist. A source outside this set means a channel was added
+# without being classified, which is a configuration gap rather than a runtime condition.
+_KNOWN_AFFECT_SOURCES = frozenset({
+    AFFECT_SOURCE_BEHAVIORAL, AFFECT_SOURCE_FUSION,
+    AFFECT_SOURCE_CATEGORY, AFFECT_SOURCE_ENGAGEMENT,
+})
+
+
+def is_decisive(affect_source: str | None) -> bool:
+    """Whether a reading from this channel may trigger an intervention on its own.
+
+    An allowlist, so anything absent from it is non-decisive -- including a channel added later
+    and never classified. That is the safe direction for an intervention (the cost of a missed
+    window is another window; the cost of a wrong interruption is a learner interrupted while
+    coping), but it must never be SILENT: a new channel that quietly never intervenes would be
+    indistinguishable, during a pilot, from a system that cannot intervene at all. So an
+    unrecognised source is logged at warning level every time it is evaluated.
+
+    A MISSING source fails open. The gate is called directly by tests and by callers that
+    predate provenance, and those must behave exactly as they did.
+    """
+    if not DECISIVE_AFFECT_SOURCES:
+        return True
+    if not affect_source:
+        return True
+    if affect_source not in _KNOWN_AFFECT_SOURCES:
+        logger.warning(
+            "affect_source_unclassified",
+            affect_source=affect_source,
+            decisive_sources=list(DECISIVE_AFFECT_SOURCES),
+            consequence="treated as advisory; it will never trigger an adaptation",
+        )
+        return False
+    return affect_source in DECISIVE_AFFECT_SOURCES
+
+
 def passes_adaptation_gate(
     affect_state: str | None,
     affect_confidence: float | None,
     affect_history: list | None,
     cycle_number: int | None,
     last_adaptation_cycle: int | None,
+    affect_source: str | None = None,
 ) -> tuple[bool, str]:
     """Pure gate. Returns `(allowed, reason)`; `reason` is one of the `GATE_*` constants.
 
@@ -139,6 +215,17 @@ def passes_adaptation_gate(
     if last_adaptation_cycle is not None and cycle_number is not None:
         if int(cycle_number) - int(last_adaptation_cycle) < ADAPT_COOLDOWN_CYCLES:
             return False, GATE_COOLDOWN
+
+    # Evaluated LAST, deliberately. Checking authority earlier would mask the binding
+    # constraint: every withheld advisory cycle would read `channel_advisory` whether the
+    # reading was sustained and confident or nowhere near it. Placed here, the reason names
+    # what actually stopped the cycle, and `channel_advisory` appears ONLY when the channel
+    # would otherwise have intervened -- which makes the count of those cycles a direct
+    # measurement of what the advisory channel would have done, and therefore evidence for or
+    # against promoting it later. The same reason the idle-window suppression records
+    # `would_have_been` rather than discarding it.
+    if not is_decisive(affect_source):
+        return False, GATE_CHANNEL_ADVISORY
 
     return True, GATE_OK
 
@@ -169,6 +256,7 @@ def adaptation_decision(
         sustain_history(profile or {}, state.get("affect_source")),
         state.get("cycle_number"),
         last_adaptation_cycle,
+        state.get("affect_source"),
     )
 
 
