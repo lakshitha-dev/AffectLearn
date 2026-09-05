@@ -41,8 +41,10 @@ router = APIRouter()
 _GRAPH_TOPOLOGY: dict = {
     "nodes": [
         {"id": "affect_detection", "label": "Affect Detection", "kind": "active",
-         "desc": "Facial CNN-LSTM (binary confusion) / behavioural GBDT → confused vs engaged. "
-                 "Fusion of the two runs in the WS handler BEFORE the graph, not as a node here"},
+         "desc": "Facial geometry GBDT → engaged vs disengaged (bored) / behavioural GBDT → "
+                 "engaged vs confused. The two channels are COMPLEMENTARY, not fused: each is "
+                 "authoritative for the one state it can observe. Fusion still runs in the WS "
+                 "handler before the graph, but does not drive the decision"},
         {"id": "learner_profiler", "label": "Learner Profiler", "kind": "active",
          "desc": "Fold affect into profile (Redis hot + Postgres cold)"},
         {"id": "log_only", "label": "Log Only", "kind": "active",

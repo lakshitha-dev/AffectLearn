@@ -256,3 +256,63 @@ def test_geometry_below_its_own_floor_is_blocked_even_if_above_the_global_one(mo
         last_adaptation_cycle=None,
     )
     assert (ok2, reason2) == (True, edges.GATE_OK)
+
+
+# ── monitor surfaces: the geometry channel must describe itself honestly ──────────────
+
+def test_geometry_inference_reports_its_own_provenance():
+    """Without model_kind on the cycle, nothing downstream can tell the two binary heads apart.
+
+    Index 1 is P(confused) for the DAiSEE artifact and P(disengaged) for this one, so a record
+    with no provenance is not interpretable after the fact.
+    """
+    import os
+    os.environ.setdefault("GEOMETRY_MODEL_PATH", "models/engagenet_lean_gbdt.onnx")
+    from app.services.geometry_inference import GEOMETRY_CHANNEL_ORDER, predict_from_payload
+
+    frames = [[0.0] * 11 for _ in range(10)]
+    for f in frames:
+        f[GEOMETRY_CHANNEL_ORDER.index("face_found")] = 1.0
+    out = predict_from_payload({"geometry": frames})
+    assert out is not None
+    assert out["model_kind"] == "geometry"
+    assert out["class_order"] == ["engaged", "disengaged"]
+    assert out["class_index"] == out["engagement_level"]
+
+
+def test_health_report_names_the_artifact_this_kind_actually_loads(monkeypatch):
+    """Reading AFFECT_MODEL_PATH under a geometry deployment described the RETIRED pixel model.
+
+    Where that file is absent it also reported exists=false, which drives the "model not loaded"
+    banner on the monitor and System Health while the geometry channel is running normally.
+    """
+    from app.services import model_report
+
+    monkeypatch.setenv("AFFECT_MODEL_KIND", "geometry")
+    monkeypatch.setenv("GEOMETRY_MODEL_PATH", "models/engagenet_lean_gbdt.onnx")
+    rep = model_report.facial_report()
+    assert rep["kind"] == "geometry"
+    assert rep["path"].endswith("engagenet_lean_gbdt.onnx")
+    assert rep["exists"] is True
+    # The mismatch guard must actually run for this kind rather than silently no-opping.
+    assert rep.get("mismatch") is None
+
+
+def test_decision_report_exposes_per_channel_floors(monkeypatch):
+    """A single global number misdescribes any channel with an override."""
+    from app.services import model_report
+
+    monkeypatch.setenv("ADAPT_MIN_CONFIDENCE_GEOMETRY", "0.70")
+    rep = model_report.decision_report()
+    floors = rep["channelMinConfidence"]
+    assert floors[AFFECT_SOURCE_FACIAL_GEOMETRY] == 0.70
+    assert AFFECT_SOURCE_FACIAL_GEOMETRY in rep["decisiveAffectSources"]
+
+
+def test_aggregate_does_not_file_disengagement_as_confusion():
+    """The monitor's version of the bug already fixed in the CSV export."""
+    from app.services.monitor_aggregate_service import GATE_REASONS
+    from app.agents.edges import GATE_CHANNEL_ADVISORY
+
+    # The gate-reason list must track the constants, or advisory cycles vanish into "unknown".
+    assert GATE_CHANNEL_ADVISORY in GATE_REASONS

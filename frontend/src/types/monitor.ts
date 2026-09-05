@@ -84,6 +84,16 @@ export interface ModelReport {
 export interface DecisionReport {
   adaptStates?: string[];
   adaptMinConfidence?: number;
+  /**
+   * Per-channel confidence floors, keyed by affect_source.
+   *
+   * `adaptMinConfidence` is the global default and misdescribes any channel with an override —
+   * the geometry channel gates at 0.70 while the global sits at 0.50 — so the header and the
+   * System Health tile were both reporting a threshold that channel never uses.
+   */
+  channelMinConfidence?: Record<string, number>;
+  /** Which channels may trigger an intervention alone. Returned by the API but never rendered. */
+  decisiveAffectSources?: string[];
   adaptMinConsecutive?: number;
   adaptCooldownCycles?: number;
   fusionDrivesDecision?: boolean;
