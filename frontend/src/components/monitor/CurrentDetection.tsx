@@ -92,6 +92,7 @@ export function CurrentDetection({
   stale,
   lastCycleAgeMs,
   timeInStateMs,
+  fusionDrives,
 }: {
   facial: Record<string, unknown> | null;
   behavioral: Record<string, unknown> | null;
@@ -102,9 +103,32 @@ export function CurrentDetection({
   lastCycleAgeMs?: number | null;
   /** How long the current state has held, derived from the session history. */
   timeInStateMs?: number | null;
+  /**
+   * Whether fusion drives the adaptation decision (`FUSION_DRIVES_DECISION`). When it does not,
+   * the fused vector is recorded but never acted on, so presenting it as the headline reading
+   * describes something the system did not do.
+   */
+  fusionDrives?: boolean;
 }) {
-  // Fusion is the combined reading when both channels paired; otherwise whichever reported.
-  const primary = fusion ?? facial ?? behavioral;
+  // WHICH READING IS THE HEADLINE.
+  //
+  // Not simply "fusion if present". Fusion is recorded on every paired cycle, but it only DRIVES
+  // the decision when FUSION_DRIVES_DECISION is on -- and it is off wherever the geometry channel
+  // is deployed, because averaging two disjoint constructs halves both below the floor. Leading
+  // with the fused number while the gate ruled on a channel produced a page that contradicted
+  // itself: "engaged 69%, clears its gate" above "Withheld - low_confidence" for the same cycle.
+  //
+  // So when fusion is not decisive the headline is the channel the gate actually acts on: the one
+  // reporting an ACTIONABLE state, since that is the only kind that can trigger. With neither
+  // actionable the reading is a negative class either way and the channel hardly matters.
+  const actionableChannel =
+    [facial, behavioral].find((c) => {
+      const st = c?.affect_state as string | undefined;
+      return st ? ACTIONABLE.has(st) : false;
+    }) ?? null;
+  const primary = fusionDrives
+    ? (fusion ?? facial ?? behavioral)
+    : (actionableChannel ?? facial ?? behavioral);
   const state = (primary?.affect_state as string) ?? null;
   const confidence = num(primary?.affect_confidence);
   const source = (primary?.affect_source as string) ?? null;
@@ -165,7 +189,12 @@ export function CurrentDetection({
 
       <p className="text-[11px] text-muted-foreground">
         from <span className="font-mono">{source ?? "unknown channel"}</span>
-        {fusion ? " · fused reading (both channels paired this cycle)" : null}
+        {fusion && fusionDrives ? " · fused reading (both channels paired this cycle)" : null}
+        {fusion && !fusionDrives ? (
+          <span className="ml-1">
+            · a fused reading was also recorded this cycle but does not drive the decision
+          </span>
+        ) : null}
       </p>
 
       {/* ── the two channels, side by side ── */}

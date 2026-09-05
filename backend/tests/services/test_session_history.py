@@ -31,10 +31,33 @@ def det(state, conf=0.9, source="facial_geometry"):
 
 # ── which channel a cycle's state comes from ──────────────────────────────────────────
 
-def test_fusion_wins_when_present():
-    """The fused reading is the combined one, so it outranks either channel alone."""
+def test_fusion_wins_when_it_actually_drives_the_decision(monkeypatch):
+    """With FUSION_DRIVES_DECISION on, the fused reading is the one the gate ruled on."""
+    monkeypatch.setenv("FUSION_DRIVES_DECISION", "1")
     c = cyc(1, 0, facial=det("bored"), behavioural=det("confused"), fused=det("confused", 0.7, "fusion"))
     assert _cycle_state(c) == ("confused", 0.7, "fusion")
+
+
+def test_fusion_is_ignored_when_it_does_not_drive_the_decision(monkeypatch):
+    """The bug this guards: a page contradicting itself about one cycle.
+
+    With fusion off -- as it is wherever the geometry channel is deployed -- the fused vector is
+    still recorded but never acted on. Reporting it as the resolved state attributed every row to
+    `fusion` at a confidence the gate never saw, so the timeline said "engaged 69%, clears its gate"
+    directly above "Withheld - low_confidence" for the same cycle. The resolved state must be the
+    channel the gate ruled on.
+    """
+    monkeypatch.setenv("FUSION_DRIVES_DECISION", "0")
+    c = cyc(1, 0, facial=det("bored", 0.79), behavioural=det("engaged", 0.6, "behavioral_model"),
+            fused=det("engaged", 0.69, "fusion"))
+    assert _cycle_state(c) == ("bored", 0.79, "facial_geometry")
+
+
+def test_with_fusion_off_and_nothing_actionable_a_channel_still_reports(monkeypatch):
+    """Both channels on their negative class: either will do, but it must not be `fusion`."""
+    monkeypatch.setenv("FUSION_DRIVES_DECISION", "0")
+    c = cyc(1, 0, facial=det("engaged", 0.8), fused=det("engaged", 0.7, "fusion"))
+    assert _cycle_state(c) == ("engaged", 0.8, "facial_geometry")
 
 
 def test_falls_back_to_a_single_channel():
