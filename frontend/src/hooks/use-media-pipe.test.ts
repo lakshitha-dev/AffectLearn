@@ -2,34 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => {
-  const loadFaceDetectorSpy = vi.fn();
-  const cropAndNormalizeSpy = vi.fn();
-  const framesToBase64Spy = vi.fn();
+  const loadFaceDetectorSpy = vi.fn();   // named for continuity; now loads the LANDMARKER
   const detectorCloseSpy = vi.fn();
   const detectForVideoSpy = vi.fn();
 
-  return {
-    loadFaceDetectorSpy,
-    cropAndNormalizeSpy,
-    framesToBase64Spy,
-    detectorCloseSpy,
-    detectForVideoSpy,
-  };
+  return { loadFaceDetectorSpy, detectorCloseSpy, detectForVideoSpy };
 });
 
 vi.mock("@/lib/mediapipe-loader", () => ({
-  loadFaceDetector: mocks.loadFaceDetectorSpy,
+  loadFaceLandmarker: mocks.loadFaceDetectorSpy,
 }));
-
-vi.mock("@/lib/preprocess", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/lib/preprocess")>("@/lib/preprocess");
-  return {
-    ...actual,
-    cropAndNormalize: mocks.cropAndNormalizeSpy,
-    framesToBase64: mocks.framesToBase64Spy,
-  };
-});
 
 import { useMediaPipe } from "./use-media-pipe";
 import { useWebcamStore } from "@/stores/webcam-store";
@@ -77,24 +59,30 @@ function makeStream(): MockStream {
   };
 }
 
+/**
+ * A FaceLandmarker stand-in. `withBbox` is kept as the parameter name so the existing call sites
+ * read unchanged, but it now means "was a face found": true yields 478 landmarks plus a pose
+ * matrix, false yields none, which is the faceless-frame path.
+ */
 function makeDetector(score: number, withBbox = true) {
+  const landmarks = Array.from({ length: 478 }, (_, i) => ({
+    x: 0.4 + (i % 17) * 0.002,
+    y: 0.4 + (i % 13) * 0.003,
+    z: 0.01 * ((i % 7) - 3),
+  }));
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  // FaceLandmarker applies its confidence threshold INTERNALLY (minFaceDetectionConfidence,
+  // default 0.5) and does not surface a per-detection score for the caller to filter on. So a
+  // low-confidence face is modelled the way the runtime actually delivers it: as no face at all,
+  // rather than as a detection this hook then discards.
+  const found = withBbox && score >= 0.5;
   return {
     close: mocks.detectorCloseSpy,
-    detectForVideo: mocks.detectForVideoSpy.mockReturnValue({
-      detections: withBbox
-        ? [
-            {
-              categories: [{ score }],
-              boundingBox: {
-                originX: 10,
-                originY: 10,
-                width: 100,
-                height: 100,
-              },
-            },
-          ]
-        : [],
-    }),
+    detectForVideo: mocks.detectForVideoSpy.mockReturnValue(
+      found
+        ? { faceLandmarks: [landmarks], facialTransformationMatrixes: [{ data: identity }] }
+        : { faceLandmarks: [], facialTransformationMatrixes: [] },
+    ),
   };
 }
 
@@ -110,15 +98,11 @@ describe("useMediaPipe", () => {
     vi.useFakeTimers();
 
     mocks.loadFaceDetectorSpy.mockReset();
-    mocks.cropAndNormalizeSpy.mockReset();
-    mocks.framesToBase64Spy.mockReset();
     mocks.detectorCloseSpy.mockReset();
     mocks.detectForVideoSpy.mockReset();
 
     // Default: a usable face, a usable detector.
     mocks.loadFaceDetectorSpy.mockResolvedValue(makeDetector(0.9));
-    mocks.cropAndNormalizeSpy.mockReturnValue(new Float32Array(27648));
-    mocks.framesToBase64Spy.mockReturnValue("BASE64_FRAMES");
 
     stream = makeStream();
     getUserMediaMock = vi.fn().mockResolvedValue(stream);
@@ -209,7 +193,7 @@ describe("useMediaPipe", () => {
     });
 
     expect(mocks.detectForVideoSpy).toHaveBeenCalled();
-    expect(mocks.cropAndNormalizeSpy).toHaveBeenCalled();
+    expect(mocks.detectForVideoSpy).toHaveBeenCalled();
   });
 
   it("drops a frame with score < 0.5 as low_confidence (no crop, no push)", async () => {
@@ -227,7 +211,7 @@ describe("useMediaPipe", () => {
     });
 
     expect(mocks.detectForVideoSpy).toHaveBeenCalled();
-    expect(mocks.cropAndNormalizeSpy).not.toHaveBeenCalled();
+    expect(mocks.detectForVideoSpy).toHaveBeenCalled();
   });
 
   it("drops a frame with no detection as no_face", async () => {
@@ -243,12 +227,12 @@ describe("useMediaPipe", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    expect(mocks.cropAndNormalizeSpy).not.toHaveBeenCalled();
+    expect(mocks.detectForVideoSpy).toHaveBeenCalled();
   });
 
   // -- AC #5: cycle send ----
 
-  it("at cycle boundary, sends a facial_features message with the captured frames", async () => {
+  it("at cycle boundary, sends a facial_features message with the captured geometry", async () => {
     useWebcamStore.setState({ mode: "adaptive" });
 
     renderHook(() => useMediaPipe({ send, captureMs: 100, cycleMs: 500 }));
@@ -268,13 +252,15 @@ describe("useMediaPipe", () => {
     expect(msg.data.frames_captured).toBeGreaterThanOrEqual(4);
     expect(msg.data.dropped_frames).toBe(0);
     expect(msg.data.contract_version).toBe(1);
-    expect(msg.data.crop_size).toBe(96);
-    expect(msg.data.channel_order).toBe("RGB");
-    expect(msg.data.dtype).toBe("float32");
-    expect(msg.data.frames_b64).toBe("BASE64_FRAMES");
+    expect(msg.data.geometry_contract_version).toBe(1);
+    expect(msg.data.channel_order).toContain("gaze_x");
+    expect(msg.data.frames_per_cycle).toBe(10);
+    expect(Array.isArray(msg.data.geometry)).toBe(true);
+    expect(msg.data.geometry.length).toBeGreaterThan(0);
+    expect(msg.data.geometry[0]).toHaveLength(11);
   });
 
-  it("sends frames_b64: '' when no frames were captured (entire cycle dropped)", async () => {
+  it("sends an empty geometry array when nothing was captured", async () => {
     mocks.loadFaceDetectorSpy.mockResolvedValueOnce(makeDetector(0.0, false));
     useWebcamStore.setState({ mode: "adaptive" });
 
@@ -289,8 +275,12 @@ describe("useMediaPipe", () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     const msg = send.mock.calls[0][0];
-    expect(msg.data.frames_captured).toBe(0);
-    expect(msg.data.frames_b64).toBe("");
+    // A faceless frame still yields a geometry ROW (all-NaN plus face_found = 0) rather than
+    // nothing, so the server can tell "learner absent for the whole cycle" from "no cycle ran".
+    // What must be zero is faces seen, and face_absent is what suppresses inference.
+    expect(msg.data.frames_with_face).toBe(0);
+    expect(msg.data.face_absent).toBe(true);
+    expect(msg.data.geometry.every((r: (number | null)[]) => r[10] === 0)).toBe(true);
     expect(msg.data.dropped_frames).toBeGreaterThan(0);
   });
 
@@ -448,7 +438,7 @@ describe("useMediaPipe", () => {
 
   // -- WS payload shape ----
 
-  it("WS payload contains base64 frames and snake_case fields per protocol", async () => {
+  it("WS payload contains geometry rows and snake_case fields per protocol", async () => {
     useWebcamStore.setState({ mode: "adaptive" });
 
     renderHook(() => useMediaPipe({ send, captureMs: 100, cycleMs: 300 }));
@@ -469,14 +459,14 @@ describe("useMediaPipe", () => {
         "frames_captured",
         "dropped_frames",
         "dropped_reasons",
-        "frames_b64",
+        "geometry",
         "contract_version",
-        "crop_size",
+        "geometry_contract_version",
         "channel_order",
-        "dtype",
+        "frames_per_cycle",
       ]),
     );
-    expect(typeof msg.data.frames_b64).toBe("string");
+    expect(Array.isArray(msg.data.geometry)).toBe(true);
   });
 
   /**

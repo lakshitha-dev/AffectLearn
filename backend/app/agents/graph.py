@@ -59,6 +59,8 @@ _TRACE_OUTPUT_KEYS: tuple[str, ...] = (
     # engagement keys were present, so node traces carried the superseded model's output and not
     # the deployed one's.
     "p_confused",
+    # Same role for the geometry channel: the probability its gate thresholds.
+    "p_disengaged",
     # Fusion provenance: which modalities were combined and with what weights. Collected in
     # `affect_detection` and previously never leaving the backend at all.
     "fusion_applied",

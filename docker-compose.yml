@@ -27,13 +27,27 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=dev-secret-change-in-production
       - VLLM_ENDPOINT=http://vllm:8080
-      # Affect models (defaults resolve to /app/models). Facial uses the engagement
-      # stand-in until the 4-category CNN-LSTM is exported (AFFECT_MODEL_KIND=category).
-      - AFFECT_MODEL_PATH=models/cnn_lstm_best.onnx
-      - AFFECT_MODEL_KIND=engagement
+      # Affect models (defaults resolve to /app/models).
+      #
+      # Two COMPLEMENTARY channels, each authoritative for the one state it can observe:
+      #   facial geometry -> bored      AUC 0.9225 on EngageNet, 26 held-out participants
+      #   behavioural     -> confused   AUC 0.7473 on DUX, 46 sessions
+      # They are not fused. The two detect DIFFERENT constructs, no corpus contains both, and on
+      # the one paired dataset that exists fusion cost 0.012 AUC against behaviour alone. Worse,
+      # weighted-averaging two disjoint votes halves each below ADAPT_MIN_CONFIDENCE -- the
+      # documented zero-intervention failure -- so the decision is taken per channel instead.
+      - AFFECT_MODEL_KIND=geometry
+      - GEOMETRY_MODEL_PATH=models/engagenet_lean_gbdt.onnx
       - BEHAVIORAL_MODEL_PATH=models/behavioral_bilstm.onnx
       - BEHAVIORAL_STATS_PATH=models/behavioral_feature_stats.json
       - AFFECT_DETECTION_MODE=auto
+      - FUSION_DRIVES_DECISION=false
+      # `frustrated` is dropped: no model detects it, and listing it implies a capability that
+      # does not exist. `bored` is included because it is reachable for the first time -- every
+      # previous artifact pinned it at 0.0 in the canonical vector.
+      - ADAPT_STATES=bored,confused
+      # Retained so a rollback to the pixel path needs only AFFECT_MODEL_KIND changed back.
+      - AFFECT_MODEL_PATH=models/cnn_lstm_confusion_anycut.onnx
       - ENVIRONMENT=development
       - SEED_ON_STARTUP=true
       - EXPOSE_DEV_CREDENTIALS=true

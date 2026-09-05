@@ -31,15 +31,15 @@ import { useEffect, useRef } from "react";
 
 import { useConnectionStore } from "@/stores/connection-store";
 import { useWebcamStore } from "@/stores/webcam-store";
-import { loadFaceDetector } from "@/lib/mediapipe-loader";
+import { loadFaceLandmarker } from "@/lib/mediapipe-loader";
+import { PREPROCESS_CONTRACT } from "@/lib/preprocess";
 import {
-  centerCropAndNormalize,
-  cropAndNormalize,
-  largestBox,
-  framesToBase64,
-  PREPROCESS_CONTRACT,
-  type BoundingBox,
-} from "@/lib/preprocess";
+  GEOMETRY_CONTRACT,
+  frameGeometry,
+  geometryToWire,
+  toRowMajor,
+  type Landmark,
+} from "@/lib/geometry";
 import type {
   FacialFeaturesMessage,
   WSMessage,
@@ -133,7 +133,12 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
     let video: HTMLVideoElement | null = null;
     let captureInterval: ReturnType<typeof setInterval> | null = null;
     let cycleInterval: ReturnType<typeof setInterval> | null = null;
-    const frames: Float32Array[] = [];
+    // Geometry rows, one per captured frame, in GEOMETRY_CHANNEL_ORDER. Replaces the pixel
+    // tensor buffer: ~600 bytes per cycle instead of ~4.4 MB, and no image leaves the browser.
+    const geometry: number[][] = [];
+    // Previous frame's landmarks, for the inter-frame motion channel. Cleared on a frame with no
+    // face so motion is never measured across a gap — that would report a jump as fidgeting.
+    let prevLandmarks: Landmark[] | null = null;
     const dropped: DroppedReasons = { no_face: 0, low_confidence: 0 };
     // Frames in the current cycle that contained a real detected face.
     //
@@ -149,7 +154,8 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
     if (IS_DEV) debugRef.current = makeEmptyMetrics();
 
     function resetCycle() {
-      frames.length = 0;
+      geometry.length = 0;
+      prevLandmarks = null;
       dropped.no_face = 0;
       dropped.low_confidence = 0;
       facesSeen = 0;
@@ -193,14 +199,14 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
         return;
       }
 
-      let detector;
+      let landmarker;
       try {
-        detector = await loadFaceDetector();
+        landmarker = await loadFaceLandmarker();
         if (IS_DEV && debugRef.current) {
           debugRef.current.mediaPipeLoadedAt = Date.now();
         }
       } catch (err) {
-        console.warn("[useMediaPipe] face detector load failed", err);
+        console.warn("[useMediaPipe] face landmarker load failed", err);
         useWebcamStore.getState().setMode("error");
         cleanup();
         return;
@@ -214,76 +220,64 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
       resetCycle();
 
       const onCapture = () => {
-        if (!video || !detector) return;
+        if (!video || !landmarker) return;
         if (video.readyState < 2) return; // HAVE_CURRENT_DATA — first frame not ready yet
 
         const tStart = performance.now();
         let result;
         try {
-          result = detector.detectForVideo(video, tStart);
+          result = landmarker.detectForVideo(video, tStart);
         } catch (err) {
           console.warn("[useMediaPipe] detectForVideo threw", err);
           return;
         }
 
-        const detections = result?.detections ?? [];
-        const frameDims = { width: video.videoWidth, height: video.videoHeight };
+        const faces = result?.faceLandmarks ?? [];
+        // numFaces is 1, so there is at most one. Unlike the pixel path there is no
+        // largest-of-several choice to make, and no bystander ambiguity to resolve.
+        const pts = faces.length > 0 ? (faces[0] as Landmark[]) : null;
+        const matrix = result?.facialTransformationMatrixes?.[0];
 
-        // Training selected the LARGEST detection, not the first one returned. With a bystander
-        // in shot, detections[0] could be the wrong face entirely.
-        const usable = detections.filter((d) => {
-          const sc = d?.categories?.[0]?.score ?? 0;
-          return Boolean(d?.boundingBox) && sc >= CONFIDENCE_DROP_THRESHOLD;
-        });
-        const chosen = largestBox(
-          usable.map((d) => d.boundingBox as BoundingBox),
-        );
-
-        // These now count FALLBACKS rather than discarded frames -- the frame is still kept,
-        // as a centre crop. `facesSeen` is the separate, honest count of frames that actually
-        // contained a face, and is what decides whether this cycle describes a learner at all.
-        if (chosen) {
+        if (pts) {
           facesSeen += 1;
-        } else if (detections.length === 0) {
-          dropped.no_face += 1;
         } else {
-          dropped.low_confidence += 1;
+          dropped.no_face += 1;
         }
 
         try {
-          // Training emitted a centre crop for faceless frames rather than dropping them, so
-          // clips contained occasional non-face frames and the LSTM was fitted over that
-          // distribution. Dropping them changed the temporal statistics of every served clip.
-          const tensor = chosen
-            ? cropAndNormalize(video, chosen, frameDims)
-            : centerCropAndNormalize(video, frameDims);
-          // Enforce ring-buffer bound: never exceed expectedFramesPerCycle frames
-          // between cycle resets. Drops the oldest frame (shift) if timers drift.
-          if (frames.length >= PREPROCESS_CONTRACT.expectedFramesPerCycle) {
-            frames.shift();
+          // A frame with no face contributes a row of NaN (plus face_found = 0), NOT zeros.
+          // Zero is a real gaze reading meaning "looking straight ahead", so recording it here
+          // would log attentiveness at exactly the moment the learner looked away.
+          const row = frameGeometry(
+            pts,
+            matrix ? toRowMajor(matrix) : null,
+            prevLandmarks,
+          );
+          if (geometry.length >= GEOMETRY_CONTRACT.framesPerCycle) {
+            geometry.shift();
           }
-          frames.push(tensor);
+          geometry.push(row);
+          prevLandmarks = pts;
         } catch (err) {
-          console.warn("[useMediaPipe] crop failed", err);
+          console.warn("[useMediaPipe] geometry failed", err);
           dropped.low_confidence += 1;
+          prevLandmarks = null;
         }
 
         const elapsed = performance.now() - tStart;
         if (elapsed > FRAME_BUDGET_MS) {
           console.warn(
-            `[useMediaPipe] frame ${elapsed.toFixed(1)}ms > ${FRAME_BUDGET_MS}ms budget (NFR6)`,
+            "[useMediaPipe] frame over budget",
+            Math.round(elapsed),
+            "ms",
           );
         }
-        latencyHistory.push(elapsed);
-        if (latencyHistory.length > PREPROCESS_CONTRACT.expectedFramesPerCycle) {
-          latencyHistory.shift();
-        }
-
         if (IS_DEV && debugRef.current) {
+          latencyHistory.push(elapsed);
           debugRef.current.lastFrameLatencyMs = elapsed;
           debugRef.current.meanFrameLatencyMs =
             latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length;
-          debugRef.current.framesCaptured = frames.length;
+          debugRef.current.framesCaptured = geometry.length;
           debugRef.current.droppedFrames = dropped.no_face + dropped.low_confidence;
           debugRef.current.facesSeen = facesSeen;
         }
@@ -291,7 +285,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
 
       const onCycle = () => {
         const now = Date.now();
-        const framesCaptured = frames.length;
+        const framesCaptured = geometry.length;
         const droppedTotal = dropped.no_face + dropped.low_confidence;
         const faceRatio = framesCaptured === 0 ? 0 : facesSeen / framesCaptured;
         // An empty chair must not yield an affect reading. Below the floor the server skips
@@ -315,11 +309,13 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
             frames_with_face: facesSeen,
             face_ratio: Math.round(faceRatio * 1000) / 1000,
             face_absent: faceAbsent,
-            frames_b64: framesCaptured === 0 ? "" : framesToBase64(frames),
+            // Geometry, not pixels. NaN is not representable in JSON, so a missing reading
+            // travels as null and is decoded back to NaN server-side rather than coerced to 0.
+            geometry: geometryToWire(geometry),
             contract_version: CONTRACT_VERSION,
-            crop_size: PREPROCESS_CONTRACT.cropSize,
-            channel_order: PREPROCESS_CONTRACT.channelOrder,
-            dtype: PREPROCESS_CONTRACT.dtype,
+            geometry_contract_version: GEOMETRY_CONTRACT.version,
+            channel_order: GEOMETRY_CONTRACT.channels,
+            frames_per_cycle: GEOMETRY_CONTRACT.framesPerCycle,
             section_id: sectionIdRef.current,
           },
         };
@@ -379,7 +375,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
       // singleton is shared with CalibrationStep and other lessons; closing it
       // on unmount would force a re-download of WASM/model on every lesson
       // navigation. Use disposeFaceDetector() from tests or page-unload only.
-      frames.length = 0;
+      geometry.length = 0;
       dropped.no_face = 0;
       dropped.low_confidence = 0;
       facesSeen = 0;

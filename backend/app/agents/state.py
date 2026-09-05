@@ -34,6 +34,14 @@ AFFECT_SOURCE_ENGAGEMENT = "engagement_adapter"
 AFFECT_SOURCE_BEHAVIORAL = "behavioral_model"
 AFFECT_SOURCE_FUSION = "fusion"  # late-fused facial + behavioral (Story 4.4c)
 
+# Facial geometry: gaze, mouth openness and landmark motion, aggregated over a window and
+# classified by a gradient-boosted model. Kept SEPARATE from AFFECT_SOURCE_CATEGORY because the
+# two facial artifacts differ in every property the gate cares about — construct (disengagement
+# vs confusion), corpus (EngageNet vs DAiSEE), measured precision at the deployed 0.70 floor
+# (0.872 vs 0.500), and input (11 scalars per frame vs 96x96 pixels). Sharing one marker would
+# make it impossible to grant one channel decisive authority without granting it to both.
+AFFECT_SOURCE_FACIAL_GEOMETRY = "facial_geometry"
+
 
 class AgentState(TypedDict, total=False):
     # Identifiers

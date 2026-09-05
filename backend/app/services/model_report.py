@@ -129,6 +129,7 @@ def decision_report() -> dict[str, Any]:
             ADAPT_MIN_CONSECUTIVE,
             ADAPT_STATES,
         )
+        from app.agents import edges
         from app.agents.fusion import forced_mode
         from app.agents.nodes.affect_detection import fusion_drives_decision
 
@@ -139,6 +140,9 @@ def decision_report() -> dict[str, Any]:
             "adaptCooldownCycles": ADAPT_COOLDOWN_CYCLES,
             "fusionDrivesDecision": fusion_drives_decision(),
             "forcedMode": forced_mode(),
+            # Which channels may trigger an intervention. `forcedMode` does NOT answer
+            # this: it only skips fusion pairing, leaving every channel decisive.
+            "decisiveAffectSources": list(edges.DECISIVE_AFFECT_SOURCES),
         }
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
