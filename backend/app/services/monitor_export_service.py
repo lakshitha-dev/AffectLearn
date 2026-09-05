@@ -45,6 +45,7 @@ COLUMNS: tuple[str, ...] = (
     "affect_state",
     "confidence",
     "p_confused",
+    "p_disengaged",
     "model_kind",
     "gate_reason",
     "forced_mode",
@@ -66,12 +67,27 @@ def _iso(ms: Any) -> str:
 def _row(ev: ResearchEvent) -> list[Any]:
     pl: dict[str, Any] = ev.payload if isinstance(ev.payload, dict) else {}
 
+    # Two binary facial artifacts now write two-element `probs`, and index 1 means a DIFFERENT
+    # thing in each: P(confused) for the DAiSEE model, P(disengaged) for the geometry model. The
+    # old fallback read probs[1] unconditionally, which filed the geometry channel's disengagement
+    # probability under a column headed `p_confused` -- silently mislabelled research data that an
+    # analysis would have no way to notice. Each channel now reports into its own column, and the
+    # softmax fallback is only applied to the channel it actually belongs to.
     p_conf = pl.get("p_confused")
-    if p_conf is None:
-        # Rows written before p_confused was emitted still carry the softmax.
+    p_diseng = pl.get("p_disengaged")
+    if p_conf is None and p_diseng is None:
         probs = pl.get("probs")
         if isinstance(probs, list) and len(probs) == 2:
-            p_conf = probs[1]
+            source = pl.get("affect_source") or ""
+            kind = pl.get("model_kind") or ""
+            if source == "facial_geometry" or kind == "geometry":
+                p_diseng = probs[1]
+            elif pl.get("affect_state") == "bored":
+                # No provenance on the row (pre-dates affect_source) but the state is one only
+                # the geometry channel can produce, so probs[1] is P(disengaged).
+                p_diseng = probs[1]
+            else:
+                p_conf = probs[1]
 
     return [
         ev.timestamp,
@@ -87,6 +103,7 @@ def _row(ev: ResearchEvent) -> list[Any]:
         pl.get("affect_state") or pl.get("label") or "",
         pl.get("affect_confidence", pl.get("confidence", "")),
         p_conf if p_conf is not None else "",
+        p_diseng if p_diseng is not None else "",
         pl.get("model_kind") or "",
         # The gate decision lives on learner_profile_updated as a flat string.
         pl.get("adaptation_gate") or "",

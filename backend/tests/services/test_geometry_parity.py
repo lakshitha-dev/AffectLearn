@@ -120,3 +120,52 @@ def test_empty_window_does_not_crash():
     """Zero rows is a contract violation, not a crash site."""
     with pytest.raises(ValueError):
         build_features([])
+
+
+# ── research export: the two binary channels must not share a column ──────────────────
+
+def test_export_files_each_channel_probability_under_its_own_heading():
+    """probs[1] means P(confused) for one facial artifact and P(disengaged) for the other.
+
+    The export's old fallback read probs[1] unconditionally, so geometry rows were written into a
+    column headed `p_confused`. Nothing downstream could detect that: the value is a plausible
+    probability in a plausible column, and an analysis would simply be wrong.
+    """
+    from app.services.monitor_export_service import COLUMNS, _row
+
+    class Ev:
+        timestamp = 1788617827594
+        session_id = "s"; learner_id = "l"; cycle_number = 1; sequence_number = 3
+        event_type = "facial_affect_detected"; phase = "phase_b"; group = "control"
+        def __init__(self, payload): self.payload = payload
+
+    cols = list(COLUMNS)
+    ic, idg = cols.index("p_confused"), cols.index("p_disengaged")
+
+    # Geometry row carrying only a softmax, as the live rows did.
+    row = _row(Ev({"affect_state": "bored", "probs": [0.055, 0.945], "affect_source": "facial_geometry"}))
+    assert row[idg] == 0.945
+    assert row[ic] == "", "P(disengaged) must not be filed as P(confused)"
+
+    # The confusion artifact keeps the original behaviour.
+    row = _row(Ev({"affect_state": "confused", "probs": [0.2, 0.8], "affect_source": "category_model"}))
+    assert row[ic] == 0.8
+    assert row[idg] == ""
+
+    # A row with no provenance at all: `bored` is producible only by the geometry channel.
+    row = _row(Ev({"affect_state": "bored", "probs": [0.1, 0.9]}))
+    assert row[idg] == 0.9 and row[ic] == ""
+
+
+def test_export_prefers_the_explicit_field_over_the_softmax_fallback():
+    from app.services.monitor_export_service import COLUMNS, _row
+
+    class Ev:
+        timestamp = 1; session_id = "s"; learner_id = "l"
+        cycle_number = 1; sequence_number = 1
+        event_type = "facial_affect_detected"; phase = "phase_b"; group = "adaptive"
+        def __init__(self, payload): self.payload = payload
+
+    cols = list(COLUMNS)
+    row = _row(Ev({"affect_state": "bored", "p_disengaged": 0.87, "probs": [0.4, 0.6]}))
+    assert row[cols.index("p_disengaged")] == 0.87

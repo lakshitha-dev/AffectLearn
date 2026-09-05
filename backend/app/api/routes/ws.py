@@ -250,6 +250,7 @@ async def _handle_facial_features(
             # from `result_state`. Reading `inference` here yields None and the UI silently falls
             # back to the legacy 4-level display.
             p_confused=result_state.get("p_confused"),
+            p_disengaged=result_state.get("p_disengaged"),
             engagement_label=result_state.get("engagement_label"),
         )
     elif error:
