@@ -45,6 +45,15 @@ jobs:
 
       - name: Run pytest
         working-directory: backend
+        env:
+          # `Settings()` is constructed at import time and DATABASE_URL / JWT_SECRET have no
+          # defaults, so collection fails before a single test runs unless they are present.
+          # Locally they come from a gitignored `.env`; a clean runner has neither. These values
+          # are placeholders: the fixtures build their own in-memory SQLite engine
+          # (`tests/conftest.py`) and never connect to DATABASE_URL, and no test verifies a token
+          # signed with a real secret.
+          DATABASE_URL: sqlite+aiosqlite:///:memory:
+          JWT_SECRET: ci-placeholder-not-a-real-secret
         run: python -m pytest tests/ -q
 
   frontend:
