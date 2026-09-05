@@ -13,6 +13,7 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, require_role
@@ -32,6 +33,35 @@ router = APIRouter()
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+async def _course_id_for(db: AsyncSession, assessment_id: uuid.UUID) -> str | None:
+    """The course an assessment belongs to, for the migration-021 `course_id` coordinate.
+
+    Pre/post assessment scores are the learning-gain measure, so they are the events most in
+    need of a course key -- an attempt that cannot be attributed to a course cannot contribute
+    to a per-course outcome. Assessments hang off a MODULE, not a section, so this cannot go
+    through `content_context_service` and takes its own two-hop join.
+
+    Best-effort: returns None on any failure rather than propagating, matching every other
+    research-emission path on this route (NFR22).
+    """
+    try:
+        from app.models.assessment import Assessment
+        from app.models.course import Module
+
+        return str(
+            (
+                await db.execute(
+                    select(Module.course_id)
+                    .join(Assessment, Assessment.module_id == Module.id)
+                    .where(Assessment.id == assessment_id)
+                )
+            ).scalar_one()
+        )
+    except Exception:  # noqa: BLE001 — a missing coordinate must not fail an attempt
+        logger.warning("assessment_course_lookup_failed", assessment_id=str(assessment_id))
+        return None
 
 
 async def _safe_emit(event: dict) -> None:
@@ -124,6 +154,7 @@ async def submit_attempt(
     except Exception:
         logger.exception("research_phase_group_resolution_failed")
         phase = group = None
+    course_id = await _course_id_for(db, assessment_id)
     await _safe_emit({
         "event_type": "exercise_attempted",
         "learner_id": str(current_user.id),
@@ -132,6 +163,8 @@ async def submit_attempt(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        # No section coordinate: an assessment spans a module, not a section.
+        **({"course_id": course_id} if course_id else {}),
         "payload": {
             "assessment_id": str(assessment_id),
             "score": getattr(result, "score", None),
