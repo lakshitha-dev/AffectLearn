@@ -85,12 +85,14 @@ def _kind_artifact_mismatch(rep: dict[str, Any]) -> str | None:
     if width is None:
         return None
 
-    expected = {"binary_confusion": 2, "engagement": 4, "category": 4}.get(kind)
+    # "geometry" emits two probabilities over [engaged, disengaged]. Without an entry here the
+    # guard returned None for it -- silently disabling the one check this module exists to make.
+    expected = {"binary_confusion": 2, "geometry": 2, "engagement": 4, "category": 4}.get(kind)
     if expected is None or width == expected:
         return None
     return (
         f"AFFECT_MODEL_KIND={kind} expects {expected} output logits but the artifact at "
-        f"AFFECT_MODEL_PATH emits {width}. Predictions from this pairing are meaningless."
+        f"its artifact emits {width}. Predictions from this pairing are meaningless."
     )
 
 
@@ -99,11 +101,20 @@ def facial_report() -> dict[str, Any]:
     try:
         from app.agents.affect_mapping import _model_kind
 
-        path = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_confusion_anycut.onnx")
+        kind = _model_kind()
+        # Each facial kind loads its own artifact from its own env var. Reading AFFECT_MODEL_PATH
+        # unconditionally described the RETIRED pixel model on a geometry deployment: the health
+        # report named cnn_lstm_confusion_anycut.onnx, and where that file is absent it reported
+        # exists=false, which drives the "Facial model not loaded" banner on the monitor and on
+        # System Health while the geometry channel is running normally.
+        if kind == "geometry":
+            path = os.getenv("GEOMETRY_MODEL_PATH", "models/engagenet_lean_gbdt.onnx")
+        else:
+            path = os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_confusion_anycut.onnx")
         rep: dict[str, Any] = {
             "path": path,
             "exists": os.path.exists(path),
-            "kind": _model_kind(),
+            "kind": kind,
         }
         if rep["exists"]:
             rep.update(_onnx_io(path))
@@ -133,9 +144,18 @@ def decision_report() -> dict[str, Any]:
         from app.agents.fusion import forced_mode
         from app.agents.nodes.affect_detection import fusion_drives_decision
 
+        # Per-channel floors. A single global value misdescribes every channel with an override:
+        # the geometry channel gates at 0.70 while the global sits at 0.50, so the monitor header
+        # and the System Health tile both reported a threshold that channel never uses.
+        channel_floors = {
+            src: edges.min_confidence_for(src)
+            for src in sorted(set(edges.DECISIVE_AFFECT_SOURCES) | set(edges._CHANNEL_MIN_CONFIDENCE))
+        }
+
         return {
             "adaptStates": list(ADAPT_STATES),
             "adaptMinConfidence": ADAPT_MIN_CONFIDENCE,
+            "channelMinConfidence": channel_floors,
             "adaptMinConsecutive": ADAPT_MIN_CONSECUTIVE,
             "adaptCooldownCycles": ADAPT_COOLDOWN_CYCLES,
             "fusionDrivesDecision": fusion_drives_decision(),

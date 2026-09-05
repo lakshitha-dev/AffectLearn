@@ -107,9 +107,15 @@ async def test_empty_window_is_zeroes_not_an_error(client, admin_headers):
     # No division by zero when nothing was delivered.
     assert body["interventions"]["fallbackRate"] is None
     # Every known reason still present as a zero, so the chart has a stable set of bars.
-    assert set(body["gateReasons"]) == {
-        "state_not_actionable", "low_confidence", "not_sustained", "cooldown",
-    }
+    #
+    # Asserted against the GATE_* constants rather than a literal set: this list drifted once
+    # already. `channel_advisory` was added to edges.py when channel authority was introduced and
+    # not mirrored here, so every cycle withheld for that reason fell into `gateReasonsUnknown`
+    # and the UI rendered its "out of date with the backend" warning -- correctly, for weeks.
+    from app.services.monitor_aggregate_service import GATE_REASONS
+
+    assert set(body["gateReasons"]) == set(GATE_REASONS)
+    assert "channel_advisory" in body["gateReasons"]
     assert all(v == 0 for v in body["gateReasons"].values())
 
 

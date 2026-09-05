@@ -169,7 +169,18 @@ def predict_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
     probs = np.asarray(outputs[1], dtype=float).reshape(-1)
     index = int(np.argmax(probs))
     return {
-        "engagement_level": index,                       # key name kept for resolve_affect()
+        # `engagement_level` is the argmax index. The name is wrong for this model -- it indexes
+        # GEOMETRY_CLASS_ORDER (0 = engaged, 1 = disengaged), not a DAiSEE engagement intensity --
+        # and it is kept only because `resolve_affect` reads that key for every facial artifact.
+        # `class_index` carries the same value under an honest name so consumers can migrate; the
+        # monitor uses it to avoid captioning a binary index as a "4-level payload".
+        "engagement_level": index,
+        "class_index": index,
+        "class_order": list(GEOMETRY_CLASS_ORDER),
+        # Provenance per cycle, so a record is interpretable without knowing the deployment config
+        # that produced it. Without this the monitor and the CSV export cannot tell a geometry row
+        # from a binary-confusion one, and index 1 means a different construct in each.
+        "model_kind": "geometry",
         "label": GEOMETRY_CLASS_ORDER[index],
         "confidence": float(probs[index]),
         "probs": [float(p) for p in probs],

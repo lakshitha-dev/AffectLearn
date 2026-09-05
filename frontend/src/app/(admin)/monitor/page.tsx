@@ -50,6 +50,10 @@ export default function MonitorPage() {
   // endpoint computes. Cheap (30s poll) and shared with the Aggregate tab's query cache.
   const aggQ = useMonitorAggregates(24);
   const facialStats = aggQ.data?.modalityStats?.facial;
+  // The per-cycle panels show the LAST event received, with no notion of when. Without this they
+  // render an ended session exactly like a live one -- which is what made a monitor report a
+  // learner at 100% face presence with no camera open.
+  const stale = stream.metrics.sessionState !== "active";
 
   // Which session ids are actually connected right now. `sessions.active` was fetched and
   // discarded, so a dead id in the picker looked identical to a live one.
@@ -75,9 +79,20 @@ export default function MonitorPage() {
               {decision?.adaptStates?.length
                 ? ` · actionable: ${decision.adaptStates.join(", ")}`
                 : null}
-              {decision?.adaptMinConfidence != null
-                ? ` · gate ${decision.adaptMinConfidence}`
-                : null}
+                  {decision?.channelMinConfidence &&
+    Object.keys(decision.channelMinConfidence).length > 0 ? (
+      // Per-channel floors. A single global number misdescribes any channel with an override:
+      // the geometry channel gates at 0.70 while the global sits at 0.50, so this line used to
+      // quote a threshold that channel is never measured against.
+      <> · gates {Object.entries(decision.channelMinConfidence)
+        .map(([k, v]) => `${k.replace("_model", "").replace("facial_", "")} ${v}`)
+        .join(", ")}</>
+    ) : decision?.adaptMinConfidence != null ? (
+      <> · gate {decision.adaptMinConfidence}</>
+    ) : null}
+    {decision?.decisiveAffectSources?.length ? (
+      <> · decisive: {decision.decisiveAffectSources.join(", ")}</>
+    ) : null}
               {decision?.forcedMode && decision.forcedMode !== "auto" ? (
                 <span className="ml-1 rounded bg-amber-100 px-1 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                   mode forced: {decision.forcedMode}
@@ -122,7 +137,11 @@ export default function MonitorPage() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <AffectStream series={stream.affectSeries} />
-                      <FacePresenceStrip series={stream.facePresenceSeries} />
+                      <FacePresenceStrip
+                        series={stream.facePresenceSeries}
+                        stale={stale}
+                        lastCycleAgeMs={stream.metrics.lastCycleAgeMs}
+                      />
                     </CardContent>
                   </Card>
 
@@ -145,6 +164,8 @@ export default function MonitorPage() {
                           modelAvailable={facialAvailable}
                           stats={facialStats}
                           threshold={aggQ.data?.adaptMinConfidence}
+                          stale={stale}
+                          lastCycleAgeMs={stream.metrics.lastCycleAgeMs}
                         />
                       </CardContent>
                     </Card>

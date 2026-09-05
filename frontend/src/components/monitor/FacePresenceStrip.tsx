@@ -14,14 +14,24 @@
  */
 
 import type { FacePresencePoint } from "@/types/monitor";
+import { ago } from "./shared";
 
 export function FacePresenceStrip({
   series,
   max = 40,
+  stale,
+  lastCycleAgeMs,
 }: {
   series: FacePresencePoint[];
   /** Most recent N cycles to show. */
   max?: number;
+  /**
+   * True when the newest cycle is not current. The heading reads "face present" in the present
+   * tense, which is correct during a live session and misleading after one ends — a strip of
+   * green squares from an hour ago is indistinguishable from a learner sitting there now.
+   */
+  stale?: boolean;
+  lastCycleAgeMs?: number | null;
 }) {
   if (series.length === 0) {
     return (
@@ -39,7 +49,11 @@ export function FacePresenceStrip({
     <div>
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          face present · last {shown.length} cycle{shown.length === 1 ? "" : "s"}
+          {stale ? "face was present" : "face present"} · last {shown.length} cycle
+          {shown.length === 1 ? "" : "s"}
+          {stale && ago(lastCycleAgeMs) ? (
+            <span className="ml-1 normal-case tracking-normal">({ago(lastCycleAgeMs)})</span>
+          ) : null}
         </p>
         <p className="font-mono text-xs text-foreground">
           {present}/{shown.length}
