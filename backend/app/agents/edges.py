@@ -34,6 +34,7 @@ from app.agents.state import (
     AFFECT_SOURCE_BEHAVIORAL,
     AFFECT_SOURCE_CATEGORY,
     AFFECT_SOURCE_ENGAGEMENT,
+    AFFECT_SOURCE_FACIAL_GEOMETRY,
     AFFECT_SOURCE_FUSION,
     AgentState,
 )
@@ -83,6 +84,32 @@ def _env_int(name: str, default: int) -> int:
 #   * The simulation treated adjacent surviving windows as consecutive in time; windows with fewer
 #     than 5 events were dropped at load, which the live pipeline does not do.
 ADAPT_MIN_CONFIDENCE = _env_float("ADAPT_MIN_CONFIDENCE", 0.70)
+
+# PER-CHANNEL floors, because the two deployed channels were calibrated separately and their
+# probability distributions are not comparable. `ADAPT_MIN_CONFIDENCE` remains the default for any
+# channel without an override, so existing behaviour is unchanged for the behavioural channel.
+#
+# The measured basis (evaluation/gate_calibration.py and geometry_gate_calibration.py, both with
+# persistence 2 and cooldown 3, intervals resampling participants):
+#
+#   channel            floor   gated precision        interventions/h
+#   behavioural        0.50    0.500 [0.273, 0.737]   ~1.5      <- deployed setting, unchanged
+#   facial geometry    0.50    0.763 [0.635, 0.853]   ~10.3
+#   facial geometry    0.70    0.872 [0.783, 0.937]   ~7.1      <- chosen
+#
+# A single global floor would force one of these to use the other's operating point. Raising the
+# global value to 0.70 would move the behavioural channel off the setting it was tuned to; leaving
+# it at 0.50 would give away 0.109 of precision on the geometry channel for no reason.
+_CHANNEL_MIN_CONFIDENCE: dict[str, float] = {
+    AFFECT_SOURCE_FACIAL_GEOMETRY: _env_float("ADAPT_MIN_CONFIDENCE_GEOMETRY", 0.70),
+}
+
+
+def min_confidence_for(affect_source: str | None) -> float:
+    """The confidence floor this channel must clear. Falls back to the global setting."""
+    if affect_source and affect_source in _CHANNEL_MIN_CONFIDENCE:
+        return _CHANNEL_MIN_CONFIDENCE[affect_source]
+    return ADAPT_MIN_CONFIDENCE
 
 # How many consecutive cycles must agree on the state. The profiler appends the CURRENT
 # affect before the gate runs, so 2 means "this cycle and the previous one agree".
@@ -140,10 +167,31 @@ def should_adapt(state: AgentState) -> bool:
 # A non-decisive channel is still inferred, still logged, and still available for fusion research
 # and for corroboration; it simply cannot interrupt a learner on its own. Set to an empty string
 # to let every channel decide, which restores the previous behaviour exactly.
+#
+# AFFECT_SOURCE_FACIAL_GEOMETRY is decisive on the same evidential standard, not by analogy to the
+# facial channel above. It is a different model on a different construct, and the number the gate
+# actually depends on was measured for it directly (reports/engagenet_screen/gate_calibration.json,
+# regenerable via evaluation/geometry_gate_calibration.py):
+#
+#     channel                threshold   gated precision      95% CI
+#     behavioural            0.70        0.500                [0.273, 0.737]
+#     facial geometry        0.70        0.872                [0.783, 0.937]
+#
+# Detection quality agrees: AUC 0.9225 [0.889, 0.948] on EngageNet's held-out test split, 26
+# participants disjoint from training, within-participant permutation p at the 0.0005 floor. The
+# failure mode described above cannot recur here for a structural reason as well as an empirical
+# one -- that channel's probabilities occupied a 0.127-wide band, and this one's span 0.968.
+#
+# One caveat that belongs beside the grant rather than in a report: the same calibration puts this
+# channel at 7.1 interventions/hour against the behavioural channel's ~1.5. Precision is high, so
+# these are mostly warranted, but EngageNet is continuously recorded video at a 31% base rate and
+# platform sessions are neither. The deployed RATE is not established by this corpus and is a
+# question for the pilot; if it proves too frequent, raise ADAPT_COOLDOWN_CYCLES for this channel
+# rather than the confidence floor, since precision is not the problem.
 DECISIVE_AFFECT_SOURCES: tuple[str, ...] = tuple(
     s.strip() for s in os.getenv(
         "DECISIVE_AFFECT_SOURCES",
-        f"{AFFECT_SOURCE_BEHAVIORAL},{AFFECT_SOURCE_FUSION}",
+        f"{AFFECT_SOURCE_BEHAVIORAL},{AFFECT_SOURCE_FUSION},{AFFECT_SOURCE_FACIAL_GEOMETRY}",
     ).split(",") if s.strip()
 )
 
@@ -153,6 +201,7 @@ DECISIVE_AFFECT_SOURCES: tuple[str, ...] = tuple(
 _KNOWN_AFFECT_SOURCES = frozenset({
     AFFECT_SOURCE_BEHAVIORAL, AFFECT_SOURCE_FUSION,
     AFFECT_SOURCE_CATEGORY, AFFECT_SOURCE_ENGAGEMENT,
+    AFFECT_SOURCE_FACIAL_GEOMETRY,
 })
 
 
@@ -204,7 +253,7 @@ def passes_adaptation_gate(
     if affect_state not in ADAPT_STATES:
         return False, GATE_STATE_NOT_ACTIONABLE
 
-    if float(affect_confidence or 0.0) < ADAPT_MIN_CONFIDENCE:
+    if float(affect_confidence or 0.0) < min_confidence_for(affect_source):
         return False, GATE_LOW_CONFIDENCE
 
     need = max(1, ADAPT_MIN_CONSECUTIVE)
