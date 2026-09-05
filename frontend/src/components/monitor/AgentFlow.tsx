@@ -66,7 +66,10 @@ function clock(ms: number | null | undefined): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour12: false });
 }
 
-function buildSteps(cycle: SessionCycle | null): Step[] {
+/** States that can trigger. `engaged` is the negative class of both heads and never acts. */
+const ACTIONABLE = new Set(["bored", "confused", "frustrated"]);
+
+function buildSteps(cycle: SessionCycle | null, fusionDrives: boolean): Step[] {
   if (!cycle) return [];
 
   const f = cycle.facial as Record<string, unknown> | null;
@@ -88,7 +91,12 @@ function buildSteps(cycle: SessionCycle | null): Step[] {
     collected.push(`${(f.frames_with_face as number) ?? 0}/${(f.frames_captured as number) ?? 0} frames with a face`);
   }
 
-  const primary = fused ?? f ?? b;
+  // The Detection step must name the reading the GATE acted on, not merely the most combined one.
+  // Fusion is recorded on every paired cycle but only decides when FUSION_DRIVES_DECISION is on,
+  // and it is off wherever the geometry channel runs. Leading with it put the fused confidence
+  // directly above a "Withheld - low_confidence" verdict the gate reached from a different number.
+  const actionable = [f, b].find((c) => ACTIONABLE.has(c?.affect_state as string)) ?? null;
+  const primary = fusionDrives ? (fused ?? f ?? b) : (actionable ?? f ?? b);
   const state = primary?.affect_state as string | undefined;
   const conf = primary?.affect_confidence as number | undefined;
 
@@ -111,6 +119,10 @@ function buildSteps(cycle: SessionCycle | null): Step[] {
       detail: state
         ? `${state} at ${conf != null ? `${Math.round(conf * 100)}%` : "unknown confidence"}${primary?.affect_source ? ` · ${primary.affect_source}` : ""}`
         : "No state resolved this cycle (empty cycle, learner absent, or inference error)",
+      note:
+        fused && !fusionDrives
+          ? "A fused reading was recorded this cycle but does not drive the decision, so the gate below ruled on the channel named here."
+          : undefined,
     },
     {
       key: "gated",
@@ -172,8 +184,17 @@ function buildSteps(cycle: SessionCycle | null): Step[] {
   return steps;
 }
 
-export function AgentFlow({ cycle, cycleLabel }: { cycle: SessionCycle | null; cycleLabel?: string }) {
-  const steps = buildSteps(cycle);
+export function AgentFlow({
+  cycle,
+  cycleLabel,
+  fusionDrives,
+}: {
+  cycle: SessionCycle | null;
+  cycleLabel?: string;
+  /** `FUSION_DRIVES_DECISION`. Decides which reading the Detection step reports. */
+  fusionDrives?: boolean;
+}) {
+  const steps = buildSteps(cycle, Boolean(fusionDrives));
 
   if (steps.length === 0) {
     return (
