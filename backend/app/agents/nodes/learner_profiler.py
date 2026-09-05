@@ -24,6 +24,7 @@ from app.agents.edges import (
 )
 from app.agents.state import AgentState
 from app.services import profile_service, redis_service
+from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
 logger = structlog.get_logger(__name__)
@@ -114,6 +115,9 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         # Story 6.5: top-level phase/group so the event is filterable by study phase/cohort.
         "phase": state.get("phase"),
         "group": state.get("group"),
+        # Migration 021: where in the course this happened. Read from the same section context
+        # the prompt is grounded in, so the decision and the content it was about stay joined.
+        **content_coords(state.get("content_context")),
         "payload": {
             "affect_state": profile.get("affect_state"),
             "skill_level": profile.get("skill_level"),

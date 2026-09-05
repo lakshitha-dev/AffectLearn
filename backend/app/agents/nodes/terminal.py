@@ -23,6 +23,7 @@ experience is uninterrupted (AC3). The node NEVER raises on malformed content
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any
 
 from app.agents.state import AgentState
@@ -57,6 +58,14 @@ def _build_delivery_message(adaptation_content: Any) -> dict[str, Any] | None:
     text = adaptation_content.get("text")
     return {
         "type": "adaptation",
+        # SERVER-ISSUED identity for this adaptation.
+        #
+        # The client used to mint its own uuid on receipt and echo it back on interaction, so the
+        # id existed only on the browser side and `adaptation_interaction.adaptation_id` had no
+        # counterpart anywhere in the record -- a learner's response could never be tied to the
+        # hint it responded to. Issuing it here, before the message leaves, makes the delivery and
+        # the response two rows sharing a key.
+        "adaptation_id": str(uuid.uuid4()),
         "action": action,
         "content": {"text": text, "variant": variant},
         "ts": int(time.time() * 1000),

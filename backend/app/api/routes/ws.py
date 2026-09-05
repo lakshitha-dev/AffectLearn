@@ -42,6 +42,7 @@ from app.services.connection_manager import (
     WS_CLOSE_AUTH_FAILED,
     connection_manager,
 )
+from app.services.research_logger import content_coords as _coords
 from app.services.research_logger import emit as emit_research_event
 # `behavioral_inference` was referenced by the feature-salvage path below but never
 # imported, so that path raised NameError, was swallowed by its own `except Exception`,
@@ -78,26 +79,6 @@ async def _safe_emit(event: dict[str, Any]) -> None:
         await emit_research_event(event)
     except Exception:
         logger.exception("research_event_emit_swallowed", event_type=event.get("event_type"))
-
-
-#: Content-coordinate keys lifted from the resolved section context onto the research-event
-#: envelope (migration 021). `block_id` is not among them: a cycle happens on a SECTION, and only
-#: the REST routes that act on one block (quiz responses) can name a block.
-_COORD_KEYS = ("course_id", "section_id")
-
-
-def _coords(content_context: dict[str, Any] | None) -> dict[str, Any]:
-    """Content coordinates of a cycle, ready to spread onto a research event.
-
-    `content_context_service.build` already resolves these while grounding the prompt, so this
-    is a projection of work already done rather than a second lookup on the 30s hot path.
-
-    Returns `{}` when the section is unknown -- an event with no place in the course carries no
-    coordinate at all rather than a row of nulls, which keeps `IS NOT NULL` a meaningful filter.
-    """
-    if not content_context:
-        return {}
-    return {key: content_context[key] for key in _COORD_KEYS if content_context.get(key)}
 
 
 async def _resolve_learner(token: str, db: AsyncSession) -> tuple[User | None, str]:
@@ -555,6 +536,26 @@ async def _deliver_adaptation(
             action=delivery_message.get("action"),
             reason="socket_unavailable_or_send_failed",
         )
+        # A FAILED delivery is a research fact, not just an operational one. Emitting nothing left
+        # the record with a generated adaptation and no delivery, indistinguishable from an
+        # adaptation that was never generated -- so "the learner was offered help and did not get
+        # it" could not be counted. The gate opened and the learner received nothing; that belongs
+        # in the record.
+        await _safe_emit({
+            "event_type": "adaptation_delivery_failed",
+            "learner_id": user_id,
+            "session_id": session_id,
+            "cycle_number": cycle,
+            "timestamp": _now_ms(),
+            "phase": phase,
+            "group": group,
+            **(coords or {}),
+            "payload": {
+                "adaptation_id": delivery_message.get("adaptation_id"),
+                "action": delivery_message.get("action"),
+                "reason": "socket_unavailable_or_send_failed",
+            },
+        })
         return
 
     metadata = (result_state.get("adaptation_content") or {}).get("metadata") or {}
@@ -570,6 +571,10 @@ async def _deliver_adaptation(
         # and "did the help work here" are both unanswerable from the record.
         **(coords or {}),
         "payload": {
+            # The server-issued id this adaptation was sent under. `adaptation_interaction` echoes
+            # it back, so a response can finally be tied to the hint it responded to -- previously
+            # the id was minted in the browser and had no counterpart on this side at all.
+            "adaptation_id": delivery_message.get("adaptation_id"),
             "action": delivery_message.get("action"),
             "variant": (delivery_message.get("content") or {}).get("variant"),
             "generated": bool(metadata.get("generated")),

@@ -140,3 +140,54 @@ def test_summary_is_safe_on_an_empty_session():
     assert s["cycleCount"] == 0
     assert s["meanConfidence"] is None
     assert s["durationMs"] is None
+
+
+# ── the intervention lifecycle, once the backend records it ───────────────────────────
+
+def test_next_state_is_the_next_cycle_that_detected_something():
+    """Skips cycles that resolved to nothing — an empty cycle is not an outcome."""
+    from app.services.session_history_service import _next_state_after
+
+    cycles = [
+        cyc(5, 0, facial=det("confused")),
+        cyc(6, 30_000),                              # empty
+        cyc(7, 60_000, facial=det("engaged", 0.8)),
+    ]
+    nxt = _next_state_after(cycles, 5)
+    assert nxt is not None
+    assert nxt["cycle_number"] == 7 and nxt["state"] == "engaged"
+
+
+def test_next_state_is_none_when_the_session_ends_there():
+    from app.services.session_history_service import _next_state_after
+    assert _next_state_after([cyc(1, 0, facial=det("bored"))], 1) is None
+
+
+def test_gaps_name_what_the_record_lacks_for_this_cycle():
+    """The UI needs the reason, not a blank: a withheld gate and a discarded field look alike."""
+    from app.services.session_history_service import _missing_for
+
+    # Recorded properly: text present, reason present, delivered, response joined.
+    complete = cyc(1, 0, triggered={"text": "try re-reading the example"},
+                   strategy={"reason": "confusion persisted"},
+                   delivered={"adaptation_id": "a"}, response={"interaction": "dismissed"})
+    assert _missing_for(complete) == []
+
+    # An older row, written before text and reason were persisted.
+    older = cyc(2, 0, triggered={"variant": "show_hint"}, strategy={"action_type": "show_hint"},
+                delivered={"adaptation_id": "b"})
+    gaps = _missing_for(older)
+    assert "hint_text" in gaps and "strategy_reason" in gaps
+    assert "no_response_recorded" in gaps
+
+
+def test_a_generated_hint_with_no_delivery_is_unconfirmed_not_failed():
+    """Silence and a recorded failure are different claims."""
+    from app.services.session_history_service import _missing_for
+
+    unconfirmed = cyc(3, 0, triggered={"text": "x"})
+    assert "delivery_unconfirmed" in _missing_for(unconfirmed)
+
+    # An explicit failure event resolves the ambiguity, so it is no longer "unconfirmed".
+    failed = cyc(4, 0, triggered={"text": "x"}, delivery_failed={"reason": "socket_unavailable"})
+    assert "delivery_unconfirmed" not in _missing_for(failed)

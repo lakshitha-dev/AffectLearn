@@ -18,6 +18,8 @@ import { DetectionTimeline } from "@/components/monitor/DetectionTimeline";
 import { BehaviorPanel } from "@/components/monitor/BehaviorPanel";
 import { CycleTimeline } from "@/components/monitor/CycleTimeline";
 import { EventLog } from "@/components/monitor/EventLog";
+import { InterventionLifecycle } from "@/components/monitor/InterventionLifecycle";
+import { SessionOverview } from "@/components/monitor/SessionOverview";
 import { FacePresenceStrip } from "@/components/monitor/FacePresenceStrip";
 import { FacialPanel } from "@/components/monitor/FacialPanel";
 import { MetricsBar } from "@/components/monitor/MetricsBar";
@@ -132,6 +134,10 @@ export default function MonitorPage() {
             <div className="space-y-5">
               <MetricsBar metrics={stream.metrics} health={healthQ.data} connected={connected} />
 
+              {sessionId && history?.summary ? (
+                <SessionOverview summary={history.summary} live={!stale} />
+              ) : null}
+
               {/* PRIORITY 1 — what was detected. Everything below is downstream of this reading
                   and none of it is interpretable without knowing which channel produced it. */}
               <Card>
@@ -198,6 +204,25 @@ export default function MonitorPage() {
                       />
                     </div>
                   </details>
+                </CardContent>
+              </Card>
+
+              {/* PRIORITY 4 — the full lifecycle of every hint this session. */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Interventions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {sessionId ? (
+                    <InterventionLifecycle
+                      interventions={history?.interventions ?? []}
+                      loading={historyQ.isLoading}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Select a session to see its interventions.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 

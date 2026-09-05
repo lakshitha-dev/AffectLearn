@@ -46,6 +46,7 @@ TRIGGERED = "adaptation_triggered"
 DELIVERED = "adaptation_delivered"
 INTERACTION = "adaptation_interaction"
 SELF_REPORT = "self_report"
+DELIVERY_FAILED = "adaptation_delivery_failed"
 CONNECTED = "ws_connected"
 RECONNECTED = "ws_reconnected"
 DISCONNECTED = "ws_disconnected"
@@ -192,6 +193,7 @@ async def session_history(db: AsyncSession, session_id: str) -> dict[str, Any]:
             "cycle_number": int(n), "started_at": None,
             "facial": None, "behavioural": None, "fused": None,
             "gate": None, "strategy": None, "triggered": None, "delivered": None,
+            "delivery_failed": None, "response": None,
         })
 
     interventions: list[dict[str, Any]] = []
@@ -221,6 +223,9 @@ async def session_history(db: AsyncSession, session_id: str) -> dict[str, Any]:
             cycle(n)["triggered"] = {**p, "timestamp": t}
         elif r.event_type == DELIVERED:
             cycle(n)["delivered"] = {**p, "timestamp": t}
+        elif r.event_type == DELIVERY_FAILED:
+            # The gate opened and the learner received nothing. Distinct from "never generated".
+            cycle(n)["delivery_failed"] = {**p, "timestamp": t}
         elif r.event_type == INTERACTION:
             # cycle_number is 0 on this event (the client never sets it), so it cannot be joined
             # to the hint it responded to. Kept as a session-level list rather than forced into a
@@ -230,10 +235,25 @@ async def session_history(db: AsyncSession, session_id: str) -> dict[str, Any]:
             self_reports.append({**p, "timestamp": t})
 
     cycles = [by_cycle[k] for k in sorted(by_cycle)]
+
+    # A learner response joins its hint by the SERVER-issued adaptation_id. Before that id existed
+    # the client minted its own, so `adaptation_interaction` referenced something the backend had
+    # never seen and no join was possible at all; responses recorded under a client id therefore
+    # stay in the session-level list rather than being attached to a guess.
+    delivered_by_id = {
+        (c["delivered"] or {}).get("adaptation_id"): c
+        for c in cycles
+        if (c.get("delivered") or {}).get("adaptation_id")
+    }
+    for it in interactions:
+        target = delivered_by_id.get(it.get("adaptation_id"))
+        if target is not None:
+            target["response"] = it
+
     changes = _state_changes(cycles)
 
     for c in cycles:
-        if c.get("strategy") or c.get("triggered") or c.get("delivered"):
+        if c.get("strategy") or c.get("triggered") or c.get("delivered") or c.get("delivery_failed"):
             state, conf, source = _cycle_state(c)
             interventions.append({
                 "cycle_number": c["cycle_number"],
@@ -242,6 +262,12 @@ async def session_history(db: AsyncSession, session_id: str) -> dict[str, Any]:
                 "strategy": c.get("strategy"),
                 "triggered": c.get("triggered"),
                 "delivered": c.get("delivered"),
+                "deliveryFailed": c.get("delivery_failed"),
+                "response": c.get("response"),
+                # The state the NEXT cycle resolved to. Sequence, not causation: nothing in the
+                # record links a hint to a subsequent state, and presenting it as an outcome would
+                # assert a relationship the data cannot support.
+                "nextState": _next_state_after(cycles, c["cycle_number"]),
                 # Named so the UI can render "not recorded" with a reason rather than a blank.
                 "missing": _missing_for(c),
             })
@@ -258,6 +284,24 @@ async def session_history(db: AsyncSession, session_id: str) -> dict[str, Any]:
     }
 
 
+def _next_state_after(cycles: list[dict[str, Any]], n: int) -> dict[str, Any] | None:
+    """The state the next cycle that detected anything resolved to.
+
+    Deliberately NOT called an outcome. No recorded relationship links an intervention to a later
+    state -- self-reports are triggered by section completion, not by delivery, and carry no
+    reference to one -- so this is the next reading in time and nothing more. Labelling it an
+    effect would assert causation the record cannot support.
+    """
+    for c in cycles:
+        if int(c.get("cycle_number") or 0) <= n:
+            continue
+        state, conf, source = _cycle_state(c)
+        if state:
+            return {"cycle_number": c["cycle_number"], "state": state,
+                    "confidence": conf, "source": source, "at": c.get("started_at")}
+    return None
+
+
 def _missing_for(cycle: dict[str, Any]) -> list[str]:
     """Which parts of this cycle's chain the backend does not record.
 
@@ -266,11 +310,17 @@ def _missing_for(cycle: dict[str, Any]) -> list[str]:
     """
     gaps: list[str] = []
     trig = cycle.get("triggered") or {}
-    if trig and "text" not in trig:
-        gaps.append("hint_text")
     strat = cycle.get("strategy") or {}
-    if strat and "reason" not in strat:
+    # `text` and `reason` are recorded from the change that added them onward. Their absence on an
+    # older row is a property of when it was written, not of what happened, and the UI says so.
+    if trig and not trig.get("text"):
+        gaps.append("hint_text")
+    if strat and not strat.get("reason"):
         gaps.append("strategy_reason")
-    if trig and not cycle.get("delivered"):
+    if trig and not cycle.get("delivered") and not cycle.get("delivery_failed"):
         gaps.append("delivery_unconfirmed")
+    if cycle.get("delivered") and not cycle.get("response"):
+        # Only skip_ahead, increase_difficulty and (now) hint dismissal report at all; silence is
+        # not evidence the learner ignored it.
+        gaps.append("no_response_recorded")
     return gaps

@@ -293,6 +293,21 @@ export interface SessionIntervention {
   strategy: Record<string, unknown> | null;
   triggered: Record<string, unknown> | null;
   delivered: Record<string, unknown> | null;
+  /** Present only when a send actually failed; absent means "no failure recorded", not "fine". */
+  deliveryFailed: Record<string, unknown> | null;
+  /** The learner's response, joined by the server-issued adaptation_id. */
+  response: Record<string, unknown> | null;
+  /**
+   * The next cycle that detected anything. SEQUENCE, NOT EFFECT — nothing in the record links an
+   * intervention to a later state, so this must never be rendered as an outcome.
+   */
+  nextState: {
+    cycle_number: number;
+    state: string;
+    confidence: number | null;
+    source: string | null;
+    at: number | null;
+  } | null;
   /** Parts of the chain the backend does not record, named so the UI can say why. */
   missing: string[];
 }
