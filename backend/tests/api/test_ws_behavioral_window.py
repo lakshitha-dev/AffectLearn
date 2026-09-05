@@ -100,3 +100,34 @@ async def test_inference_error_is_swallowed(monkeypatch, captured_events):
     await ws._handle_behavioral_window(_envelope(), "u1", "s1")  # must not raise
 
     assert captured_events[0]["payload"]["error"] == "inference_error"
+
+
+@pytest.mark.asyncio
+async def test_a_suppressed_idle_window_still_records_its_features(monkeypatch, captured_events):
+    """An idle window is a DETECTION -- "the learner did nothing" is the signal.
+
+    `_run_behavioral` deliberately keeps the inference on the idle path so the window still lands
+    in the research record, but the payload update is gated on `affect_state`, which an idle cycle
+    does not set. The features were therefore computed, retained, and then dropped at the emit
+    site: idle_time_pct and pause_count, the two features that carry exactly this signal, were the
+    ones being discarded. The error-path salvage block does not cover it.
+    """
+    def fake_predict(events, started):
+        return {"affect_index": 0, "label": "engaged", "confidence": 0.91,
+                "probs": [0.91, 0.03, 0.04, 0.02], "n_bins": 30,
+                "feature_schema_version": 2,
+                "features": [[0.0] * 16 for _ in range(30)],
+                # What makes the caller suppress the affect.
+                "idle_window": True}
+
+    monkeypatch.setattr(ad, "predict_from_window", fake_predict)
+    await ws._handle_behavioral_window(_envelope(idle=True, events=[]), "u1", "s1")
+
+    p = captured_events[0]["payload"]
+    # Suppressed: no affect is claimed for a window in which nothing was observed.
+    assert p.get("empty_cycle") is True
+    assert "affect_state" not in p
+    # But the window itself is kept, which is the whole point.
+    assert p["n_bins"] == 30
+    assert len(p["features"]) == 30
+    assert p["feature_schema_version"] == 2

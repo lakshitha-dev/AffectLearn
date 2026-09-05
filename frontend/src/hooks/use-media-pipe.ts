@@ -287,7 +287,16 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
         const now = Date.now();
         const framesCaptured = geometry.length;
         const droppedTotal = dropped.no_face + dropped.low_confidence;
-        const faceRatio = framesCaptured === 0 ? 0 : facesSeen / framesCaptured;
+        // Presence is derived from the RETAINED window, not from a running counter.
+        //
+        // Capture runs for the whole 30s cycle at 1 fps, but `geometry` is a ring buffer holding
+        // the trailing `framesPerCycle` rows -- the window the model is actually scored on, and
+        // the length that must match training. `facesSeen` counted every capture, so the ratio was
+        // 30/10 and the monitor reported 300% face presence. Reading `face_found` back out of the
+        // buffer makes the numerator and denominator describe the same frames by construction.
+        const foundIdx = GEOMETRY_CONTRACT.channels.indexOf("face_found");
+        const facesInWindow = geometry.reduce((n, row) => n + (row[foundIdx] === 1 ? 1 : 0), 0);
+        const faceRatio = framesCaptured === 0 ? 0 : facesInWindow / framesCaptured;
         // An empty chair must not yield an affect reading. Below the floor the server skips
         // inference and records an empty cycle, restoring the behaviour that existed before the
         // centre-crop fallback was added for training parity.
@@ -306,7 +315,7 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
               no_face: dropped.no_face,
               low_confidence: dropped.low_confidence,
             },
-            frames_with_face: facesSeen,
+            frames_with_face: facesInWindow,
             face_ratio: Math.round(faceRatio * 1000) / 1000,
             face_absent: faceAbsent,
             // Geometry, not pixels. NaN is not representable in JSON, so a missing reading
