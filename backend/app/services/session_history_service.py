@@ -72,9 +72,41 @@ def _sort_key(row: ResearchEvent) -> tuple[int, int]:
     return (int(row.timestamp or 0), int(row.sequence_number or 0))
 
 
+#: States that can trigger an intervention. `engaged` is the negative class of both binary heads,
+#: so it is never actionable and is never what the gate ruled on.
+_ACTIONABLE = frozenset({"bored", "confused", "frustrated"})
+
+
 def _cycle_state(cycle: dict[str, Any]) -> tuple[str | None, float | None, str | None]:
-    """The state this cycle resolved to, its confidence, and which channel it came from."""
-    for key, kind in (("fused", MULTIMODAL), ("facial", FACIAL), ("behavioural", BEHAVIORAL)):
+    """The state this cycle resolved to, its confidence, and which channel it came from.
+
+    Fusion is recorded on every paired cycle but only ACTS when FUSION_DRIVES_DECISION is on, and
+    it is off wherever the geometry channel is deployed -- averaging two disjoint constructs halves
+    both below the floor. Preferring the fused row unconditionally therefore attributed every state
+    to `fusion` and reported a confidence the gate never saw, so a timeline row could read 46% while
+    the gate that ruled on it saw a different number entirely.
+
+    So when fusion is not decisive, the resolved state is the channel the gate acts on: the one
+    naming an ACTIONABLE state, since only those can trigger. With neither actionable, both are
+    reporting a negative class and either will do.
+    """
+    from app.agents.nodes.affect_detection import fusion_drives_decision
+
+    try:
+        fusion_decisive = bool(fusion_drives_decision())
+    except Exception:  # pragma: no cover - defensive; treat as not decisive
+        fusion_decisive = False
+
+    order = (("fused", "facial", "behavioural") if fusion_decisive
+             else ("facial", "behavioural"))
+
+    if not fusion_decisive:
+        for key in ("facial", "behavioural"):
+            p = cycle.get(key)
+            if p and p.get("affect_state") in _ACTIONABLE:
+                return p["affect_state"], p.get("affect_confidence"), p.get("affect_source")
+
+    for key in order:
         p = cycle.get(key)
         if p and p.get("affect_state"):
             return p["affect_state"], p.get("affect_confidence"), p.get("affect_source")

@@ -164,6 +164,7 @@ export default function MonitorPage() {
                     stale={stale}
                     lastCycleAgeMs={stream.metrics.lastCycleAgeMs}
                     timeInStateMs={timeInStateMs}
+                    fusionDrives={decision?.fusionDrivesDecision}
                   />
                 </CardContent>
               </Card>
@@ -201,6 +202,7 @@ export default function MonitorPage() {
                     cycleLabel={
                       latestCycle ? `cycle #${latestCycle.cycle_number} — most recent recorded` : undefined
                     }
+                    fusionDrives={decision?.fusionDrivesDecision}
                   />
                   <details className="rounded-md border border-border">
                     <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
