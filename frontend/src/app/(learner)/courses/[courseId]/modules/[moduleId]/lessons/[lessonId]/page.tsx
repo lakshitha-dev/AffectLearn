@@ -193,6 +193,21 @@ export default function LessonPage({ params }: PageProps) {
     [send],
   );
 
+  // Hints were the only adaptation type that reported nothing at all: skip_ahead and
+  // increase_difficulty both logged an interaction, while show_hint / show_alternative /
+  // show_breakdown / show_encouragement had an empty dismissal handler. So the content the study
+  // is actually about produced no learner-response signal. Same WS channel, same event.
+  const logHintInteraction = useCallback(
+    (payload: { adaptation_id: string; action: string; interaction: "dismissed" }) => {
+      send({
+        type: "adaptation_interaction",
+        ts: Date.now(),
+        data: payload,
+      });
+    },
+    [send],
+  );
+
   // Pre-pilot research control (#7): log a due prompt that was RANDOMLY OMITTED (never shown)
   // so analysis can estimate the prompt's own reactive effect. Reuses the self_report channel
   // with an `omitted` marker; affect is null and it is NOT a user skip.
@@ -371,7 +386,7 @@ export default function LessonPage({ params }: PageProps) {
       {/* Inline adaptive hints (Story 5.4) — renders the latest show_* adaptation
           inline at a natural content break; non-inline actions are left in the
           queue for Stories 5.5–5.7. */}
-      <InlineAdaptations />
+      <InlineAdaptations onInteraction={logHintInteraction} />
       {/* Break suggestion overlay (Story 5.5) — renders the latest suggest_break
           adaptation as a fixed-position, semi-transparent overlay card (not a true
           modal; content stays visible, no scroll-lock). Non-suggest_break actions are

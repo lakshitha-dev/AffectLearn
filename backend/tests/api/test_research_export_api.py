@@ -169,3 +169,100 @@ async def test_phase_a_dataset_requires_admin(client, db, designer_headers):
     await _seed(db)
     resp = await client.get(f"{BASE}/phase-a-dataset", headers=designer_headers)
     assert resp.status_code == 403
+
+
+# ── Migration 021: content coordinates on the export ────────────────────────────
+
+COURSE_A = "course-a"
+COURSE_B = "course-b"
+SECTION_1 = "section-1"
+SECTION_2 = "section-2"
+
+
+async def _seed_located(db):
+    """Two courses, two sections in the first, plus one deliberately uncoordinated event."""
+    rows = [
+        ResearchEvent(event_type="facial_affect_detected", learner_id="u1", session_id="s1",
+                      cycle_number=1, timestamp=TS0 + 1, sequence_number=1, phase="phase_b",
+                      group="adaptive", course_id=COURSE_A, section_id=SECTION_1, payload={}),
+        ResearchEvent(event_type="adaptation_delivered", learner_id="u1", session_id="s1",
+                      cycle_number=2, timestamp=TS0 + 2, sequence_number=2, phase="phase_b",
+                      group="adaptive", course_id=COURSE_A, section_id=SECTION_1,
+                      payload={"action": "show_hint"}),
+        ResearchEvent(event_type="quiz_submitted", learner_id="u1", session_id="s1",
+                      cycle_number=0, timestamp=TS0 + 3, sequence_number=3, phase="phase_b",
+                      group="adaptive", course_id=COURSE_A, section_id=SECTION_2,
+                      block_id="block-9", payload={"is_correct": True}),
+        ResearchEvent(event_type="facial_affect_detected", learner_id="u2", session_id="s2",
+                      cycle_number=1, timestamp=TS0 + 4, sequence_number=1, phase="phase_b",
+                      group="adaptive", course_id=COURSE_B, section_id="section-9", payload={}),
+        # Connection-level: no place in the course, so no coordinate.
+        ResearchEvent(event_type="ws_connected", learner_id="u1", session_id="s1",
+                      cycle_number=0, timestamp=TS0 + 5, sequence_number=4, phase="phase_b",
+                      group="adaptive", payload={}),
+    ]
+    db.add_all(rows)
+    await db.commit()
+
+
+async def test_events_expose_content_coordinates_in_camel_case(client, db, admin_headers):
+    await _seed_located(db)
+    resp = await client.get(f"{BASE}/events?sectionId={SECTION_2}", headers=admin_headers)
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["courseId"] == COURSE_A
+    assert item["sectionId"] == SECTION_2
+    assert item["blockId"] == "block-9"
+
+
+async def test_section_filter_narrows_to_one_section(client, db, admin_headers):
+    """"Everything recorded while learners were on this section" is the query per-section
+    analytics and the hint-to-outcome join are both built from."""
+    await _seed_located(db)
+    resp = await client.get(f"{BASE}/events?sectionId={SECTION_1}", headers=admin_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert {i["eventType"] for i in body["items"]} == {
+        "facial_affect_detected", "adaptation_delivered"
+    }
+
+
+async def test_course_filter_narrows_to_one_course(client, db, admin_headers):
+    await _seed_located(db)
+    resp = await client.get(f"{BASE}/events?courseId={COURSE_B}", headers=admin_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["learnerId"] == "u2"
+
+
+async def test_coordinate_filter_excludes_uncoordinated_events(client, db, admin_headers):
+    """A null coordinate must not match a filter. `ws_connected` belongs to no section, and a
+    per-section aggregate that swept it in would be counting a connection as a page view."""
+    await _seed_located(db)
+    resp = await client.get(f"{BASE}/events?courseId={COURSE_A}", headers=admin_headers)
+    assert resp.status_code == 200
+    assert "ws_connected" not in {i["eventType"] for i in resp.json()["items"]}
+
+
+async def test_uncoordinated_events_report_null_coordinates(client, db, admin_headers):
+    await _seed_located(db)
+    resp = await client.get(f"{BASE}/events?eventType=ws_connected", headers=admin_headers)
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["courseId"] is None
+    assert item["sectionId"] is None
+    assert item["blockId"] is None
+
+
+async def test_coordinate_filters_compose_with_event_type(client, db, admin_headers):
+    await _seed_located(db)
+    resp = await client.get(
+        f"{BASE}/events?courseId={COURSE_A}&eventType=adaptation_delivered",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["sectionId"] == SECTION_1

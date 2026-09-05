@@ -28,9 +28,9 @@ import type { AdaptationAction } from "@/types/ws-messages";
  * Queue ownership: this consumer does NOT mutate the queue. Dismissal is owned
  * entirely as LOCAL UI state INSIDE the callout (so its "Show hint" re-access can
  * restore the exact same content without the consumer unmounting it). The `onDismiss`
- * callback is therefore a non-mutating hook point (left for future research/logging of
- * "hint dismissed"); the queue stays a faithful log for Stories 5.5–5.7, and we never
- * `dismissAdaptation` a non-`show_*` item we do not own.
+ * callback is therefore a non-mutating hook point, now wired to report a `dismissed`
+ * interaction to the research record; the queue stays a faithful log for Stories 5.5–5.7,
+ * and we never `dismissAdaptation` a non-`show_*` item we do not own.
  */
 
 const INLINE_ACTIONS = new Set<AdaptationAction>([
@@ -40,7 +40,19 @@ const INLINE_ACTIONS = new Set<AdaptationAction>([
   "show_encouragement",
 ]);
 
-export function InlineAdaptations() {
+export function InlineAdaptations({
+  onInteraction,
+}: {
+  /**
+   * Report a learner response to the research record. Optional so existing mounts and tests keep
+   * working; where it is not supplied the dismissal is local-only, exactly as before.
+   */
+  onInteraction?: (payload: {
+    adaptation_id: string;
+    action: AdaptationAction;
+    interaction: "dismissed";
+  }) => void;
+} = {}) {
   const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
 
   // Latest inline (`show_*`) adaptation in the queue.
@@ -55,7 +67,19 @@ export function InlineAdaptations() {
 
   if (!active) return null;
 
-  return <CenteredHint key={active.id} adaptation={active} />;
+  return (
+    <CenteredHint
+      key={active.id}
+      adaptation={active}
+      onDismiss={() =>
+        onInteraction?.({
+          adaptation_id: active.id,
+          action: active.action,
+          interaction: "dismissed",
+        })
+      }
+    />
+  );
 }
 
 /**
@@ -75,7 +99,14 @@ export function InlineAdaptations() {
  *
  * z-40 keeps it BELOW the break-suggestion overlay (z-50), so a break card is never obscured.
  */
-function CenteredHint({ adaptation }: { adaptation: Parameters<typeof AdaptiveHintCallout>[0]["adaptation"] }) {
+function CenteredHint({
+  adaptation,
+  onDismiss,
+}: {
+  adaptation: Parameters<typeof AdaptiveHintCallout>[0]["adaptation"];
+  /** Reports the dismissal upstream; the callout still owns its own local dismissed state. */
+  onDismiss?: () => void;
+}) {
   // Deferred by one frame so the browser paints the "before" state first; without this the
   // element mounts already-visible and the transition never runs.
   const [entered, setEntered] = useState(false);
@@ -106,8 +137,12 @@ function CenteredHint({ adaptation }: { adaptation: Parameters<typeof AdaptiveHi
           <AdaptiveHintCallout
             adaptation={adaptation}
             onDismiss={() => {
-              /* Local UI dismiss only — the callout owns its dismissed/re-access state
-                 and we deliberately leave the item in the queue (queue-ownership decision). */
+              // Queue ownership is unchanged: the callout still owns its own dismissed/re-access
+              // state and the item stays in the queue. What is new is that the dismissal is
+              // REPORTED. Hints were previously the only action type that recorded nothing at
+              // all -- skip_ahead and increase_difficulty both reported -- so "was the hint
+              // engaged with or waved away" had no answer for the content the study is about.
+              onDismiss?.();
             }}
           />
         </div>

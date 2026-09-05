@@ -74,20 +74,27 @@ import {
   type WSMessage,
 } from "@/types/ws-messages";
 
-/** Stable id for a queued adaptation; falls back to a counter if crypto is unavailable. */
+/**
+ * Local fallback id, used only when the server did not supply one.
+ *
+ * A client-minted id is invisible to the backend, so an interaction reported under it cannot be
+ * joined to the delivery it responded to. The server now issues `adaptation_id` on the wire and
+ * echoes it on `adaptation_delivered`; this exists only so an older backend still queues.
+ */
 let _adaptationSeq = 0;
-function _adaptationId(): string {
+function _localAdaptationId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
   _adaptationSeq += 1;
-  return `adaptation-${Date.now()}-${_adaptationSeq}`;
+  return `local-${Date.now()}-${_adaptationSeq}`;
 }
 
 /** Map an inbound `adaptation` message to a queue item (no rendering — Stories 5.4–5.7). */
 function mapToAdaptation(msg: AdaptationMessage): Adaptation {
   return {
-    id: _adaptationId(),
+    // Prefer the SERVER's id: it is the join key between the delivery and any response.
+    id: msg.adaptation_id ?? _localAdaptationId(),
     action: msg.action,
     text: msg.content?.text,
     variant: msg.content?.variant,

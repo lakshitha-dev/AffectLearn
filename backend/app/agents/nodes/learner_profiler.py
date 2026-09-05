@@ -16,9 +16,15 @@ from typing import Any
 
 import structlog
 
-from app.agents.edges import GATE_OK, adaptation_decision
+from app.agents.edges import (
+    GATE_OK,
+    adaptation_decision,
+    is_decisive,
+    min_confidence_for,
+)
 from app.agents.state import AgentState
 from app.services import profile_service, redis_service
+from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
 logger = structlog.get_logger(__name__)
@@ -81,6 +87,7 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     last_adapt = profile.get("last_adaptation_cycle")
     if profile.get("last_adaptation_session") != session_id:
         last_adapt = None
+    affect_source = state.get("affect_source")
     adapt, gate_reason = adaptation_decision(state, profile, last_adapt)
     if adapt:
         profile["last_adaptation_cycle"] = int(cycle or 0)
@@ -108,14 +115,31 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         # Story 6.5: top-level phase/group so the event is filterable by study phase/cohort.
         "phase": state.get("phase"),
         "group": state.get("group"),
+        # Migration 021: where in the course this happened. Read from the same section context
+        # the prompt is grounded in, so the decision and the content it was about stay joined.
+        **content_coords(state.get("content_context")),
         "payload": {
             "affect_state": profile.get("affect_state"),
             "skill_level": profile.get("skill_level"),
             "affect_history_len": len(profile.get("affect_history") or []),
+            # NOTE: the PROFILE STORE this cycle read from (redis / postgres_or_init / default).
+            # It is not affect provenance -- see `affect_source` below, which is.
             "source": source,
             # Why this cycle did or did not adapt. Makes the gate auditable from the research
             # record — the distribution of reasons is how you calibrate the thresholds.
             "adaptation_gate": gate_reason,
+            # WHICH CHANNEL the gate ruled on, and the floor it was held to.
+            #
+            # Both modalities run the whole graph inside one cycle_number, so a cycle produces two
+            # of these events. Without provenance the durable record could not say which channel a
+            # `low_confidence` verdict belonged to -- and the two channels have different floors
+            # (geometry 0.70 against a 0.50 global), so the verdict was uninterpretable after the
+            # fact. `is_decisive` is stamped too: a channel can clear every threshold and still be
+            # withheld for having no authority, and that is not visible from the reason alone.
+            "affect_source": affect_source,
+            "affect_confidence": state.get("affect_confidence"),
+            "min_confidence_applied": min_confidence_for(affect_source),
+            "decisive_channel": is_decisive(affect_source),
         },
     })
 

@@ -96,3 +96,73 @@ async def test_persist_batch_persists_phase_group(db):
     ).scalar_one()
     assert row.phase == "phase_a"
     assert row.group == "control"
+
+
+# ── Migration 021: content coordinates (course_id / section_id / block_id) ───────
+
+
+@pytest.mark.asyncio
+async def test_row_maps_content_coordinates():
+    row = svc._row({
+        "event_type": "quiz_submitted",
+        "learner_id": "u1",
+        "session_id": "s1",
+        "cycle_number": 1,
+        "timestamp": TS0,
+        "sequence_number": 1,
+        "course_id": "c1",
+        "section_id": "sec1",
+        "block_id": "blk1",
+        "payload": {},
+    })
+    assert (row.course_id, row.section_id, row.block_id) == ("c1", "sec1", "blk1")
+
+
+@pytest.mark.asyncio
+async def test_row_tolerates_missing_content_coordinates():
+    """Connection- and account-level events have no place in the course, and every row written
+    before migration 021 predates the columns. Absent must mean NULL, not an error."""
+    row = svc._row({"event_type": "ws_connected", "session_id": "s1", "timestamp": TS0})
+    assert row.course_id is None
+    assert row.section_id is None
+    assert row.block_id is None
+
+
+@pytest.mark.asyncio
+async def test_row_stringifies_uuid_coordinates():
+    """Emitters pass whatever they hold — a UUID from a route, a str from the agent loop. The
+    column is String(64), so the row builder is the single place that normalises."""
+    import uuid as uuid_mod
+
+    section = uuid_mod.uuid4()
+    row = svc._row({
+        "event_type": "section_completed",
+        "session_id": "s1",
+        "timestamp": TS0,
+        "section_id": section,
+    })
+    assert row.section_id == str(section)
+
+
+@pytest.mark.asyncio
+async def test_persist_batch_persists_content_coordinates(db):
+    events = [{
+        "event_type": "adaptation_delivered",
+        "learner_id": "u1",
+        "session_id": "s-coords",
+        "cycle_number": 4,
+        "timestamp": TS0,
+        "sequence_number": 1,
+        "course_id": "course-a",
+        "section_id": "section-b",
+        "payload": {"action": "show_hint"},
+    }]
+    assert await svc.persist_batch(db, events) == 1
+    row = (
+        await db.execute(
+            select(ResearchEvent).where(ResearchEvent.session_id == "s-coords")
+        )
+    ).scalar_one()
+    assert row.course_id == "course-a"
+    assert row.section_id == "section-b"
+    assert row.block_id is None

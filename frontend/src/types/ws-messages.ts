@@ -231,6 +231,13 @@ export type AdaptationAction =
  */
 export interface AdaptationMessage extends WSMessage {
   type: "adaptation";
+  /**
+   * Server-issued identity for this adaptation, echoed back on `adaptation_interaction`.
+   *
+   * Optional so an older backend still parses. Where it is absent the client mints a local id,
+   * which queues correctly but cannot be joined to the delivery in the research record.
+   */
+  adaptation_id?: string;
   action: AdaptationAction;
   content: { text?: string; variant?: string; message?: string };
 }

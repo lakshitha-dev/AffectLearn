@@ -140,7 +140,10 @@ def _render_body(blocks: list[ContentBlock]) -> str:
 
 
 async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
-    """Return `{topic, lesson, body, difficulty}` for a section id. Never raises.
+    """Return `{topic, lesson, body, difficulty}` + content coordinates for a section id.
+
+    Coordinates are `{section_id, lesson_id, module_id, course_id}`; they are what lets an
+    emitted research event say where in the course it happened. Never raises.
 
     Returns `{}` when `section_id` is missing or unknown, which keeps the existing
     "unknown topic" behaviour rather than inventing content.
@@ -159,7 +162,14 @@ async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
     try:
         result = await db.execute(
             select(Section)
-            .options(selectinload(Section.content_blocks), selectinload(Section.lesson))
+            .options(
+                selectinload(Section.content_blocks),
+                # The module is loaded for its `course_id` alone: the research-event envelope
+                # stamps course/lesson/section on every emit, and this cached lookup is the one
+                # place per section that already pays for a join. Resolving the course anywhere
+                # else would mean a second query on the 30s hot path.
+                selectinload(Section.lesson).selectinload(Lesson.module),
+            )
             .where(Section.id == section_id)
         )
         section = result.scalar_one_or_none()
@@ -172,11 +182,21 @@ async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
         return {}
 
     lesson: Lesson | None = getattr(section, "lesson", None)
+    module = getattr(lesson, "module", None) if lesson is not None else None
     context = {
         "topic": section.title or "unknown",
         "lesson": (lesson.title if lesson is not None else None) or "unknown",
         "body": _render_body(list(section.content_blocks or [])),
         "difficulty": "unknown",
+        # Content coordinates. Prompt-building ignores these; they exist so the WS handler and
+        # the agent nodes can stamp WHERE IN THE COURSE a cycle happened onto the research event
+        # without a further lookup. Before this, affect and adaptation rows carried only
+        # session_id + cycle_number, so `analytics_service` could not key them to a section at
+        # all and said so in its own header.
+        "section_id": key,
+        "lesson_id": str(lesson.id) if lesson is not None else None,
+        "module_id": str(module.id) if module is not None else None,
+        "course_id": str(module.course_id) if module is not None else None,
     }
     _cache[key] = context
     return context

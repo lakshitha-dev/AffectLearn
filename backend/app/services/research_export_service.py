@@ -36,12 +36,21 @@ def _apply_filters(
     event_types: Sequence[str] | None,
     start_ts: int | None,
     end_ts: int | None,
+    course_id: str | None = None,
+    section_id: str | None = None,
 ):
     """Apply the common research-event filters to a select/aggregate statement."""
     if learner_id is not None:
         stmt = stmt.where(ResearchEvent.learner_id == learner_id)
     if session_id is not None:
         stmt = stmt.where(ResearchEvent.session_id == session_id)
+    # Content coordinates (migration 021). Filtering by section is the point of the column:
+    # "every event recorded while learners were on this section" is the query that per-section
+    # analytics and the hint-to-outcome join are both built from.
+    if course_id is not None:
+        stmt = stmt.where(ResearchEvent.course_id == course_id)
+    if section_id is not None:
+        stmt = stmt.where(ResearchEvent.section_id == section_id)
     if phase is not None:
         stmt = stmt.where(ResearchEvent.phase == phase)
     if group is not None:
@@ -75,6 +84,9 @@ def _to_dict(row: ResearchEvent) -> dict[str, Any]:
         "sequence_number": row.sequence_number,
         "phase": row.phase,
         "group": row.group,
+        "course_id": row.course_id,
+        "section_id": row.section_id,
+        "block_id": row.block_id,
         "payload": row.payload,
     }
 
@@ -89,6 +101,8 @@ async def query_events(
     event_types: Sequence[str] | None = None,
     start_ts: int | None = None,
     end_ts: int | None = None,
+    course_id: str | None = None,
+    section_id: str | None = None,
     page: int = 1,
     page_size: int = 100,
 ) -> dict[str, Any]:
@@ -96,6 +110,10 @@ async def query_events(
 
     Returns `{items: [dict], total, page, page_size}`. `items` are dicts shaped for
     `ResearchEventOut`. Ordering is `(session_id, sequence_number NULLS LAST, timestamp)`.
+
+    `course_id` / `section_id` filter on the content coordinates added in migration 021. Rows
+    written before that migration, and events with no content coordinate (connection- and
+    account-level), are excluded by either filter rather than matching null.
     """
     page = max(1, page)
     page_size = max(1, page_size)
@@ -104,6 +122,7 @@ async def query_events(
         select(func.count(ResearchEvent.id)),
         learner_id=learner_id, session_id=session_id, phase=phase, group=group,
         event_types=event_types, start_ts=start_ts, end_ts=end_ts,
+        course_id=course_id, section_id=section_id,
     )
     total = (await db.execute(count_stmt)).scalar_one()
 
@@ -111,6 +130,7 @@ async def query_events(
         select(ResearchEvent),
         learner_id=learner_id, session_id=session_id, phase=phase, group=group,
         event_types=event_types, start_ts=start_ts, end_ts=end_ts,
+        course_id=course_id, section_id=section_id,
     )
     stmt = _ordered(stmt).offset((page - 1) * page_size).limit(page_size)
     rows = (await db.execute(stmt)).scalars().all()

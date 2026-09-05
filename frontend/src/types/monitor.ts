@@ -239,3 +239,106 @@ export interface MonitorMetrics {
   /** Age of that event in ms, so panels can label values instead of implying they are current. */
   lastCycleAgeMs: number | null;
 }
+
+/* ── Session history (GET /monitor/session/{id}) ─────────────────────────────────────
+ *
+ * The DATABASE-backed view of a session, as opposed to `useMonitorStream`'s live ring buffer.
+ * Fields mirror `session_history_service` exactly; anything the backend does not record is absent
+ * here too rather than defaulted, so the UI can distinguish "not recorded" from "zero".
+ */
+
+/** One cycle, with both channels and the agent chain joined on cycle_number. */
+export interface SessionCycle {
+  cycle_number: number;
+  started_at: number | null;
+  /** `facial_affect_detected` payload, or null when that channel did not report. */
+  facial: Record<string, unknown> | null;
+  behavioural: Record<string, unknown> | null;
+  /** Present only when both channels paired within the fusion window. */
+  fused: Record<string, unknown> | null;
+  gate: {
+    reason?: string | null;
+    affect_state?: string | null;
+    /** Absent on rows written before provenance was recorded. */
+    affect_source?: string | null;
+    timestamp?: number;
+  } | null;
+  strategy: Record<string, unknown> | null;
+  triggered: Record<string, unknown> | null;
+  delivered: Record<string, unknown> | null;
+}
+
+/**
+ * A transition between resolved states. DERIVED, not recorded — the system stores a state per
+ * cycle and never a duration.
+ */
+export interface StateChange {
+  at: number | null;
+  cycle_number: number | null;
+  /** null on the first run, and on any run that follows an observation gap. */
+  from: string | null;
+  to: string;
+  confidence: number | null;
+  source: string | null;
+  /** null while the run is still open (the session may not have ended). */
+  durationMs: number | null;
+  /** Consecutive cycles this run covered — the quantity the gate's persistence rule counts. */
+  cycles: number;
+}
+
+export interface SessionIntervention {
+  cycle_number: number;
+  detection: { state: string | null; confidence: number | null; source: string | null };
+  gate: SessionCycle["gate"];
+  strategy: Record<string, unknown> | null;
+  triggered: Record<string, unknown> | null;
+  delivered: Record<string, unknown> | null;
+  /** Present only when a send actually failed; absent means "no failure recorded", not "fine". */
+  deliveryFailed: Record<string, unknown> | null;
+  /** The learner's response, joined by the server-issued adaptation_id. */
+  response: Record<string, unknown> | null;
+  /**
+   * The next cycle that detected anything. SEQUENCE, NOT EFFECT — nothing in the record links an
+   * intervention to a later state, so this must never be rendered as an outcome.
+   */
+  nextState: {
+    cycle_number: number;
+    state: string;
+    confidence: number | null;
+    source: string | null;
+    at: number | null;
+  } | null;
+  /** Parts of the chain the backend does not record, named so the UI can say why. */
+  missing: string[];
+}
+
+export interface SessionSummary {
+  sessionId: string;
+  startedAt: number | null;
+  endedAt: number | null;
+  durationMs: number | null;
+  cycleCount: number;
+  /** Cycles that actually resolved to a state — an empty cycle is not a detection. */
+  detectionCount: number;
+  stateChangeCount: number;
+  interventionsTriggered: number;
+  interventionsDelivered: number;
+  /** Triggered without a matching delivery: the only signal a delivery failed. */
+  deliveriesUnaccounted: number;
+  meanConfidence: number | null;
+  byState: Record<string, number>;
+  dwellMsByState: Record<string, number>;
+  selfReports: number;
+}
+
+export interface SessionHistory {
+  sessionId: string;
+  found: boolean;
+  cycles: SessionCycle[];
+  stateChanges: StateChange[];
+  interventions: SessionIntervention[];
+  /** Session-level: cycle_number is 0 on these events, so they cannot be joined to a hint. */
+  interactions: Record<string, unknown>[];
+  selfReports: Record<string, unknown>[];
+  summary: SessionSummary | null;
+}

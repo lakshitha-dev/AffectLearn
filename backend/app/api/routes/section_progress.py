@@ -30,7 +30,8 @@ from app.schemas.section_progress import (
     SectionProgressCreate,
     SectionProgressResponse,
 )
-from app.services import section_progress_service, study_service
+from app.services import content_context_service, section_progress_service, study_service
+from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
 logger = structlog.get_logger(__name__)
@@ -117,6 +118,11 @@ async def mark_section_complete(
         "cycle_number": 0,
         "phase": phase,
         "group": group,
+        # Migration 021 content coordinates. Resolved through the same cached lookup the agent
+        # loop uses, so a section's REST events and its affect cycles carry identical keys and
+        # join without a translation step. The payload copy of `section_id` is retained for
+        # existing readers (`section_features` pairs on it).
+        **content_coords(await content_context_service.build(body.section_id, db)),
     }
     payload = {
         "section_id": str(body.section_id),
@@ -277,6 +283,10 @@ async def record_quiz_response(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        # The only event that can name a BLOCK: a quiz response is an act on one content block,
+        # which is the grain "which question is hardest" and the hint-to-outcome join both need.
+        **content_coords(await content_context_service.build(body.section_id, db)),
+        "block_id": str(body.content_block_id),
         "payload": {
             "content_block_id": str(body.content_block_id),
             "is_correct": bool(body.is_correct),

@@ -23,6 +23,26 @@ logger = structlog.get_logger(__name__)
 
 _STREAM = "research_events"
 
+#: Content-coordinate keys lifted from a resolved section context onto the event envelope
+#: (migration 021). `block_id` is absent by design: an affect cycle happens on a SECTION, and
+#: only the REST routes acting on a single block (quiz responses) can name a block.
+_COORD_KEYS = ("course_id", "section_id")
+
+
+def content_coords(content_context: dict[str, Any] | None) -> dict[str, Any]:
+    """Content coordinates of a cycle, ready to spread onto a research event.
+
+    `content_context_service.build` resolves these while it grounds the prompt, so this is a
+    projection of work already done rather than a second lookup on the 30s hot path. Both the
+    WebSocket handlers and the agent nodes read the same context, so both stamp identically.
+
+    Returns `{}` when the section is unknown -- an event with no place in the course carries no
+    coordinate rather than a row of nulls, which keeps `IS NOT NULL` a meaningful filter.
+    """
+    if not content_context:
+        return {}
+    return {key: content_context[key] for key in _COORD_KEYS if content_context.get(key)}
+
 # Monotonic per-session sequence counters (in-process). One WS connection per learner on
 # one server makes this monotonic per session; multi-worker would use Redis INCR (forward).
 _sequences: dict[str, int] = {}

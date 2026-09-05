@@ -28,7 +28,12 @@ from app.core.security import decode_token
 from app.models.user import Role, User
 from app.services import redis_service
 from app.services.connection_manager import connection_manager
-from app.services import llm_health, monitor_aggregate_service, monitor_export_service
+from app.services import (
+    llm_health,
+    monitor_aggregate_service,
+    monitor_export_service,
+    session_history_service,
+)
 from app.services.model_report import model_report
 from app.services.monitor_bus import monitor_bus
 
@@ -186,6 +191,26 @@ async def aggregates(
     `monitor_aggregate_service` for why payload extraction happens in Python.
     """
     return await monitor_aggregate_service.aggregates(db, hours=hours)
+
+
+@router.get("/session/{session_id}")
+async def session_history(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(Role.admin)),
+):
+    """One session reconstructed from the research record, indexed by cycle.
+
+    The live SSE stream keeps 200 events out of a 500-slot in-process ring -- about seven to ten
+    cycles, and nothing at all after a restart. Every retrospective question ("when did the state
+    change", "how long was the learner confused", "why did the gate withhold") therefore has to come
+    from `research_events`, which is what this reads.
+
+    Returns `found: false` rather than 404 for an unknown session: the Monitor's session picker
+    offers ids from the live ring, which can outlive the rows if Redis dropped them, and a 404 there
+    is a legitimate state rather than a client error.
+    """
+    return await session_history_service.session_history(db, session_id)
 
 
 @router.get("/export.csv")

@@ -47,9 +47,18 @@ from app.agents import fallbacks
 from app.agents.llm import get_chat_client
 from app.agents.state import AgentState
 from app.core.config import settings
+from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
 logger = structlog.get_logger(__name__)
+
+#: Longest adaptation text written to the research record, in characters.
+#:
+#: Sized well above what VLLM_MAX_TOKENS can produce, so a hit signals a generator fault rather
+#: than a normal long hint. The record is append-only research data, not a cache, so it stores the
+#: learner-visible string verbatim rather than a hash -- a hash cannot answer "was this hint any
+#: good", which is the question the text exists to support.
+_TEXT_RECORD_CAP = 4000
 
 _SYSTEM_PROMPT = (
     "You are the Content Adapter for an adaptive e-learning platform. You write short, "
@@ -273,6 +282,9 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
         # Story 6.5: top-level phase/group so the event is filterable by study phase/cohort.
         "phase": state.get("phase"),
         "group": state.get("group"),
+        # Migration 021: where in the course this happened. Read from the same section context
+        # the prompt is grounded in, so the decision and the content it was about stay joined.
+        **content_coords(state.get("content_context")),
         "payload": {
             "action_type": action_type,
             "variant": content["variant"],
@@ -281,6 +293,19 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
             "generated": bool(md.get("generated")),
             "fallback": bool(md.get("fallback")),
             "fallback_reason": md.get("fallback_reason"),
+            # WHAT THE LEARNER WAS SHOWN.
+            #
+            # This existed only in AgentState for the duration of one ainvoke and was then
+            # garbage-collected, so the research record could say an adaptation was delivered but
+            # never what it said. For pre-written content that was recoverable from the fallback
+            # copy; for LLM-generated content it was gone permanently, which makes "did this hint
+            # help" unanswerable for exactly the content the study is about.
+            #
+            # Capped rather than truncated silently: the cap is generous against the model's own
+            # max_tokens, so hitting it means the generator misbehaved, and `text_truncated` says
+            # so instead of leaving a reader to wonder whether the learner saw a clipped hint.
+            "text": (content.get("text") or "")[:_TEXT_RECORD_CAP] or None,
+            "text_truncated": len(content.get("text") or "") > _TEXT_RECORD_CAP,
         },
     })
 
