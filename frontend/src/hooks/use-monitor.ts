@@ -11,6 +11,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, apiFetchBlob, saveBlob } from "@/lib/api-client";
 import type {
+  SessionHistory,
   GraphTopology,
   MonitorAggregates,
   MonitorHealth,
@@ -58,6 +59,26 @@ export function useMonitorAggregates(hours: number) {
     queryFn: () => apiFetch<MonitorAggregates>(`/monitor/aggregates?hours=${hours}`),
     refetchInterval: 30_000,
     staleTime: 15_000,
+  });
+}
+
+/**
+ * One session reconstructed from the research record, indexed by cycle.
+ *
+ * Separate from `useMonitorStream` on purpose. The stream answers "what is happening now" from a
+ * 500-slot in-process ring; this answers "what happened during this session" from the database,
+ * and survives a page reload or a backend restart, which the stream does not.
+ *
+ * Polled while a session is live so the timeline keeps growing, but slowly: it reads
+ * `research_events` and a cycle only lands every ~30 s.
+ */
+export function useSessionHistory(sessionId: string | null) {
+  return useQuery<SessionHistory>({
+    queryKey: [MONITOR_KEY, "session", sessionId],
+    queryFn: () => apiFetch<SessionHistory>(`/monitor/session/${sessionId}`),
+    enabled: Boolean(sessionId),
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 }
 
