@@ -55,6 +55,18 @@ class AgentState(TypedDict, total=False):
     affect_source: str           # AFFECT_SOURCE_CATEGORY | AFFECT_SOURCE_ENGAGEMENT | AFFECT_SOURCE_BEHAVIORAL
     engagement_level: int        # additive: only when affect_source == engagement_adapter
     engagement_label: str        # additive: raw engagement label under the adapter
+    # The positive-class probability each binary channel's gate actually thresholds.
+    #
+    # `resolve_affect` returns these in its extras slot and `affect_detection` spreads them into
+    # its state update -- but an undeclared key does not survive the graph, because this TypedDict
+    # IS the state schema. They were therefore always None by the time ws.py read them off
+    # `result_state`, so every event carried a null and the monitor rendered "—" for both
+    # channels. The aggregate view looked correct only because it falls back to probs[1].
+    #
+    # Index 1 means a DIFFERENT construct per channel: P(confused) for the DAiSEE artifact,
+    # P(disengaged) for the geometry one. They are separate keys for that reason.
+    p_confused: float
+    p_disengaged: float
     facial_inference: dict       # raw facial inference (engagement_level/label/confidence/probs/frames_used)
     behavioral_inference: dict   # raw behavioral inference (affect_index/label/confidence/probs/n_bins)
     empty_cycle: bool            # set when no face was detected the whole window

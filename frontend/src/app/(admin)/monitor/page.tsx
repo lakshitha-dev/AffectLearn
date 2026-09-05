@@ -61,9 +61,23 @@ export default function MonitorPage() {
   // learner at 100% face presence with no camera open.
   const stale = stream.metrics.sessionState !== "active";
 
+  const activeIds = new Set(
+    (sessionsQ.data?.active ?? []).map((a) => a.session_id).filter(Boolean) as string[],
+  );
+
+  // Which session the history panels read.
+  //
+  // "All sessions" is the right default for the LIVE stream -- an admin watching for activity
+  // wants every session -- but the timeline and the intervention list are per-session by nature,
+  // and with no selection they rendered "select a session" while a session was visibly running
+  // three feet away. So they fall back to the one active session when exactly one is active;
+  // ambiguity (none, or several) still requires an explicit choice rather than a guess.
+  const soleActiveId = activeIds.size === 1 ? [...activeIds][0] : null;
+  const historySessionId = sessionId ?? soleActiveId;
+
   // The DATABASE-backed view of this session. The SSE ring holds ~7-10 cycles and is wiped on
   // restart, so the timeline, the durations and any retrospective question have to come from here.
-  const historyQ = useSessionHistory(sessionId);
+  const historyQ = useSessionHistory(historySessionId);
   const history = historyQ.data;
   const changes = history?.stateChanges ?? [];
   const cycles = history?.cycles ?? [];
@@ -76,9 +90,6 @@ export default function MonitorPage() {
 
   // Which session ids are actually connected right now. `sessions.active` was fetched and
   // discarded, so a dead id in the picker looked identical to a live one.
-  const activeIds = new Set(
-    (sessionsQ.data?.active ?? []).map((a) => a.session_id).filter(Boolean) as string[],
-  );
 
   return (
     <div className="space-y-5">
@@ -134,7 +145,7 @@ export default function MonitorPage() {
             <div className="space-y-5">
               <MetricsBar metrics={stream.metrics} health={healthQ.data} connected={connected} />
 
-              {sessionId && history?.summary ? (
+              {historySessionId && history?.summary ? (
                 <SessionOverview summary={history.summary} live={!stale} />
               ) : null}
 
@@ -164,7 +175,7 @@ export default function MonitorPage() {
                   <CardTitle className="text-base">Detection Timeline</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {sessionId ? (
+                  {historySessionId ? (
                     <DetectionTimeline
                       changes={changes}
                       cycles={cycles}
@@ -213,7 +224,7 @@ export default function MonitorPage() {
                   <CardTitle className="text-base">Interventions</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {sessionId ? (
+                  {historySessionId ? (
                     <InterventionLifecycle
                       interventions={history?.interventions ?? []}
                       loading={historyQ.isLoading}
