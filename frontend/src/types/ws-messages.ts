@@ -48,13 +48,19 @@ export interface HeartbeatMessage extends WSMessage {
 }
 
 /**
- * Facial-feature cycle (Story 4.2). One message per 30s cycle, regardless of
- * whether any frames were captured (`frames_b64: ""` when none — explicit signal
- * to the server to switch to behavioral-only for that cycle).
+ * Facial-feature cycle. One message per 30s cycle, regardless of whether any frames were
+ * captured (`geometry: []` when none — an explicit signal to the server to fall back to
+ * behavioural-only for that cycle).
  *
- * `frames_b64` is base64 of the concatenated CHW-float32 buffer; the server
- * decodes it to `(frames_captured, 3, 96, 96)` and picks
- * `framesPerInferenceWindow` frames for the CNN-LSTM.
+ * CARRIES GEOMETRY, NOT PIXELS. Each row is the 11 per-frame scalars in
+ * `GEOMETRY_CONTRACT.channels` order — head pose, eye aspect ratios, mouth openness, a gaze
+ * proxy, motion energy and a face-found flag. About 600 bytes per cycle, against the ~4.4 MB of
+ * base64 face crops this message used to carry. No image leaves the browser at all, which is
+ * what makes the consent copy in `ConsentStep.tsx` accurate.
+ *
+ * `null` means "no reading" (no face in that frame) and MUST be decoded to NaN, never to 0:
+ * zero is a real gaze value meaning "looking straight ahead", so coercing it would record
+ * attentiveness at precisely the moment a learner looked away.
  *
  * Field naming: snake_case (architecture.md line 555 — WS protocol exception
  * to the REST camelCase rule).
@@ -78,11 +84,12 @@ export interface FacialFeaturesMessage extends WSMessage {
      * cannot produce an affect reading.
      */
     face_absent: boolean;
-    frames_b64: string;
+    /** (frames, 11) per-frame geometry; null entries are missing readings, not zeros. */
+    geometry: (number | null)[][];
     contract_version: number;
-    crop_size: number;
-    channel_order: "RGB";
-    dtype: "float32";
+    geometry_contract_version: number;
+    channel_order: readonly string[];
+    frames_per_cycle: number;
     /**
      * The section the learner is on, so the server can ground the adaptation prompts in the
      * material actually on screen (`services/content_context_service`). Optional: a cycle with

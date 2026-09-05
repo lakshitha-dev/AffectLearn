@@ -116,7 +116,8 @@ export function ThankYouSummary({ learnerId }: ThankYouSummaryProps) {
           was by design and is completely normal — not a reflection of your ability.
         </p>
         <p className="text-muted-foreground">
-          Your webcam frames were never stored — only the on-device affect reading was sent.
+          No photos or video from your webcam were ever sent or stored — only measurements
+          taken from them on your own device, such as eye, mouth and head position.
           Behavioural data is aggregate features only, anonymised by a random session token, and
           kept for at most 90 days. You may still withdraw at any time and have your data deleted;
           contact the research team with any questions.

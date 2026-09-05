@@ -23,6 +23,7 @@ from app.agents.affect_mapping import resolve_affect
 from app.agents.fusion import fuse_modalities
 from app.agents.state import AFFECT_SOURCE_BEHAVIORAL, AgentState
 from app.services.behavioral_inference import predict_from_window
+from app.services.geometry_inference import predict_from_payload as predict_geometry
 from app.services.model_inference import predict_from_payload
 
 logger = structlog.get_logger(__name__)
@@ -51,10 +52,11 @@ async def detect_engagement(data: dict[str, Any]) -> dict[str, Any] | None:
     The centre-crop fallback still covers MOMENTARY detector misses, which is what
     training actually contained.
     """
-    frames_b64 = data.get("frames_b64", "") or ""
     frames_captured = int(data.get("frames_captured", 0) or 0)
-    if frames_captured <= 0 or not frames_b64:
-        return None
+
+    # The empty-chair guard runs BEFORE either branch, because it is a property of the cycle
+    # rather than of the representation: an absent learner must never produce an affect reading,
+    # whichever channel is carrying the payload.
     if data.get("face_absent"):
         logger.info(
             "affect_detection_face_absent",
@@ -63,6 +65,23 @@ async def detect_engagement(data: dict[str, Any]) -> dict[str, Any] | None:
             frames_with_face=data.get("frames_with_face"),
             face_ratio=data.get("face_ratio"),
         )
+        return None
+
+    # GEOMETRY path. The browser now sends ~600 bytes of per-frame scalars instead of ~4.4 MB of
+    # base64 face crops, so no image leaves the device at all. Dispatch is on the payload's own
+    # shape rather than on an env flag: a client that has not been updated still sends frames_b64
+    # and must keep working through the branch below, and reading the payload is the only way to
+    # know which one arrived.
+    geometry = data.get("geometry")
+    if geometry:
+        # null on the wire means "no reading for that frame" and MUST become NaN, never 0 --
+        # zero is a real gaze value meaning "looking straight ahead", so coercing it would record
+        # attentiveness at exactly the moment the learner looked away. np.asarray(dtype=float)
+        # maps None -> nan, which is why the payload is handed over unconverted.
+        return await asyncio.to_thread(predict_geometry, {"geometry": geometry})
+
+    frames_b64 = data.get("frames_b64", "") or ""
+    if frames_captured <= 0 or not frames_b64:
         return None
     return await asyncio.to_thread(predict_from_payload, frames_b64, frames_captured)
 

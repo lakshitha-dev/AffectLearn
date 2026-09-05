@@ -27,6 +27,7 @@ from typing import Any
 from app.agents.state import (
     AFFECT_SOURCE_CATEGORY,
     AFFECT_SOURCE_ENGAGEMENT,
+    AFFECT_SOURCE_FACIAL_GEOMETRY,
 )
 
 # The class order a retrained 4-category facial model MUST output (index -> label).
@@ -77,6 +78,31 @@ def binary_confusion_to_affect(index: int) -> str:
     return "confused" if index == BINARY_CONFUSED_INDEX else "engaged"
 
 
+#: Index of the positive class in the geometric disengagement artifact
+#: (`engagenet_lean_gbdt.onnx`, P over [engaged, disengaged]).
+BINARY_DISENGAGED_INDEX = 1
+
+
+def binary_disengagement_to_affect(index: int) -> str:
+    """Map the geometric disengagement model's class index to an affect category.
+
+    1 -> bored ; 0 -> engaged.
+
+    This is the mirror image of `binary_confusion_to_affect`, and it obeys the same rule from the
+    opposite side. There, the negative class went to `engaged` because `bored` is actionable and
+    the model could not see it. Here `bored` IS the positive detection — the model was trained on
+    EngageNet's low-engagement class, defined behaviourally as a learner who frequently glances
+    away — so routing it to an actionable state is a detection, not an inference from absence.
+    The negative class still goes to `engaged` for the same reason as before: it means "no
+    disengagement detected", and `confused`/`frustrated` remain invisible to this artifact.
+
+    `bored` is reachable for the first time with this model. Both existing artifacts pin it at
+    0.0 in the canonical vector, so `ADAPT_STATES` has listed an actionable state that no channel
+    could ever produce.
+    """
+    return "bored" if index == BINARY_DISENGAGED_INDEX else "engaged"
+
+
 def _model_kind() -> str:
     """Which facial artifact is loaded. Mirrors model_inference's os.getenv pattern.
 
@@ -84,6 +110,9 @@ def _model_kind() -> str:
         category             a true 4-category model, indices map to AFFECT_CLASS_ORDER
         binary_confusion     cnn_lstm_confusion_anycut.onnx, 2 logits, AUC 0.6414 on the
                              DAiSEE test split (kappa 0.2119, n=1638)
+        geometry             engagenet_lean_gbdt.onnx, 2 probs over 20 aggregated geometry
+                             features, AUC 0.9225 on the EngageNet test split (kappa 0.6877,
+                             n=2256, 26 subjects). Consumes geometry, NOT pixels.
     """
     return os.getenv("AFFECT_MODEL_KIND", "engagement").strip().lower()
 
@@ -164,6 +193,15 @@ def resolve_affect(
         return (affect, AFFECT_SOURCE_CATEGORY,
                 float(inference.get("confidence", 0.0)),
                 {"p_confused": _positive_prob(inference)})
+
+    if kind == "geometry":
+        # Two probabilities, so the argmax prob is the confidence. Reported under its OWN
+        # provenance marker rather than AFFECT_SOURCE_CATEGORY: this channel is decisive and
+        # the DAiSEE-trained one is not, so they must be distinguishable at the gate.
+        affect = binary_disengagement_to_affect(index)
+        return (affect, AFFECT_SOURCE_FACIAL_GEOMETRY,
+                float(inference.get("confidence", 0.0)),
+                {"p_disengaged": _positive_prob(inference)})
 
     # engagement stand-in (default)
     affect = engagement_to_affect(index)

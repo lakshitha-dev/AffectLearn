@@ -78,6 +78,22 @@ def facial_to_canonical(facial_result: dict[str, Any], kind: str | None = None) 
         p_conf = float(probs[1])
         # CANONICAL_ORDER = (bored, confused, engaged, frustrated)
         return np.array([0.0, p_conf, 1.0 - p_conf, 0.0], dtype=float)
+    if kind == "geometry":
+        # engagenet_lean_gbdt: [P(engaged), P(disengaged)]. The first artifact that lets ANY
+        # channel vote on `bored` — every other model pins it at 0, so an actionable state was
+        # listed in ADAPT_STATES that nothing could produce.
+        #
+        # NOTE FOR FUSION, not for this projection: this channel and the behavioural one are
+        # DISJOINT. This one votes on bored, that one on confused, and each zeroes the other's
+        # state. Weighted-averaging two disjoint votes halves both, so a genuine detection on
+        # either channel can land under ADAPT_MIN_CONFIDENCE and fire nothing — the documented
+        # zero-intervention failure. The projection is still correct and is kept so fusion
+        # RECORDS stay coherent for research; the decision is taken per-channel instead, which is
+        # why FUSION_DRIVES_DECISION is false wherever this artifact is deployed.
+        if len(probs) < 2:
+            return np.zeros(len(CANONICAL_ORDER), dtype=float)
+        p_dis = float(probs[1])
+        return np.array([p_dis, 0.0, 1.0 - p_dis, 0.0], dtype=float)
     if len(probs) < 4:
         return np.zeros(len(CANONICAL_ORDER), dtype=float)
     bored = float(probs[0]) + float(probs[1])      # very_low + low

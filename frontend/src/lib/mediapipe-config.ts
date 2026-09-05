@@ -21,3 +21,16 @@ export const MEDIAPIPE_WASM_URL =
 
 export const MEDIAPIPE_FACE_DETECTOR_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
+
+/**
+ * FaceLandmarker — 478 landmarks plus the 4x4 facial transformation matrix, which the geometry
+ * channel needs and the detector above cannot provide (it returns only a bounding box and six
+ * keypoints).
+ *
+ * This is the SAME model file the training pipeline used
+ * (`affectlearn-ml/training/engagenet/face_landmarker.task`, float16 v1). Pinning the version is
+ * part of the train/serve contract: a different landmarker revision moves landmark positions
+ * slightly, which shifts every derived measurement the model was fitted on.
+ */
+export const MEDIAPIPE_FACE_LANDMARKER_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";

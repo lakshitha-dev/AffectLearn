@@ -105,6 +105,13 @@ def gate_open(monkeypatch):
     first cycle of a session can never adapt under the shipped default is intended conservative
     behaviour, not something to work around in production — see tests/agents/test_adaptation_gate.py
     for the persistence rule itself.
+
+    DECISIVE_AFFECT_SOURCES is widened for the same reason. This payload is a FACIAL one, so its
+    provenance is the engagement adapter, and the shipped policy grants intervention authority
+    only to the behavioural and fused channels — the facial channel is advisory because it is
+    indistinguishable from chance on the only corpus where both are measured against one human
+    label. These tests are about graph TOPOLOGY, so they must not also depend on which channels
+    are currently authorised; the policy itself is tested in test_channel_authority.py.
     """
     async def fake_detect(_data):
         return {"engagement_level": 0, "label": "very_low", "confidence": 0.5,
@@ -112,6 +119,7 @@ def gate_open(monkeypatch):
 
     monkeypatch.setattr(ad, "detect_engagement", fake_detect)
     monkeypatch.setattr(edges, "ADAPT_MIN_CONSECUTIVE", 1)
+    monkeypatch.setattr(edges, "DECISIVE_AFFECT_SOURCES", ())   # () = every channel decides
 
 
 async def test_phase_a_routes_to_log_only_no_adaptation(traced, fake_engaged):
