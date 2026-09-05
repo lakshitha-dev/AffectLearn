@@ -13,9 +13,14 @@ interface WebcamStepProps {
   totalSteps: number;
 }
 
+// These four lines are a privacy CLAIM shown before consent, so they must describe what the code
+// does rather than what it was intended to do. Images are analysed on-device and only derived
+// measurements are transmitted -- see `lib/geometry.ts` and `hooks/use-media-pipe.ts`, which send
+// `geometry` and no longer send any frame data.
 const PRIVACY_ITEMS = [
-  "Frames are processed in real-time — no video is ever stored",
-  "Processing happens on your device before sending",
+  "Your camera images are analysed on your device",
+  "No photos or video are ever sent or stored",
+  "Only measurements are sent — eye, mouth and head position",
   "You can turn this off anytime in settings",
   "All data deleted within 90 days after study",
 ];
