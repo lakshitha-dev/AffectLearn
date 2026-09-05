@@ -316,3 +316,26 @@ def test_aggregate_does_not_file_disengagement_as_confusion():
 
     # The gate-reason list must track the constants, or advisory cycles vanish into "unknown".
     assert GATE_CHANNEL_ADVISORY in GATE_REASONS
+
+
+def test_the_gated_probability_survives_the_graph_state():
+    """`AgentState` IS the graph's schema — an undeclared key does not propagate.
+
+    `resolve_affect` returns p_disengaged / p_confused in its extras slot and `affect_detection`
+    spreads them into its update, but neither was declared, so both arrived at the emit site as
+    None. Every event carried a null and the monitor rendered "—" for both channels; the aggregate
+    view looked fine only because it falls back to probs[1]. A missing key here is invisible at
+    runtime, which is why it is asserted rather than trusted.
+    """
+    from app.agents.state import AgentState
+
+    keys = set(AgentState.__annotations__)
+    assert "p_disengaged" in keys
+    assert "p_confused" in keys
+    # The extras `resolve_affect` actually emits must all be declared, or they vanish the same way.
+    for kind, expected in (("geometry", "p_disengaged"), ("binary_confusion", "p_confused")):
+        _, _, _, extra = resolve_affect(
+            {"engagement_level": 1, "confidence": 0.9, "probs": [0.1, 0.9]}, kind=kind
+        )
+        assert expected in extra
+        assert set(extra) <= keys, f"{kind} emits extras the state schema will drop: {set(extra) - keys}"
