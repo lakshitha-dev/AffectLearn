@@ -14,7 +14,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.research_event import ResearchEvent
 
 _FIELDS = ("event_type", "learner_id", "session_id", "cycle_number",
-           "timestamp", "sequence_number", "payload", "phase", "group")
+           "timestamp", "sequence_number", "payload", "phase", "group",
+           "course_id", "section_id", "block_id")
+
+#: Top-level identity fields persisted as their own columns rather than inside `payload`.
+#: All are optional and all are stringified, matching `learner_id` / `session_id`.
+_OPTIONAL_STR_FIELDS = ("phase", "group", "course_id", "section_id", "block_id")
+
+
+def _opt_str(event: dict[str, Any], field: str) -> str | None:
+    value = event.get(field)
+    return str(value) if value is not None else None
 
 
 def _row(event: dict[str, Any]) -> ResearchEvent:
@@ -26,9 +36,10 @@ def _row(event: dict[str, Any]) -> ResearchEvent:
         timestamp=int(event.get("timestamp", 0) or 0),
         sequence_number=event.get("sequence_number"),
         payload=event.get("payload"),
-        # Story 6.5: top-level study phase / A/B group for dataset filtering (tolerate absence).
-        phase=(str(event["phase"]) if event.get("phase") is not None else None),
-        group=(str(event["group"]) if event.get("group") is not None else None),
+        # Story 6.5: top-level study phase / A/B group for dataset filtering.
+        # Migration 021: content coordinates -- where in the course the event happened.
+        # All tolerate absence: connection- and account-level events carry no coordinate.
+        **{field: _opt_str(event, field) for field in _OPTIONAL_STR_FIELDS},
     )
 
 

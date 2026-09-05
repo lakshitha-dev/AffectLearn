@@ -2,7 +2,8 @@
 
 camelCase (`CamelModel`) response shapes for the admin research export API. Every event row
 carries the full 4.7+6.5 envelope (event_type, learner_id, session_id, cycle_number, timestamp,
-sequence_number, phase, group) plus the JSON payload. These are read-only projections of
+sequence_number, phase, group), the migration-021 content coordinates (course_id, section_id,
+block_id) and the JSON payload. These are read-only projections of
 `ResearchEvent`; no file generation here (CSV/JSON file-download UI is Epic 8 / Story 8.5).
 """
 
@@ -25,6 +26,11 @@ class ResearchEventOut(CamelModel):
     sequence_number: int | None = None
     phase: str | None = None
     group: str | None = None
+    # Content coordinates (migration 021). Null on connection- and account-level events, which
+    # have no place in the course, and on every row written before the migration.
+    course_id: str | None = None
+    section_id: str | None = None
+    block_id: str | None = None
     payload: dict[str, Any] | None = None
 
 

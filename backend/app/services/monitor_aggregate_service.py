@@ -96,6 +96,10 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
     affect_counts: dict[str, int] = {}
     delivered = 0
     fallback = 0
+    # Cycles whose TRIGGER was a fallback, resolved against deliveries after the
+    # loop so a trigger+delivery pair counts once.
+    triggered_fallback_cycles: set[tuple[str, int]] = set()
+    delivered_cycles: set[tuple[str, int]] = set()
     # Per-modality confidence distribution. This exists so the UI can state "this channel never
     # reached the gate in this window" as a MEASUREMENT rather than a hardcoded claim -- and so it
     # stops saying it the moment the channel starts reaching it.
@@ -150,12 +154,20 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
 
         elif r.event_type == _DELIVERED:
             delivered += 1
+            delivered_cycles.add((r.session_id or "", int(r.cycle_number or 0)))
             if pl.get("fallback") is True:
                 fallback += 1
 
         elif r.event_type == _TRIGGERED and pl.get("fallback") is True:
-            # Some fallbacks are recorded on the trigger rather than the delivery.
-            fallback += 1
+            # A delivered adaptation emits BOTH a trigger and a delivery, and `fallback` rides on
+            # each, so counting both double-counted the same adaptation and let `fallbackRate`
+            # exceed 1.0. Only count a trigger whose delivery is not also in this window --
+            # tracked by cycle, since that is what pairs the two events.
+            triggered_fallback_cycles.add((r.session_id or "", int(r.cycle_number or 0)))
+
+    # Triggers that were never delivered in this window: their fallback is not
+    # already counted on a delivery row.
+    fallback += len(triggered_fallback_cycles - delivered_cycles)
 
     gated_cycles = sum(gate_counts.values()) + sum(gate_other.values())
 

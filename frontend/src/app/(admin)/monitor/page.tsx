@@ -9,11 +9,17 @@ import {
   useMonitorGraph,
   useMonitorHealth,
   useMonitorSessions,
+  useSessionHistory,
 } from "@/hooks/use-monitor";
 import { AffectStream } from "@/components/monitor/AffectStream";
+import { AgentFlow } from "@/components/monitor/AgentFlow";
+import { CurrentDetection } from "@/components/monitor/CurrentDetection";
+import { DetectionTimeline } from "@/components/monitor/DetectionTimeline";
 import { BehaviorPanel } from "@/components/monitor/BehaviorPanel";
 import { CycleTimeline } from "@/components/monitor/CycleTimeline";
 import { EventLog } from "@/components/monitor/EventLog";
+import { InterventionLifecycle } from "@/components/monitor/InterventionLifecycle";
+import { SessionOverview } from "@/components/monitor/SessionOverview";
 import { FacePresenceStrip } from "@/components/monitor/FacePresenceStrip";
 import { FacialPanel } from "@/components/monitor/FacialPanel";
 import { MetricsBar } from "@/components/monitor/MetricsBar";
@@ -54,6 +60,19 @@ export default function MonitorPage() {
   // render an ended session exactly like a live one -- which is what made a monitor report a
   // learner at 100% face presence with no camera open.
   const stale = stream.metrics.sessionState !== "active";
+
+  // The DATABASE-backed view of this session. The SSE ring holds ~7-10 cycles and is wiped on
+  // restart, so the timeline, the durations and any retrospective question have to come from here.
+  const historyQ = useSessionHistory(sessionId);
+  const history = historyQ.data;
+  const changes = history?.stateChanges ?? [];
+  const cycles = history?.cycles ?? [];
+  const latestCycle = cycles.length ? cycles[cycles.length - 1] : null;
+  // How long the current run has held. Null while it is still open on the server's reading, which
+  // is the honest answer rather than measuring against "now" and disagreeing with the timeline.
+  const currentRun = changes.length ? changes[changes.length - 1] : null;
+  const timeInStateMs =
+    currentRun?.at != null && !stale ? Date.now() - currentRun.at : currentRun?.durationMs ?? null;
 
   // Which session ids are actually connected right now. `sessions.active` was fetched and
   // discarded, so a dead id in the picker looked identical to a live one.
@@ -115,17 +134,95 @@ export default function MonitorPage() {
             <div className="space-y-5">
               <MetricsBar metrics={stream.metrics} health={healthQ.data} connected={connected} />
 
+              {sessionId && history?.summary ? (
+                <SessionOverview summary={history.summary} live={!stale} />
+              ) : null}
+
+              {/* PRIORITY 1 — what was detected. Everything below is downstream of this reading
+                  and none of it is interpretable without knowing which channel produced it. */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Current Detection</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <CurrentDetection
+                    facial={stream.facial}
+                    behavioral={stream.behavioral}
+                    fusion={stream.fusion}
+                    channelFloors={decision?.channelMinConfidence}
+                    stale={stale}
+                    lastCycleAgeMs={stream.metrics.lastCycleAgeMs}
+                    timeInStateMs={timeInStateMs}
+                  />
+                </CardContent>
+              </Card>
+
+              {/* PRIORITY 2 — how the state moved. Database-backed, so it survives a reload and
+                  reaches past the ~7-10 cycles the SSE ring holds. */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Detection Timeline</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {sessionId ? (
+                    <DetectionTimeline
+                      changes={changes}
+                      cycles={cycles}
+                      loading={historyQ.isLoading}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Select a session to see its detection history. The timeline is read from the
+                      research record, not the live stream, so it covers the whole session.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* PRIORITY 3 — what the agent did with it, step by step against recorded events. */}
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Agent Execution Flow</CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <PipelineFlow
-                    topology={graphQ.data}
-                    nodeStates={stream.nodeStates}
-                    lastRoute={stream.lastRoute}
-                    facialAvailable={facialAvailable}
+                <CardContent className="space-y-4">
+                  <AgentFlow
+                    cycle={latestCycle}
+                    cycleLabel={
+                      latestCycle ? `cycle #${latestCycle.cycle_number} — most recent recorded` : undefined
+                    }
                   />
+                  <details className="rounded-md border border-border">
+                    <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
+                      Graph node view (which nodes ran, live only)
+                    </summary>
+                    <div className="border-t border-border p-3">
+                      <PipelineFlow
+                        topology={graphQ.data}
+                        nodeStates={stream.nodeStates}
+                        lastRoute={stream.lastRoute}
+                        facialAvailable={facialAvailable}
+                      />
+                    </div>
+                  </details>
+                </CardContent>
+              </Card>
+
+              {/* PRIORITY 4 — the full lifecycle of every hint this session. */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Interventions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {sessionId ? (
+                    <InterventionLifecycle
+                      interventions={history?.interventions ?? []}
+                      loading={historyQ.isLoading}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Select a session to see its interventions.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 

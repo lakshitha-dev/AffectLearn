@@ -42,6 +42,7 @@ from app.services.connection_manager import (
     WS_CLOSE_AUTH_FAILED,
     connection_manager,
 )
+from app.services.research_logger import content_coords as _coords
 from app.services.research_logger import emit as emit_research_event
 # `behavioral_inference` was referenced by the feature-salvage path below but never
 # imported, so that path raised NameError, was swallowed by its own `except Exception`,
@@ -190,6 +191,12 @@ async def _handle_facial_features(
     frames_captured = int(data.get("frames_captured", 0) or 0)
     dropped = int(data.get("dropped_frames", 0) or 0)
 
+    # Resolved once and reused: it grounds the prompt AND supplies the content coordinates the
+    # research event is stamped with. Built outside the try so a graph failure still yields a
+    # located event -- knowing WHERE a cycle failed is the point of recording the failure.
+    content_context = await content_context_service.build(data.get("section_id"), db)
+    coords = _coords(content_context)
+
     result_state = None
     error = None
     try:
@@ -204,7 +211,7 @@ async def _handle_facial_features(
             group=group,
             # Grounds the strategist/adapter prompts in the section the learner is actually on.
             # Omitted before, so every prompt said `content_topic: unknown`.
-            content_context=await content_context_service.build(data.get("section_id"), db),
+            content_context=content_context,
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:
@@ -267,16 +274,17 @@ async def _handle_facial_features(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        **coords,
         "payload": payload,
     })
 
     if result_state is not None and result_state.get("affect_state"):
         await _maybe_fuse("facial", result_state.get("facial_inference") or {},
-                          user_id, session_id, cycle, phase, group)
+                          user_id, session_id, cycle, phase, group, coords)
 
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
-    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group)
+    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group, coords)
 
 
 async def _handle_behavioral_window(
@@ -305,6 +313,11 @@ async def _handle_behavioral_window(
     cycle = int(data.get("cycle_number", 0) or 0)
     summary = data.get("summary") or {}
 
+    # See the facial handler: resolved once, used for both prompt grounding and the event's
+    # content coordinates.
+    content_context = await content_context_service.build(data.get("section_id"), db)
+    coords = _coords(content_context)
+
     result_state = None
     error = None
     try:
@@ -318,7 +331,7 @@ async def _handle_behavioral_window(
             phase=phase,
             group=group,
             # See the facial call site above — same grounding, same reason.
-            content_context=await content_context_service.build(data.get("section_id"), db),
+            content_context=content_context,
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:
@@ -382,6 +395,17 @@ async def _handle_behavioral_window(
             logger.exception("behavioral_feature_salvage_failed", user_id=user_id, cycle=cycle)
     else:
         payload["empty_cycle"] = True
+        # An IDLE window is a detection, not an absence of one: "the learner did nothing for
+        # thirty seconds" is the signal, and idle_time_pct / pause_count are exactly the features
+        # that carry it. `_run_behavioral` deliberately keeps the inference on this path (see its
+        # comment about the window still landing in the research record), but the update above is
+        # gated on `affect_state`, which idle cycles do not set -- so the features were computed,
+        # retained, and then dropped here. The salvage block only covers the error branch.
+        inference = (result_state or {}).get("behavioral_inference") or {}
+        for key in ("features", "n_bins", "feature_schema_version", "probs", "label",
+                    "p_confused", "model_kind"):
+            if inference.get(key) is not None:
+                payload[key] = inference[key]
 
     payload["forced_mode"] = forced_mode()  # ablation marker on every event (Story 4.4c FR14)
     await _safe_emit({
@@ -392,16 +416,17 @@ async def _handle_behavioral_window(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        **coords,
         "payload": payload,
     })
 
     if result_state is not None and result_state.get("affect_state"):
         await _maybe_fuse("behavioral", result_state.get("behavioral_inference") or {},
-                          user_id, session_id, cycle, phase, group)
+                          user_id, session_id, cycle, phase, group, coords)
 
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
-    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group)
+    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group, coords)
 
 
 def _seed_counterpart(session_id: str, modality: str) -> dict[str, Any]:
@@ -422,6 +447,7 @@ def _seed_counterpart(session_id: str, modality: str) -> dict[str, Any]:
 async def _maybe_fuse(
     modality: str, inference: dict[str, Any], user_id: str, session_id: str, cycle: int,
     phase: str = "phase_a", group: str = "control",
+    coords: dict[str, Any] | None = None,
 ) -> None:
     """Pair this modality's result with a recent counterpart and emit a fused event.
 
@@ -457,6 +483,8 @@ async def _maybe_fuse(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        # The fused reading belongs to the same section as the two unimodal readings it pairs.
+        **(coords or {}),
         "payload": {
             "affect_state": fused["affect_state"],
             "affect_confidence": round(fused["affect_confidence"], 4),
@@ -473,6 +501,7 @@ async def _maybe_fuse(
 async def _deliver_adaptation(
     result_state: dict[str, Any] | None, user_id: str, session_id: str, cycle: int,
     phase: str = "phase_a", group: str = "control",
+    coords: dict[str, Any] | None = None,
 ) -> None:
     """Push the cycle's `adaptation` message to the learner socket (Story 5.3).
 
@@ -507,6 +536,26 @@ async def _deliver_adaptation(
             action=delivery_message.get("action"),
             reason="socket_unavailable_or_send_failed",
         )
+        # A FAILED delivery is a research fact, not just an operational one. Emitting nothing left
+        # the record with a generated adaptation and no delivery, indistinguishable from an
+        # adaptation that was never generated -- so "the learner was offered help and did not get
+        # it" could not be counted. The gate opened and the learner received nothing; that belongs
+        # in the record.
+        await _safe_emit({
+            "event_type": "adaptation_delivery_failed",
+            "learner_id": user_id,
+            "session_id": session_id,
+            "cycle_number": cycle,
+            "timestamp": _now_ms(),
+            "phase": phase,
+            "group": group,
+            **(coords or {}),
+            "payload": {
+                "adaptation_id": delivery_message.get("adaptation_id"),
+                "action": delivery_message.get("action"),
+                "reason": "socket_unavailable_or_send_failed",
+            },
+        })
         return
 
     metadata = (result_state.get("adaptation_content") or {}).get("metadata") or {}
@@ -518,7 +567,14 @@ async def _deliver_adaptation(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        # Which section the help was delivered ON. Without this, "where is help offered most"
+        # and "did the help work here" are both unanswerable from the record.
+        **(coords or {}),
         "payload": {
+            # The server-issued id this adaptation was sent under. `adaptation_interaction` echoes
+            # it back, so a response can finally be tied to the hint it responded to -- previously
+            # the id was minted in the browser and had no counterpart on this side at all.
+            "adaptation_id": delivery_message.get("adaptation_id"),
             "action": delivery_message.get("action"),
             "variant": (delivery_message.get("content") or {}).get("variant"),
             "generated": bool(metadata.get("generated")),
@@ -570,6 +626,9 @@ async def _handle_adaptation_interaction(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        # Optional: sent only by clients that include it. Accepting/dismissing help is only
+        # interpretable next to the section it was offered on.
+        **({"section_id": str(data["section_id"])} if data.get("section_id") else {}),
         "payload": {
             "adaptation_id": data.get("adaptation_id"),
             "action": data.get("action"),
@@ -646,6 +705,11 @@ async def _handle_self_report(
         "timestamp": _now_ms(),
         "phase": phase,
         "group": group,
+        # The label's section, promoted from the payload to the envelope. `section_features`
+        # already joins self-reports on `payload.section_id`; the column makes that join an
+        # indexed one rather than a JSON scan, and matches how every other located event is
+        # keyed. The payload copy is retained so existing readers are unaffected.
+        **({"section_id": str(data["section_id"])} if data.get("section_id") else {}),
         "payload": {
             "affect": None if (skipped or omitted) else affect,
             "skipped": skipped,

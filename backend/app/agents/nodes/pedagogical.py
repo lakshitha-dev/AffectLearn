@@ -28,6 +28,7 @@ from app.agents import fallbacks
 from app.agents.llm import get_chat_client
 from app.agents.state import AFFECT_STATES, AgentState
 from app.core.config import settings
+from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
 logger = structlog.get_logger(__name__)
@@ -191,6 +192,9 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
         # Story 6.5: top-level phase/group so the event is filterable by study phase/cohort.
         "phase": state.get("phase"),
         "group": state.get("group"),
+        # Migration 021: where in the course this happened. Read from the same section context
+        # the prompt is grounded in, so the decision and the content it was about stay joined.
+        **content_coords(state.get("content_context")),
         "payload": {
             "action_type": strategy["action_type"],
             "urgency": strategy["urgency"],
@@ -198,6 +202,14 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
             "detection_mode": state.get("detection_mode"),
             "fallback": strategy["fallback"],
             "fallback_reason": strategy.get("fallback_reason"),
+            # WHY the strategist chose this action.
+            #
+            # Already parsed and capped at 300 chars just above, then discarded -- so the research
+            # record held what the agent decided but never its stated reason, which is the half a
+            # reviewer actually needs to judge whether the decision was sound. On the fallback path
+            # this is the deterministic rule's description rather than model output; `fallback`
+            # distinguishes the two, so a reader is never misled about where the reason came from.
+            "reason": strategy.get("reason") or None,
         },
     })
 

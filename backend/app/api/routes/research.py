@@ -52,6 +52,8 @@ async def list_research_events(
     event_type: str | None = Query(default=None, alias="eventType"),
     start_ts: int | None = Query(default=None, alias="startTs"),
     end_ts: int | None = Query(default=None, alias="endTs"),
+    course_id: str | None = Query(default=None, alias="courseId"),
+    section_id: str | None = Query(default=None, alias="sectionId"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=1000, alias="pageSize"),
     db: AsyncSession = Depends(get_db),
@@ -67,6 +69,8 @@ async def list_research_events(
         event_types=_parse_event_types(event_type),
         start_ts=start_ts,
         end_ts=end_ts,
+        course_id=course_id,
+        section_id=section_id,
         page=page,
         page_size=page_size,
     )
