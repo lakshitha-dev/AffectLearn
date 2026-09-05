@@ -28,9 +28,12 @@ export function ConsentStep({ onAgree, onBack, isSubmitting, currentStep, totalS
         <section>
           <h2 className="font-semibold">Webcam Facial Analysis</h2>
           <p className="mt-1 text-muted-foreground">
-            With your permission, the system captures webcam frames to detect your emotional state while learning
-            (engaged, confused, bored, or frustrated). Frames are processed in real-time on your device and are
-            <strong> never stored</strong>. Only the resulting affect classification is transmitted to the server.
+            With your permission, the system uses your webcam to help detect when you seem disengaged while
+            learning. Your camera images are analysed on your own device and{" "}
+            <strong>no photographs or video ever leave your computer</strong>. What is sent to the server is a
+            short list of measurements taken from each image — where your eyes are looking, how open your mouth
+            is, the position of your head, and how much you are moving. These measurements cannot be turned back
+            into a picture of your face.
           </p>
         </section>
         <section>

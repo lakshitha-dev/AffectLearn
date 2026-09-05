@@ -10,10 +10,11 @@
  * are dropped per AC #4.
  */
 
-import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
+import { FaceDetector, FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
 import {
   MEDIAPIPE_FACE_DETECTOR_MODEL_URL,
+  MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
   MEDIAPIPE_WASM_URL,
 } from "./mediapipe-config";
 
@@ -71,6 +72,59 @@ export function loadFaceDetector(): Promise<FaceDetector> {
   return detectorPromise;
 }
 
+let landmarkerPromise: Promise<FaceLandmarker> | null = null;
+
+async function createLandmarkerWithDelegate(
+  delegate: "GPU" | "CPU",
+): Promise<FaceLandmarker> {
+  const fileset = await getWasmFileset();
+  return FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath: MEDIAPIPE_FACE_LANDMARKER_MODEL_URL,
+      delegate,
+    },
+    runningMode: "VIDEO",
+    numFaces: 1,
+    // The geometry channel needs the 4x4 pose matrix; blendshapes are not used and are
+    // switched off because they are the expensive half of the graph.
+    outputFacialTransformationMatrixes: true,
+    outputFaceBlendshapes: false,
+  });
+}
+
+/**
+ * Lazily create (or return the cached) `FaceLandmarker` — 478 landmarks plus the facial
+ * transformation matrix, which the geometry channel needs.
+ *
+ * Same GPU-then-CPU fallback as the detector, and it shares the WASM fileset, so enabling the
+ * geometry channel costs one extra model download rather than a second runtime.
+ */
+export function loadFaceLandmarker(): Promise<FaceLandmarker> {
+  if (landmarkerPromise) return landmarkerPromise;
+
+  landmarkerPromise = createLandmarkerWithDelegate("GPU").catch((gpuErr) => {
+    console.warn(
+      "[mediapipe-loader] GPU delegate unavailable for landmarker, falling back to CPU",
+      gpuErr,
+    );
+    return createLandmarkerWithDelegate("CPU");
+  });
+  return landmarkerPromise;
+}
+
+/** Dispose the cached landmarker. Mirrors `disposeFaceDetector`. */
+export async function disposeFaceLandmarker(): Promise<void> {
+  if (!landmarkerPromise) return;
+  try {
+    const lm = await landmarkerPromise;
+    lm.close();
+  } catch {
+    // Load failed or close threw — both fine for cleanup.
+  } finally {
+    landmarkerPromise = null;
+  }
+}
+
 /**
  * Dispose the cached detector. Intended for tests and for the hook's cleanup
  * path when the lesson page unmounts.
@@ -91,5 +145,6 @@ export async function disposeFaceDetector(): Promise<void> {
 /** Test-only: reset cached singletons without touching a real detector. */
 export function __resetForTests(): void {
   detectorPromise = null;
+  landmarkerPromise = null;
   wasmFilesetPromise = null;
 }
