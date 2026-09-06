@@ -53,6 +53,7 @@ from app.services import (
     behavioral_inference,
     content_context_service,
     fusion_buffer,
+    redis_service,
     study_service,
 )
 from app.agents.fusion import forced_mode, fuse_modalities
@@ -156,14 +157,63 @@ async def _resolve_phase_group(db: AsyncSession | None, user_id: str) -> tuple[s
         return ("phase_a", "control")
 
 
+#: How long a learner's place is remembered across reconnects.
+#:
+#: Long enough to survive a closed laptop lid, a dropped connection or a browser restart within
+#: one sitting; short enough that returning days later starts fresh rather than announcing a
+#: restore of somewhere they no longer remember being.
+_SESSION_STATE_TTL_SECONDS = 12 * 60 * 60
+
+
+def _session_state_key(user_id: str) -> str:
+    return f"session:learner:{user_id}"
+
+
 async def _load_session_state(user_id: str) -> dict[str, Any] | None:
     """Look up session state for restoration on reconnect.
 
-    Story 4.1 stubs this: returns None for everyone. Story 4.4+ populates the real
-    `session:learner:{user_id}` Redis key with the agent loop's current state.
+    This returned a hardcoded `None` for every learner, which made the `session_restored` branch
+    below unreachable and the message documented in `routes/README.md` one the server could never
+    send — while the client half was fully built and waiting for it (a type, a type guard, a store
+    action and its tests). Reconnecting therefore always looked like a brand-new session.
+
+    Degrades to None whenever Redis is unavailable: `redis_service` no-ops rather than raising, so
+    a cache outage costs the restore banner and nothing else.
     """
-    # NOTE Story 4.5+ will replace with redis_service.get_json("session:learner:{user_id}").
-    return None
+    try:
+        return await redis_service.get_json(_session_state_key(user_id))
+    except Exception:  # noqa: BLE001 — a cache read must never break the handshake
+        logger.warning("session_state_load_failed", user_id=user_id, exc_info=True)
+        return None
+
+
+async def _save_session_state(
+    user_id: str, *, section_id: Any, phase: str | None, group: str | None
+) -> None:
+    """Remember where a learner was, so a reconnect can say so.
+
+    Deliberately does NOT store the affect state. `architecture.md` lists showing a learner their
+    detected affect as an anti-pattern, and this payload is sent straight to the browser — so the
+    one field on the message contract that would carry it (`last_affect_state`, optional) stays
+    unset rather than being populated with something the client must then be trusted to ignore.
+
+    Best-effort in every direction: no Redis, no section, or a write failure simply means the next
+    reconnect looks like a fresh session, which is exactly the behaviour that existed before.
+    """
+    if not section_id:
+        return
+    try:
+        await redis_service.set_json(
+            _session_state_key(user_id),
+            {
+                "current_section_id": str(section_id),
+                "phase": phase,
+                "group": group,
+            },
+            ttl_seconds=_SESSION_STATE_TTL_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("session_state_save_failed", user_id=user_id, exc_info=True)
 
 
 def _handle_heartbeat(envelope: dict[str, Any]) -> dict[str, Any]:
@@ -1047,6 +1097,19 @@ async def websocket_endpoint(
                 continue
 
             msg_type = envelope.get("type")
+
+            # Remember where the learner is, from whichever message happens to say so.
+            #
+            # Done once here rather than in each handler: several message types carry
+            # `section_id` and they would otherwise each need the same three lines, drifting
+            # apart the moment a new one is added. Heartbeats carry no position and are skipped.
+            if msg_type != "heartbeat":
+                await _save_session_state(
+                    user_id,
+                    section_id=(envelope.get("data") or {}).get("section_id"),
+                    phase=phase,
+                    group=group,
+                )
 
             if msg_type == "heartbeat":
                 await websocket.send_json(_handle_heartbeat(envelope))
