@@ -20,5 +20,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.6,
     },
+    // The legal pages are public and are what a prospective participant reads before consenting,
+    // so they belong in the index rather than being reachable only from the footer.
+    ...["privacy", "terms", "data-and-consent", "accessibility"].map((slug) => ({
+      url: `${SITE_URL}/legal/${slug}`,
+      changeFrequency: "yearly" as const,
+      priority: 0.3,
+    })),
   ];
 }
