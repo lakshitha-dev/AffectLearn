@@ -23,6 +23,7 @@ from app.models.quiz_response import QuizBlockResponse
 from app.models.section_visit import SectionVisit
 from app.models.study_group import StudyGroup
 from app.models.study_phase import StudyPhase
+from app.models.system_config import SystemConfig
 from app.models.survey_response import SurveyResponse
 from app.models.user import Role, User
 
@@ -44,6 +45,7 @@ __all__ = [
     "SectionVisit",
     "QuestionnaireResponse",
     "StudyGroup", "StudyPhase",
+    "SystemConfig",
     "SurveyResponse",
     "Role", "User",
 ]

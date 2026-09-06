@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    system_config,
     admin,
     analytics,
     assessments,
@@ -31,6 +32,9 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["analytic
 api_router.include_router(reviews.router)
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(study.router, prefix="/admin", tags=["study"])
+api_router.include_router(
+    system_config.router, prefix="/admin", tags=["system-config"]
+)
 api_router.include_router(research.router, prefix="/admin", tags=["research"])
 api_router.include_router(surveys.router, prefix="/surveys", tags=["surveys"])
 api_router.include_router(questionnaire.router, tags=["onboarding"])

@@ -42,6 +42,15 @@ class ResearchEvent(BaseModel):
     timestamp = Column(BigInteger, nullable=False)        # unix ms
     sequence_number = Column(Integer, nullable=True)      # monotonic per session (NFR23)
     payload = Column(JSON, nullable=True)
+
+    # WHICH CONFIGURATION PRODUCED THIS ROW.
+    #
+    # The gate's thresholds are runtime-editable from the admin settings page. If a confidence
+    # floor or the trial withhold rate changes halfway through collection, the cycles before and
+    # after are not comparable -- and without this column nothing in the dataset would show that
+    # it happened, so an analysis would pool them and report a result. Indexed, because splitting
+    # an analysis on it is the entire reason it is here.
+    config_version = Column(Integer, nullable=True, index=True)
     phase = Column(String(32), nullable=True, index=True)  # study phase (Story 6.5)
     group = Column(String(32), nullable=True, index=True)  # A/B cohort (Story 6.5)
     # Content coordinates (migration 021). Where in the course this event happened.

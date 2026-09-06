@@ -67,7 +67,29 @@ async def emit(event: dict[str, Any]) -> None:
     columns. The signature is unchanged and emit still never raises.
     """
     try:
-        event = {**event, "sequence_number": _next_sequence(event.get("session_id"))}
+        # WHICH CONFIGURATION PRODUCED THIS EVENT.
+        #
+        # Stamped HERE rather than at each call site, because there are dozens of call sites and
+        # one that forgot would leave a hole exactly where an analysis needs to split. The gate's
+        # thresholds are editable at runtime, so without this a threshold changed mid-collection
+        # would leave no trace and the cycles either side would be pooled as if comparable.
+        #
+        # A synchronous cache read -- `emit` cannot await, and it must never raise, so a config
+        # service that is not yet primed yields the default version rather than failing.
+        try:
+            from app.services.config_service import get_version
+
+            config_version = get_version()
+        except Exception:
+            config_version = None
+
+        event = {
+            **event,
+            "sequence_number": _next_sequence(event.get("session_id")),
+            # An explicit value already on the event wins, so a replay or a backfill can state
+            # the version the row ORIGINALLY ran under rather than today's.
+            "config_version": event.get("config_version", config_version),
+        }
         # Live observability fan-out (Redis-independent) before the durable path, so the
         # dashboard sees the event even when Redis is down. Best-effort, never raises.
         monitor_bus.publish({**event, "category": "domain"})

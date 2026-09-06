@@ -49,6 +49,22 @@ def _reset_fusion_buffer():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_config_cache():
+    """Drop the runtime-config cache around every test.
+
+    `config_service` caches the effective configuration in a module global and rebuilds it from
+    the `edges` constants on demand. Tests that monkeypatch those constants would otherwise be
+    read through a cache built by an EARLIER test, so a threshold patch would silently not apply
+    and the failure would look like a gate bug.
+    """
+    from app.services import config_service
+
+    config_service._reset()
+    yield
+    config_service._reset()
+
+
+@pytest.fixture(autouse=True)
 def _no_trial_withholding():
     """Turn the randomised-trial draw OFF by default.
 

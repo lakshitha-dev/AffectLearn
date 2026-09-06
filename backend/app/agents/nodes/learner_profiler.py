@@ -17,20 +17,17 @@ from typing import Any
 import structlog
 
 from app.agents.edges import (
-    ADAPT_WITHHOLD_RATE,
-    GATE_OK,
-    adaptation_decision,
     GATE_OK as _GATE_OK,
+    adaptation_decision,
     arm_for,
     consumes_cooldown,
     current_rung,
+    is_decisive,
     record_delivered_rung,
     record_eligible_cycle,
-    is_decisive,
-    min_confidence_for,
 )
 from app.agents.state import AgentState
-from app.services import profile_service, redis_service
+from app.services import config_service, profile_service, redis_service
 from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
@@ -95,7 +92,11 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     if profile.get("last_adaptation_session") != session_id:
         last_adapt = None
     affect_source = state.get("affect_source")
-    adapt, gate_reason = adaptation_decision(state, profile, last_adapt)
+    # A SYNCHRONOUS cache read, not a database call: the cache is primed at startup and
+    # invalidated on write, so a threshold changed on the settings page applies from the next
+    # cycle without putting a query in the hot path.
+    config = config_service.get_config()
+    adapt, gate_reason = adaptation_decision(state, profile, last_adapt, config)
     # Stamped on the RANDOMISED-TRIAL condition, not on `adapt`. A cycle withheld by the trial
     # draw cleared every gate condition and must spend the cooldown exactly as a delivered one
     # does -- otherwise the control arm becomes eligible again sooner, drifts to a higher trigger
@@ -163,13 +164,20 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
             # withheld for having no authority, and that is not visible from the reason alone.
             "affect_source": affect_source,
             "affect_confidence": state.get("affect_confidence"),
-            "min_confidence_applied": min_confidence_for(affect_source),
-            "decisive_channel": is_decisive(affect_source),
+            "min_confidence_applied": config.min_confidence_for(affect_source),
+            "decisive_channel": is_decisive(affect_source, config.decisive_sources),
             # RANDOMISED TRIAL ARM: "delivered", "withheld", or None when the cycle never became
             # eligible and so belongs to neither. Analysis must filter to the two named arms --
             # a null here is not a control observation, it is a cycle that never qualified.
             "arm": arm_for(gate_reason),
-            "withhold_rate": ADAPT_WITHHOLD_RATE,
+            # Read from the LIVE config, not from a module constant imported by value. The
+            # constant was bound at this module's import time, so once the rate became editable
+            # it would have kept stamping the value the process started with -- the record would
+            # have reported a trial condition that was no longer in force, and nothing downstream
+            # could have detected it.
+            "withhold_rate": config.withhold_rate,
+            # Which configuration produced this decision, so an analysis can split on a change.
+            "config_version": config.version,
         },
     })
 
