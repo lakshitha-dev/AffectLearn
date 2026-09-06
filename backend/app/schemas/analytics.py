@@ -102,3 +102,98 @@ class SectionDetailResponse(CamelModel):
     sample_count: int
     confidence: Confidence
     insufficient_data: bool
+
+
+# ---------------------------------------------------------------------------
+# Content effectiveness
+#
+# Every rate here is `float | None`, deliberately. Zero and unknown are different facts: a
+# section where no help was ever offered and one where help was offered and never followed by an
+# attempt both have "no outcome rate", and returning 0.0 for both would say help never works
+# there. The UI renders null as "—" rather than as a number.
+# ---------------------------------------------------------------------------
+
+
+class SectionAssistance(CamelModel):
+    """What help was offered in a section, and what happened around it."""
+
+    offers: int
+    learners_helped: int
+    dismissal_rate: float | None = None
+    #: Share of delivered help written by the model rather than the deterministic fallback.
+    #: Expected to be low while production has no GPU quota — hiding it would report the
+    #: fine-tuned agent's behaviour while showing the fallback's.
+    generated_rate: float | None = None
+    #: Share of FOLLOWED-UP offers where the learner's next attempt was correct.
+    #:
+    #: An ASSOCIATION, not a causal claim: the learner may have solved it despite the hint or
+    #: ignored it entirely. Denominator is offers that were followed by an attempt, not all
+    #: offers — help never followed up is unknown, not failed.
+    followed_by_correct_rate: float | None = None
+    outcomes_recorded: int
+
+
+class SectionEffectivenessRow(CamelModel):
+    """One section's behavioural evidence, in course order."""
+
+    section_id: str
+    section_title: str
+    observed_learners: int
+    time_on_section_s: float | None = None
+    time_per_100_words: float | None = None
+    back_nav_count: float | None = None
+    quiz_attempt_count: float | None = None
+    quiz_incorrect_count: float | None = None
+    quiz_response_time_ms_mean: float | None = None
+    show_answer_used_rate: float | None = None
+    revisit_rate: float | None = None
+    quiz_incorrect_rate: float | None = None
+    assistance: SectionAssistance
+    confidence: Confidence
+    insufficient_data: bool
+
+
+class CourseEffectivenessResponse(CamelModel):
+    """`GET /analytics/courses/{courseId}/effectiveness` payload."""
+
+    course_id: str
+    sections: list[SectionEffectivenessRow]
+
+
+class StruggleRow(SectionEffectivenessRow):
+    """A leaderboard row: a section plus its composite struggle score."""
+
+    struggle_score: float
+
+
+class StruggleLeaderboardResponse(CamelModel):
+    """`GET /analytics/courses/{courseId}/struggle` payload."""
+
+    course_id: str
+    sections: list[StruggleRow]
+
+
+class QuestionDifficultyRow(CamelModel):
+    """Item analysis for one quiz block."""
+
+    block_id: str
+    question: str | None = None
+    attempts: int
+    learners: int
+    #: Share of ALL attempts that were correct — the classic p-value, low meaning hard.
+    facility: float | None = None
+    #: The same figure restricted to each learner's FIRST attempt, which is the fairer measure of
+    #: whether the material taught it: later attempts are contaminated by earlier feedback.
+    first_attempt_facility: float | None = None
+    mean_attempts_per_learner: float | None = None
+    mean_response_time_ms: float | None = None
+    attempts_with_help_on_screen: int
+    confidence: Confidence
+    insufficient_data: bool
+
+
+class SectionQuestionsResponse(CamelModel):
+    """`GET /analytics/sections/{sectionId}/questions` payload."""
+
+    section_id: str
+    questions: list[QuestionDifficultyRow]
