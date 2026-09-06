@@ -327,3 +327,105 @@ class TestVersionCounting:
             )
         ).scalar_one()
         assert remaining == 0
+
+
+class TestVersionHistoryIsReadable:
+    """`content_versions` was write-only.
+
+    Snapshots have been captured on every publish since migration 025 and no endpoint returned
+    one, so the table accumulated content trees nobody could look at. These cover the read that
+    makes the feature usable, and the two properties that keep the list cheap and scoped.
+    """
+
+    async def test_lists_versions_newest_first_without_snapshots(
+        self, client, designer_headers, db, test_designer
+    ):
+        from app.models.course import Course
+
+        course = Course(title="Versioned", is_published=False, created_by=test_designer.id)
+        db.add(course)
+        await db.commit()
+        await db.refresh(course)
+
+        for _ in range(2):
+            await client.put(
+                f"/api/v1/courses/{course.id}",
+                json={"isPublished": True},
+                headers=designer_headers,
+            )
+            await client.put(
+                f"/api/v1/courses/{course.id}",
+                json={"isPublished": False},
+                headers=designer_headers,
+            )
+
+        resp = await client.get(
+            f"/api/v1/courses/{course.id}/versions", headers=designer_headers
+        )
+        assert resp.status_code == 200
+        versions = resp.json()
+        assert [v["versionNumber"] for v in versions] == sorted(
+            [v["versionNumber"] for v in versions], reverse=True
+        )
+        # A snapshot is the whole content tree; a history table must not carry them.
+        assert all("snapshot" not in v for v in versions)
+        assert versions[0]["publishedByName"] is not None
+
+    async def test_detail_returns_the_captured_tree(
+        self, client, designer_headers, db, test_designer
+    ):
+        from app.models.course import Course
+
+        course = Course(title="Snapshot Me", is_published=False, created_by=test_designer.id)
+        db.add(course)
+        await db.commit()
+        await db.refresh(course)
+
+        await client.put(
+            f"/api/v1/courses/{course.id}",
+            json={"isPublished": True},
+            headers=designer_headers,
+        )
+        versions = (
+            await client.get(f"/api/v1/courses/{course.id}/versions", headers=designer_headers)
+        ).json()
+
+        detail = await client.get(
+            f"/api/v1/courses/versions/{versions[0]['id']}", headers=designer_headers
+        )
+        assert detail.status_code == 200
+        assert isinstance(detail.json()["snapshot"], dict)
+
+    async def test_another_designer_cannot_read_the_history(
+        self, client, designer_headers, db, test_designer
+    ):
+        from app.core.security import create_access_token, hash_password
+        from app.models.course import Course
+        from app.models.user import Role, User
+
+        course = Course(title="Private", is_published=True, created_by=test_designer.id)
+        db.add(course)
+        intruder = User(
+            email_address="history-intruder@test.com",
+            password_hash=hash_password("Password1!"),
+            first_name="Not",
+            last_name="Owner",
+            role=Role.course_designer,
+            email_verified=True,
+        )
+        db.add(intruder)
+        await db.commit()
+        await db.refresh(course)
+        await db.refresh(intruder)
+
+        resp = await client.get(
+            f"/api/v1/courses/{course.id}/versions",
+            headers={"Authorization": f"Bearer {create_access_token(str(intruder.id))}"},
+        )
+        assert resp.status_code == 403
+
+    async def test_learner_cannot_read_the_history(self, client, auth_headers, test_course):
+        resp = await client.get(
+            f"/api/v1/courses/{test_course.id}/versions", headers=auth_headers
+        )
+        assert resp.status_code == 403

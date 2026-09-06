@@ -12,6 +12,8 @@ from app.schemas.course import (
     ContentBlockResponse,
     ContentBlockUpdate,
     ContentBlockVariantCreate,
+    ContentVersionDetail,
+    ContentVersionSummary,
     CourseCreate,
     CourseDetailResponse,
     CourseListResponse,
@@ -420,4 +422,54 @@ async def upsert_content_block_variant(
     await course_ownership.assert_can_edit_block(db, current_user, block_id)
     return await course_service.upsert_block_variant(
         db, block_id, variant_key=body.variant_key, content=body.content
+    )
+
+
+# ---------------------------------------------------------------------------
+# Published version history
+# ---------------------------------------------------------------------------
+#
+# `content_version_service.snapshot_on_publish` has captured the whole content tree on every
+# publish since migration 025, and nothing could read one back. The feature was write-only: a
+# designer could accumulate twenty snapshots and had no way to see that any existed, let alone
+# what changed between them.
+#
+# Gated on the EDIT rule rather than the read rule, which keeps it consistent with the course
+# editor that surfaces it: a designer who sees no Edit action on a course sees no history either.
+
+
+@router.get("/{course_id}/versions", response_model=list[ContentVersionSummary])
+async def list_course_versions(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """Published versions of a course, newest first."""
+    await course_ownership.assert_can_edit_course(db, current_user, course_id)
+    rows = await content_version_service.list_versions(db, course_id)
+    return [
+        ContentVersionSummary(
+            id=version.id,
+            version_number=version.version_number,
+            published_at=version.published_at,
+            published_by_name=name,
+        )
+        for version, name in rows
+    ]
+
+
+@router.get("/versions/{version_id}", response_model=ContentVersionDetail)
+async def get_course_version(
+    version_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """One published version, including the content tree captured at the time."""
+    version = await content_version_service.get_version(db, version_id)
+    await course_ownership.assert_can_edit_course(db, current_user, version.course_id)
+    return ContentVersionDetail(
+        id=version.id,
+        version_number=version.version_number,
+        published_at=version.published_at,
+        snapshot=version.snapshot,
     )

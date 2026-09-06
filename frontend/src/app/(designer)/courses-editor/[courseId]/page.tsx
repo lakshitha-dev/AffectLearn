@@ -18,6 +18,7 @@ import {
   useUpdateModule,
   useUpdateSection,
 } from "@/hooks/use-authoring";
+import { VersionHistory } from "@/components/designer/VersionHistory";
 import { SectionBlocks } from "@/components/editor/SectionBlocks";
 import type { Lesson, Module, Section } from "@/types/course";
 
@@ -148,6 +149,13 @@ export default function CourseStructurePage({
           )}
         </div>
       )}
+
+      {/*
+        Every publish has snapshotted the whole course into `content_versions` since migration
+        025 and nothing could read one back. Shown only to those who can edit, matching the rest
+        of this page — a designer with no Edit action has no use for the authoring history.
+      */}
+      {editable && <VersionHistory courseId={courseId} />}
     </div>
   );
 }

@@ -210,3 +210,28 @@ class CourseDetailResponse(CourseResponse):
 
 class CourseListResponse(PaginatedResponse):
     items: list[CourseResponse]
+
+
+# ---------------------------------------------------------------------------
+# Published content versions
+# ---------------------------------------------------------------------------
+#
+# `content_versions` has been written on every publish since migration 025 and had no read
+# endpoint at all — snapshots accumulated that nobody could look at. These are that read.
+
+
+class ContentVersionSummary(CamelModel):
+    """One row of the history table. No snapshot: see `list_versions`."""
+
+    id: uuid.UUID
+    version_number: int
+    published_at: datetime
+    #: Display name of whoever published it, or None if that account has since been deleted
+    #: (`published_by` is SET NULL precisely so the record survives the person).
+    published_by_name: str | None = None
+
+
+class ContentVersionDetail(ContentVersionSummary):
+    """One version WITH the full content tree captured at publish time."""
+
+    snapshot: dict
