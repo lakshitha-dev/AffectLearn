@@ -89,3 +89,37 @@ async def test_cycle_number_is_coerced(captured_events):
     env["data"]["cycle_number"] = "7"
     await ws._handle_adaptation_interaction(env, "u1", "s1")
     assert captured_events[0]["cycle_number"] == 7
+
+
+# ── coordinates: the join keys analysis needs ─────────────────────────────────────────
+
+async def test_section_and_cycle_land_in_indexed_columns_not_the_payload(captured_events):
+    """The gap this closes: every learner response was unjoinable.
+
+    The handler has always promoted both when present -- the CLIENT never sent them, so responses
+    landed with `cycle_number: 0` and no section at all. That made two questions unanswerable:
+    which material a hint was accepted on, and which detection cycle a response belongs to. The
+    second is the join the post-intervention outcome window is built from.
+
+    They must land as top-level COLUMNS: `research_events.section_id` is indexed and the research
+    query API filters on it, while `payload` is JSON and is not queryable.
+    """
+    envelope = _interaction_envelope("dismissed", action="show_hint")
+    envelope["data"]["section_id"] = "sec-42"
+    envelope["data"]["cycle_number"] = 7
+
+    await ws._handle_adaptation_interaction(envelope, "u1", "s1")
+
+    evt = [e for e in captured_events if e["event_type"] == "adaptation_interaction"][0]
+    assert evt["section_id"] == "sec-42"
+    assert evt["cycle_number"] == 7
+    assert "section_id" not in evt["payload"], "must be a column, not buried in JSON"
+
+
+async def test_a_response_without_a_section_is_still_recorded(captured_events):
+    """Absent coordinates must not drop the response — an unjoinable row still beats no row."""
+    await ws._handle_adaptation_interaction(_interaction_envelope("accepted"), "u1", "s1")
+
+    evt = [e for e in captured_events if e["event_type"] == "adaptation_interaction"][0]
+    assert "section_id" not in evt
+    assert evt["cycle_number"] == 0

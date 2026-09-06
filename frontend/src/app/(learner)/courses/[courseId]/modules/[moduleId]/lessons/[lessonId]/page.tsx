@@ -116,7 +116,7 @@ export default function LessonPage({ params }: PageProps) {
   // Behavioral signals run in ALL non-error modes (incl. webcam-denied), so this
   // is mounted unconditionally alongside the facial hook (Story 4.3). The debug
   // ref surfaces NFR9 data-loss metrics in the dev overlay (AC #10).
-  const { debug: behavioralDebug } = useBehavioralSignals({
+  const { debug: behavioralDebug, cycleNumber } = useBehavioralSignals({
     send,
     sectionId: currentSectionId,
   });
@@ -188,10 +188,20 @@ export default function LessonPage({ params }: PageProps) {
       send({
         type: "adaptation_interaction",
         ts: Date.now(),
-        data: { adaptation_id: adaptationId, action, interaction },
+        // Coordinates, which this event carried on NEITHER axis before. The backend has always
+        // promoted both to indexed columns when present; the client simply never sent them, so
+        // every response landed with cycle_number 0 and no section, and could not be joined to
+        // the material it happened in or the cycle whose detection triggered it.
+        data: {
+          adaptation_id: adaptationId,
+          action,
+          interaction,
+          section_id: currentSectionId,
+          cycle_number: cycleNumber.current,
+        },
       });
     },
-    [send],
+    [send, currentSectionId],
   );
 
   // Hints were the only adaptation type that reported nothing at all: skip_ahead and
@@ -203,10 +213,10 @@ export default function LessonPage({ params }: PageProps) {
       send({
         type: "adaptation_interaction",
         ts: Date.now(),
-        data: payload,
+        data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
       });
     },
-    [send],
+    [send, currentSectionId],
   );
 
   // Pre-pilot research control (#7): log a due prompt that was RANDOMLY OMITTED (never shown)
@@ -217,10 +227,17 @@ export default function LessonPage({ params }: PageProps) {
       send({
         type: "self_report",
         ts: Date.now(),
-        data: { affect: null, skipped: false, omitted: true, prompt_index },
+        data: {
+          affect: null,
+          skipped: false,
+          omitted: true,
+          prompt_index,
+          section_id: currentSectionId,
+          cycle_number: cycleNumber.current,
+        },
       });
     },
-    [send],
+    [send, currentSectionId],
   );
 
   // Story 6.2: self-report pause-point trigger. Derived from distinct section completions
@@ -249,10 +266,14 @@ export default function LessonPage({ params }: PageProps) {
           affect: report.affect,
           skipped: report.skipped,
           prompt_index,
+          // section_features declares the self-report join key to be learner_id + section_id,
+          // and this is the only place that key can be supplied.
+          section_id: currentSectionId,
+          cycle_number: cycleNumber.current,
         },
       });
     },
-    [send],
+    [send, currentSectionId],
   );
 
   const course = courseQuery.data;

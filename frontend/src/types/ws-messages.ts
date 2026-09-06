@@ -131,6 +131,8 @@ export interface AdaptationInteractionMessage extends WSMessage {
     adaptation_id: string;
     action: AdaptationAction;
     interaction: "dismissed" | "accepted" | "applied";
+    /** Where the learner was. The backend promotes it to an indexed column when present. */
+    section_id?: string;
     cycle_number?: number;
   };
 }
