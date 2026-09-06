@@ -273,3 +273,31 @@ class TestGet:
         assert r_other.json()["responses"]["Q1"] == "27+"
         assert r_first.json()["userId"] == str(test_user.id)
         assert r_other.json()["userId"] == str(other.id)
+
+
+class TestOnlyLearnersContributeResearchRows:
+    """The questionnaire table IS research data.
+
+    On `get_current_user` any authenticated account could write a row that is indistinguishable
+    from a participant's once stored, so a designer testing the API silently contaminated the
+    dataset. There is no way to tell such a row apart afterwards, which is why this is guarded
+    rather than cleaned up later.
+    """
+
+    async def test_designer_cannot_submit(self, client, designer_headers):
+        resp = await client.post(
+            POST_URL, json={"responses": _valid_responses()}, headers=designer_headers
+        )
+        assert resp.status_code == 403
+
+    async def test_admin_cannot_submit(self, client, admin_headers):
+        resp = await client.post(
+            POST_URL, json={"responses": _valid_responses()}, headers=admin_headers
+        )
+        assert resp.status_code == 403
+
+    async def test_learner_still_can(self, client, auth_headers):
+        resp = await client.post(
+            POST_URL, json={"responses": _valid_responses()}, headers=auth_headers
+        )
+        assert resp.status_code in (200, 201)
