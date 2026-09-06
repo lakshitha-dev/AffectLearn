@@ -137,6 +137,9 @@ def test_export_files_each_channel_probability_under_its_own_heading():
         timestamp = 1788617827594
         session_id = "s"; learner_id = "l"; cycle_number = 1; sequence_number = 3
         event_type = "facial_affect_detected"; phase = "phase_b"; group = "control"
+        # Mirrors the real model's indexed coordinate column. A fake that omits a column the
+        # export reads makes the export look broken when only the fake is incomplete.
+        section_id = None
         def __init__(self, payload): self.payload = payload
 
     cols = list(COLUMNS)
@@ -164,6 +167,7 @@ def test_export_prefers_the_explicit_field_over_the_softmax_fallback():
         timestamp = 1; session_id = "s"; learner_id = "l"
         cycle_number = 1; sequence_number = 1
         event_type = "facial_affect_detected"; phase = "phase_b"; group = "adaptive"
+        section_id = None
         def __init__(self, payload): self.payload = payload
 
     cols = list(COLUMNS)

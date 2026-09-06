@@ -162,6 +162,8 @@ GATE_CHANNEL_ADVISORY = "channel_advisory"
 # This is not a failure: it is the control arm, and the cycles carrying it are the comparison
 # group the delivered arm is measured against.
 GATE_WITHHELD_RANDOM = "withheld_random"
+# The learner has already had this session's full allowance of interventions.
+GATE_SESSION_CAP = "session_cap"
 
 # ── the randomised trial arm ──────────────────────────────────────────────────────────
 #
@@ -180,6 +182,15 @@ GATE_WITHHELD_RANDOM = "withheld_random"
 # bias in the detector applies equally to both arms and cancels out of the difference.
 ADAPT_WITHHOLD_RATE = _env_float("ADAPT_WITHHOLD_RATE", 0.35)
 
+# Most interventions one session may produce, counted across BOTH arms.
+#
+# There was no ceiling at all before this. The geometry channel triggers at roughly 7.1/hour and
+# each modality runs the gate independently, so a long session could deliver an intervention every
+# ~90 seconds indefinitely. Past some rate the study stops measuring whether help helps and starts
+# measuring how people respond to being interrupted -- and the states it interrupts them about are
+# exactly the ones repeated interruption produces.
+ADAPT_MAX_PER_SESSION = _env_int("ADAPT_MAX_PER_SESSION", 6)
+
 #: `arm` values recorded on the research event. `None` means the cycle never became eligible,
 #: so it belongs to neither arm and must be excluded from the trial analysis.
 ARM_DELIVERED = "delivered"
@@ -196,6 +207,77 @@ def withhold_draw(learner_id: Any, session_id: Any, cycle_number: Any) -> float:
     """
     key = f"{learner_id}|{session_id}|{cycle_number}".encode("utf-8")
     return int.from_bytes(hashlib.sha256(key).digest()[:8], "big") / 2**64
+
+
+def _session_cap_reached(profile: dict, session_id: Any) -> bool:
+    """Whether this session has already used its allowance.
+
+    The counter is session-scoped the same way the cooldown marker is: `cycle_number` restarts at
+    1 each session while the profile outlives it, so a count carried over from an earlier session
+    would suppress interventions in this one from its first cycle.
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        return False
+    return int(profile.get("eligible_this_session", 0) or 0) >= max(0, ADAPT_MAX_PER_SESSION)
+
+
+def record_eligible_cycle(profile: dict, session_id: Any) -> None:
+    """Count a cycle that entered the trial. Mutates `profile` in place.
+
+    Counts BOTH arms: a withheld cycle used up an eligible moment just as a delivered one did,
+    and the cap exists to bound how much of the session the trial occupies, not how much help
+    was given.
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        profile["adaptation_session_id"] = session_id
+        profile["eligible_this_session"] = 0
+    profile["eligible_this_session"] = int(profile.get("eligible_this_session", 0) or 0) + 1
+
+
+def _ladder_key(section_id: Any, affect_state: Any) -> str:
+    """Rungs are tracked per SECTION and per STATE.
+
+    Per section, because escalation is about this material: a learner confused by recursion and
+    later bored by an easy example are two independent situations, and carrying a deep rung across
+    them would open with the heaviest intervention on material the learner has not yet struggled
+    with. Per state for the same reason — the ladders are different ladders.
+    """
+    return f"{section_id or '-'}|{affect_state or '-'}"
+
+
+def current_rung(profile: dict, session_id: Any, section_id: Any, affect_state: Any) -> int:
+    """How many interventions this learner has already been DELIVERED here, for this state.
+
+    Session-scoped like the cooldown marker and the cap: a rung carried in from an earlier
+    session would open a fresh session at the deepest intervention.
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        return 0
+    rungs = profile.get("ladder_rungs")
+    if not isinstance(rungs, dict):
+        return 0
+    return int(rungs.get(_ladder_key(section_id, affect_state), 0) or 0)
+
+
+def record_delivered_rung(
+    profile: dict, session_id: Any, section_id: Any, affect_state: Any
+) -> None:
+    """Advance the ladder. Mutates `profile` in place.
+
+    Advanced on DELIVERY only, unlike the cap and the cooldown which both arms spend. A withheld
+    cycle showed the learner nothing, so nothing was tried and nothing has been ruled out — the
+    next delivered intervention must still start where this one would have. (This does not
+    desynchronise the arms: the rung decides WHAT is delivered, never WHETHER.)
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        profile["adaptation_session_id"] = session_id
+        profile["ladder_rungs"] = {}
+        profile["eligible_this_session"] = 0
+    rungs = profile.setdefault("ladder_rungs", {})
+    if not isinstance(rungs, dict):
+        rungs = profile["ladder_rungs"] = {}
+    key = _ladder_key(section_id, affect_state)
+    rungs[key] = int(rungs.get(key, 0) or 0) + 1
 
 
 def consumes_cooldown(gate_reason: str) -> bool:
@@ -387,6 +469,13 @@ def adaptation_decision(
     )
     if not allowed:
         return False, reason
+
+    # Checked BEFORE the draw, and counted across BOTH arms. Capping only DELIVERED interventions
+    # would stop the delivered arm at six while the withheld arm carried on accruing controls --
+    # the two would then cover different parts of the session, and later observations would appear
+    # in one arm only. Counting eligibility instead makes both arms end together.
+    if _session_cap_reached(profile or {}, state.get("session_id")):
+        return False, GATE_SESSION_CAP
 
     # Applied LAST, and only to cycles that already cleared everything else, so the withheld set
     # is exactly the eligible set. Drawing earlier would withhold cycles that would have failed

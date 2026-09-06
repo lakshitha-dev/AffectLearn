@@ -51,6 +51,18 @@ COLUMNS: tuple[str, ...] = (
     "forced_mode",
     "action",
     "fallback",
+    # APPENDED (2026-09), never inserted: the order above is the contract for anyone already
+    # scripting against this download.
+    #
+    # Everything outcome-shaped used to live only inside the JSON `payload`, which the CSV does
+    # not flatten and SQL cannot index -- so the flat export could describe what the DETECTOR did
+    # and nothing about what the LEARNER did in response. These five make the trial analysable
+    # from this file alone.
+    "section_id",       # where in the course; the join key for per-section outcomes
+    "adaptation_id",    # server-issued, joins a delivery to its response and its probe
+    "interaction",      # dismissed / accepted / applied
+    "probe_response",   # helped / did_not_help / unsure -- the learner's own appraisal
+    "arm",              # delivered / withheld: the randomised trial condition
 )
 
 _BATCH = 500
@@ -110,6 +122,17 @@ def _row(ev: ResearchEvent) -> list[Any]:
         pl.get("forced_mode") or "",
         pl.get("action") or pl.get("action_type") or "",
         pl.get("fallback") if pl.get("fallback") is not None else "",
+        # Prefer the indexed COLUMN over the payload copy: the column is what the query API
+        # filters on, and on older rows only the payload copy exists.
+        ev.section_id or pl.get("section_id") or "",
+        pl.get("adaptation_id") or "",
+        pl.get("interaction") or "",
+        # Distinguishes a declined probe from a negative one: `dismissed` means the learner was
+        # asked and chose not to answer, which is not evidence the intervention failed.
+        ("dismissed" if pl.get("dismissed") else (pl.get("response") or ""))
+        if ev.event_type == "adaptation_probe"
+        else "",
+        pl.get("arm") or "",
     ]
 
 

@@ -107,6 +107,12 @@ class AgentState(TypedDict, total=False):
     group: str                   # one of GROUPS
     should_adapt: bool           # eligibility AND the adaptation gate (see agents.edges)
     adaptation_gate_reason: str  # GATE_* constant explaining the should_adapt decision
+    # Which rung of this state's escalation ladder to use THIS cycle -- i.e. how many
+    # interventions have already been delivered to this learner, in this section, for this state.
+    # Computed by the profiler (the only node holding the fresh profile) and read by the
+    # strategist. MUST be declared here: AgentState is the graph schema, and LangGraph silently
+    # drops any key that is not, which is how p_confused/p_disengaged once vanished.
+    ladder_rung: int
     # Transient per-cycle input (NOT persisted — see module docstring)
     facial_payload: dict
     behavioral_payload: dict

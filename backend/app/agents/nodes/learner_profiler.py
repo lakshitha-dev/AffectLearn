@@ -20,8 +20,12 @@ from app.agents.edges import (
     ADAPT_WITHHOLD_RATE,
     GATE_OK,
     adaptation_decision,
+    GATE_OK as _GATE_OK,
     arm_for,
     consumes_cooldown,
+    current_rung,
+    record_delivered_rung,
+    record_eligible_cycle,
     is_decisive,
     min_confidence_for,
 )
@@ -96,9 +100,23 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     # draw cleared every gate condition and must spend the cooldown exactly as a delivered one
     # does -- otherwise the control arm becomes eligible again sooner, drifts to a higher trigger
     # rate, and stops being matched to the delivered arm it exists to be compared against.
+    # Read BEFORE advancing: this is the rung the strategist should use for THIS cycle, and the
+    # stored counter is how many were delivered BEFORE it. Reading after would open every learner
+    # one rung deep and the first rung of every ladder would never be used.
+    section_id = (state.get("content_context") or {}).get("section_id")
+    rung = current_rung(profile, session_id, section_id, state.get("affect_state"))
+
     if consumes_cooldown(gate_reason):
         profile["last_adaptation_cycle"] = int(cycle or 0)
         profile["last_adaptation_session"] = session_id
+        # Counts BOTH arms, for the same reason the cooldown is spent by both: the cap bounds how
+        # much of the session the trial occupies, not how much help was given.
+        record_eligible_cycle(profile, session_id)
+        # The LADDER advances on delivery only. A withheld cycle showed the learner nothing, so
+        # nothing was tried and nothing ruled out; the next delivered intervention must still
+        # start where this one would have.
+        if gate_reason == _GATE_OK:
+            record_delivered_rung(profile, session_id, section_id, state.get("affect_state"))
 
     # Write-through: Redis hot (best-effort) + Postgres cold (best-effort)
     try:
@@ -159,4 +177,5 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         "learner_profile": profile,
         "should_adapt": adapt,
         "adaptation_gate_reason": gate_reason,
+        "ladder_rung": rung,
     }

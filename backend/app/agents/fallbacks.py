@@ -39,23 +39,62 @@ ACTION_TYPES: tuple[str, ...] = (
 
 URGENCIES: tuple[str, ...] = ("low", "medium", "high")
 
-# affect_state -> (action_type, urgency). Every value is in ACTION_TYPES / URGENCIES.
-_RULE_MAP: dict[str, tuple[str, str]] = {
-    "confused": ("show_hint", "medium"),
-    "frustrated": ("simplify", "high"),
-    "bored": ("skip_ahead", "low"),
-    "engaged": ("no_action", "low"),
+# affect_state -> ESCALATION LADDER of (action_type, urgency), tried in order.
+#
+# WHY A LADDER AND NOT A SINGLE ACTION.
+#
+# This map used to be one action per state, so a learner confused three times in the same section
+# received `show_hint` three times. Repeating an intervention that has already failed is not an
+# adaptive system; it is a stuck one, and it makes "was the intervention adaptive?" unanswerable
+# because nothing ever varied.
+#
+# The rungs are ORDERED BY COST TO THE LEARNER, cheapest first: a hint asks them to think again,
+# a breakdown does some of the thinking for them, an alternative explanation replaces the framing
+# they already have. Starting at the expensive end would resolve confusion that would have
+# resolved on its own -- and confusion that resolves on its own is the kind that teaches
+# (D'Mello et al. 2014), so spending it cheaply is a real loss.
+#
+# DETERMINISTIC AND FIXED, deliberately. A bandit would need thousands of events to learn an
+# ordering; this study will have hundreds. A pre-registered ladder is auditable, reproducible from
+# the record, and can be defended in a viva -- which a learned policy at this sample size cannot.
+_RULE_LADDER: dict[str, tuple[tuple[str, str], ...]] = {
+    # Cheapest nudge first, then structure, then a different framing altogether.
+    "confused": (("show_hint", "medium"), ("show_breakdown", "medium"),
+                 ("show_alternative", "high")),
+    # Flow theory places boredom at challenge BELOW skill, so raise challenge before conceding
+    # that the material is not worth their time.
+    "bored": (("increase_difficulty", "low"), ("skip_ahead", "medium")),
+    # Frustration is the one state where withdrawal is a legitimate final rung.
+    "frustrated": (("show_encouragement", "medium"), ("simplify", "high"),
+                   ("suggest_break", "high")),
+    "engaged": (("no_action", "low"),),
 }
 
 
-def rule_based_strategy(affect_state: Any, profile: dict | None = None) -> dict[str, Any]:
+def ladder_for(affect_state: Any, rung: int = 0) -> tuple[str, str]:
+    """The action at `rung` of this state's ladder, clamped to the last rung.
+
+    Clamped rather than wrapping: once the deepest intervention has been tried, repeating it is
+    the least-bad option left. Cycling back to a hint the learner has already dismissed would be
+    actively worse, and there is no rung beyond "a different explanation" that this system can
+    deliver.
+    """
+    rungs = _RULE_LADDER.get(affect_state)
+    if not rungs:
+        return ("no_action", "low")
+    return rungs[min(max(0, int(rung or 0)), len(rungs) - 1)]
+
+
+def rule_based_strategy(
+    affect_state: Any, profile: dict | None = None, rung: int = 0
+) -> dict[str, Any]:
     """Deterministic strategy for an affect category. Pure; never raises.
 
-    `profile` is accepted for signature parity with the LLM path (and future
-    profile-aware rules) but the baseline mapping ignores it. An unknown or missing
-    affect maps to `no_action` so the fallback is always safe.
+    `rung` is how many interventions this learner has already been DELIVERED for this state in
+    this section — so a repeat escalates instead of repeating. `profile` is accepted for signature
+    parity with the LLM path. An unknown or missing affect maps to `no_action`.
     """
-    action_type, urgency = _RULE_MAP.get(affect_state, ("no_action", "low"))
+    action_type, urgency = ladder_for(affect_state, rung)
     return {
         "action_type": action_type,
         "reason": f"rule-based response to {affect_state or 'unknown'} affect",

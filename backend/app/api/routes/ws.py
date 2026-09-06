@@ -23,6 +23,7 @@ emitted as a research event for model validation. Malformed inbound is logged + 
 without ever crashing the loop (NFR22).
 """
 
+import asyncio
 import json
 import time
 import uuid as uuid_mod
@@ -56,7 +57,12 @@ from app.services import (
 )
 from app.agents.fusion import forced_mode, fuse_modalities
 from app.agents.graph import get_graph
+from app.agents.llm import warm_up as llm_warm_up
 from app.agents.state import make_initial_state
+
+#: Strong references to fire-and-forget tasks. Without this the event loop is free to garbage
+#: collect a running task mid-flight, which cancels it silently and at random.
+_background_tasks: set[asyncio.Task] = set()
 
 logger = structlog.get_logger(__name__)
 
@@ -968,6 +974,16 @@ async def websocket_endpoint(
     accept_ms = _now_ms()
 
     superseded, session_id = await connection_manager.connect(user_id, websocket)
+
+    # Pay the model's cold-start cost NOW, in the background, rather than inside the first
+    # intervention of the session. Cold is ~23s against ~60ms warm on this deployment, and the
+    # outcome window starts at delivery -- so that stall would land between the detection that
+    # triggered the intervention and its arrival, in the DELIVERED arm only. Fire-and-forget:
+    # `warm_up` never raises, and nothing here waits on it, so a learner's connection is not
+    # delayed by a model that is slow or absent.
+    _warm_up_task = asyncio.create_task(llm_warm_up())
+    _background_tasks.add(_warm_up_task)
+    _warm_up_task.add_done_callback(_background_tasks.discard)
 
     # Story 6.1 (keystone): resolve the learner's real A/B group + the current global study
     # phase ONCE here, at handshake, and reuse them for every cycle this connection runs.

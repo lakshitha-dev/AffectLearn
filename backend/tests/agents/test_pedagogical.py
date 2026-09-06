@@ -107,7 +107,8 @@ async def test_vllm_error_falls_back(monkeypatch, events):
     strat = out["strategy"]
     assert strat["fallback"] is True
     assert strat["fallback_reason"] == "vllm_error"
-    assert strat["action_type"] == "simplify"          # frustrated -> rule-based simplify
+    # Rung 0 of the frustration ladder; `simplify` is now rung 1.
+    assert strat["action_type"] == "show_encouragement"
 
 
 async def test_unparseable_response_falls_back(monkeypatch, events):
@@ -116,7 +117,8 @@ async def test_unparseable_response_falls_back(monkeypatch, events):
     strat = out["strategy"]
     assert strat["fallback"] is True
     assert strat["fallback_reason"] == "parse_error"
-    assert strat["action_type"] == "skip_ahead"        # bored -> rule-based skip
+    # Rung 0 of the boredom ladder — raise challenge before conceding the material.
+    assert strat["action_type"] == "increase_difficulty"
 
 
 async def test_out_of_vocabulary_action_falls_back(monkeypatch, events):

@@ -177,3 +177,61 @@ def test_a_failed_gate_does_not_consume_the_cooldown():
     """Only a cycle that reached the trial spends the window; a rejected one costs nothing."""
     for reason in (GATE_LOW_CONFIDENCE, GATE_COOLDOWN, GATE_STATE_NOT_ACTIONABLE):
         assert consumes_cooldown(reason) is False, reason
+
+
+# ── the per-session cap ───────────────────────────────────────────────────────────────
+
+def test_the_cap_counts_both_arms_so_they_end_together(withholding_on):
+    """The failure this guards: arms covering different parts of the session.
+
+    Capping only DELIVERED interventions would stop the delivered arm at the limit while the
+    withheld arm carried on accruing controls through the rest of the session. Later observations
+    would then exist in one arm only, and any drift over a session — fatigue, the material getting
+    harder — would load entirely onto the control group.
+    """
+    from app.agents.edges import ADAPT_MAX_PER_SESSION, GATE_SESSION_CAP
+
+    profile = _profile()
+    profile["adaptation_session_id"] = "S1"
+    profile["eligible_this_session"] = ADAPT_MAX_PER_SESSION
+
+    allowed, reason = adaptation_decision(_state(), profile, None)
+    assert (allowed, reason) == (False, GATE_SESSION_CAP)
+
+
+def test_the_cap_is_reported_as_its_own_reason_not_as_a_gate_failure():
+    """`session_cap` must be distinguishable: the cycle qualified, the allowance ran out."""
+    from app.agents.edges import GATE_SESSION_CAP
+
+    assert arm_for(GATE_SESSION_CAP) is None
+    assert consumes_cooldown(GATE_SESSION_CAP) is False
+
+
+def test_a_count_from_a_previous_session_does_not_suppress_this_one():
+    """cycle_number restarts each session while the profile outlives it.
+
+    The same class of bug the cooldown marker already carries a session stamp for: a count left by
+    a longer earlier session would suppress interventions from this session's very first cycle.
+    """
+    from app.agents.edges import ADAPT_MAX_PER_SESSION, _session_cap_reached
+
+    profile = {"adaptation_session_id": "OLD", "eligible_this_session": ADAPT_MAX_PER_SESSION}
+    assert _session_cap_reached(profile, "NEW") is False
+
+
+def test_recording_a_cycle_resets_the_counter_on_a_new_session():
+    from app.agents.edges import record_eligible_cycle
+
+    profile = {"adaptation_session_id": "OLD", "eligible_this_session": 5}
+    record_eligible_cycle(profile, "NEW")
+    assert profile["adaptation_session_id"] == "NEW"
+    assert profile["eligible_this_session"] == 1
+
+
+def test_the_counter_accumulates_within_one_session():
+    from app.agents.edges import record_eligible_cycle
+
+    profile: dict = {}
+    for _ in range(3):
+        record_eligible_cycle(profile, "S1")
+    assert profile["eligible_this_session"] == 3
