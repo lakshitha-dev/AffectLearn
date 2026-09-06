@@ -14,6 +14,7 @@ import {
 import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
 import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
+import { AdaptationProbe } from "@/components/learning/AdaptationProbe";
 import { activeInlineAdaptation, InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { SkipAheadSuggestion, type SkipInteraction } from "@/components/learning/SkipAheadSuggestion";
 import { SelfReportBar, type SelfReport } from "@/components/learning/SelfReportBar";
@@ -219,6 +220,27 @@ export default function LessonPage({ params }: PageProps) {
     [send, currentSectionId],
   );
 
+  // The learner's appraisal of a specific intervention — the only ground truth that can speak to
+  // whether one helped. Everything else answers a different question: `self_report` fires on
+  // section completion and references no delivery, dismissal is an action rather than a judgement,
+  // and the detector's own later reading is the instrument being evaluated.
+  const logAdaptationProbe = useCallback(
+    (payload: {
+      adaptation_id: string;
+      action: string;
+      response: "helped" | "did_not_help" | "unsure" | null;
+      dismissed: boolean;
+      shown_after_ms: number;
+    }) => {
+      send({
+        type: "adaptation_probe",
+        ts: Date.now(),
+        data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
+      });
+    },
+    [send, currentSectionId],
+  );
+
   // Pre-pilot research control (#7): log a due prompt that was RANDOMLY OMITTED (never shown)
   // so analysis can estimate the prompt's own reactive effect. Reuses the self_report channel
   // with an `omitted` marker; affect is null and it is NOT a user skip.
@@ -415,6 +437,9 @@ export default function LessonPage({ params }: PageProps) {
           inline at a natural content break; non-inline actions are left in the
           queue for Stories 5.5–5.7. */}
       <InlineAdaptations onInteraction={logHintInteraction} />
+      {/* Asked once, 30s after a content intervention is delivered — long enough that the answer
+          is about the help rather than about being interrupted. Inline, never blocking. */}
+      <AdaptationProbe onRespond={logAdaptationProbe} />
       {/* Break suggestion overlay (Story 5.5) — renders the latest suggest_break
           adaptation as a fixed-position, semi-transparent overlay card (not a true
           modal; content stays visible, no scroll-lock). Non-suggest_break actions are

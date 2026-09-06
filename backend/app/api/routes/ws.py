@@ -881,6 +881,75 @@ async def _handle_self_report(
     })
 
 
+#: What a learner may say about a delivered intervention. Deliberately THREE options, not a
+#: rating scale: a scale invites deliberation, and a probe that costs thought changes the very
+#: state it is trying to measure. `unsure` exists so "I don't know" is recorded as an answer
+#: rather than forced into one of the two poles or into silence.
+_PROBE_RESPONSES = {"helped", "did_not_help", "unsure"}
+
+
+async def _handle_adaptation_probe(
+    envelope: dict,
+    user_id: str,
+    session_id: str,
+    phase: str | None = None,
+    group: str | None = None,
+) -> None:
+    """Record what the learner said about an intervention they were just shown.
+
+    WHY THIS EXISTS SEPARATELY FROM `self_report`.
+
+    `self_report` fires on section completion. It is not caused by a delivery, does not reference
+    one, and arrives after the learner has left the material -- so it can say how a learner felt
+    at a boundary, and can never say whether a particular hint helped. Nothing else in the record
+    closes that gap either: `adaptation_interaction` captures dismissal, which is an action and
+    not an appraisal, and the detector's own later reading is the instrument being evaluated.
+
+    This event is the only one that carries a learner's judgement of a SPECIFIC intervention,
+    joined by the server-issued `adaptation_id`. It is the ground truth the effectiveness claim
+    rests on, so it is recorded verbatim -- including `unsure`, and including the fact that a
+    probe was shown and declined, which is itself a response.
+
+    Never raises: a malformed probe must not tear down a learner's session.
+    """
+    data = envelope.get("data")
+    if not isinstance(data, dict) or not data.get("adaptation_id"):
+        logger.warning("ws_invalid_message", user_id=user_id, reason="probe_missing_data")
+        return
+
+    response = data.get("response")
+    dismissed = bool(data.get("dismissed"))
+    # A probe the learner closed without answering is recorded as `dismissed`, carrying no
+    # response. That is NOT the same as `unsure`, and collapsing the two would overstate how
+    # many learners actually appraised the intervention.
+    if not dismissed and response not in _PROBE_RESPONSES:
+        logger.warning("ws_invalid_message", user_id=user_id, reason="probe_invalid_response")
+        return
+
+    await _safe_emit({
+        "event_type": "adaptation_probe",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": int(data.get("cycle_number", 0) or 0),
+        "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
+        **({"section_id": str(data["section_id"])} if data.get("section_id") else {}),
+        "payload": {
+            # The join key. Server-issued at delivery, so unlike the old client-minted id this
+            # actually resolves to the intervention the learner is answering about.
+            "adaptation_id": data.get("adaptation_id"),
+            "action": data.get("action"),
+            "response": None if dismissed else response,
+            "dismissed": dismissed,
+            # How long the learner had the intervention on screen before answering. A probe
+            # answered in under a second is a different observation from one answered after
+            # thirty, and the distinction matters when the sample is small.
+            "shown_after_ms": data.get("shown_after_ms"),
+        },
+    })
+
+
 @router.websocket("")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -1004,6 +1073,13 @@ async def websocket_endpoint(
                 # skip) at a natural pause point as a research event for model validation.
                 # Never raises.
                 await _handle_self_report(envelope, user_id, session_id, phase, group)
+                continue
+
+            if msg_type == "adaptation_probe":
+                # The learner's appraisal of a SPECIFIC delivered intervention, joined by the
+                # server-issued adaptation_id. The only ground truth that can speak to whether
+                # an intervention helped. Never raises.
+                await _handle_adaptation_probe(envelope, user_id, session_id, phase, group)
                 continue
 
             # Unknown but well-formed types: log + drop (forward-compat).

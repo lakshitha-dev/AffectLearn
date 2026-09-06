@@ -163,12 +163,34 @@ export interface SelfReportMessage extends WSMessage {
   };
 }
 
+/**
+ * The learner's appraisal of ONE delivered intervention, joined by the server-issued
+ * `adaptation_id`. Distinct from `self_report` (which fires on section completion and references
+ * no delivery) and from `adaptation_interaction` (which records an action, not an appraisal).
+ * A declined probe carries `dismissed: true` and a null response — declining to appraise is not
+ * a negative appraisal.
+ */
+export interface AdaptationProbeMessage extends WSMessage {
+  type: "adaptation_probe";
+  data: {
+    adaptation_id: string;
+    action: AdaptationAction;
+    response: "helped" | "did_not_help" | "unsure" | null;
+    dismissed: boolean;
+    /** Delivery → answer, in ms. Distinguishes a considered answer from a reflexive one. */
+    shown_after_ms?: number;
+    section_id?: string;
+    cycle_number?: number;
+  };
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
   | FacialFeaturesMessage
   | BehavioralWindowMessage
   | AdaptationInteractionMessage
+  | AdaptationProbeMessage
   | SelfReportMessage;
 
 // ---------- Downstream (server → client) ----------
