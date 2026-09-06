@@ -12,6 +12,7 @@ from app.api.routes import (
     monitor,
     questionnaire,
     research,
+    reviews,
     section_progress,
     study,
     surveys,
@@ -26,6 +27,8 @@ api_router.include_router(learners.router, prefix="/learners", tags=["learners"]
 api_router.include_router(assessments.router, prefix="/assessments", tags=["assessments"])
 
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+# No prefix: the paths are declared in full on the router, matching `research.py`.
+api_router.include_router(reviews.router)
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(study.router, prefix="/admin", tags=["study"])
 api_router.include_router(research.router, prefix="/admin", tags=["research"])
