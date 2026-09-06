@@ -145,20 +145,6 @@ const Plus = (p: IconProps) => (
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
-const Star = (p: IconProps) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" {...p}>
-    <path d="M12 2l3 6.5 7 .8-5.2 4.7 1.5 6.9L12 17.8 5.2 20.9l1.5-6.9L1.5 9.3l7-.8z" />
-  </svg>
-);
-
-const Stars = () => (
-  <div className="stars">
-    {Array.from({ length: 5 }).map((_, i) => (
-      <Star key={i} />
-    ))}
-  </div>
-);
-
 const TOAST_ICONS = { bulb: Bulb, bolt: Bolt, clock: Clock } as const;
 
 /* ------------------------------------------------------------------ */
@@ -178,11 +164,17 @@ type AffectState = {
   toast: ToastSpec | null;
 };
 
+// The states the DEPLOYED gate can act on, plus the resting state.
+//
+// A fourth entry, "Frustrated", used to cycle here with a break suggestion. No model in the
+// system detects frustration — it was dropped from the adaptation vocabulary precisely because
+// listing it implied a capability that does not exist — so animating it on the front page was
+// the most prominent unsupported claim we made. `--frustrated` stays defined in the stylesheet
+// for the research monitor, which still charts the label.
 const STATES: AffectState[] = [
   { name: "Engaged", hint: "Keeping pace — nice work", color: "var(--engaged)", bg: "rgba(22,163,74,.12)", bars: [80, 12, 8], keys: ["Engaged", "Confused", "Bored"], showHint: false, prog: 64, toast: null },
   { name: "Confused", hint: "Lingering on a tough idea", color: "var(--confused)", bg: "rgba(217,119,6,.12)", bars: [16, 74, 10], keys: ["Confused", "Engaged", "Bored"], showHint: true, prog: 66, toast: { ic: "bulb", t: "Hint ready", p: "Here's a simpler way to see it.", ac: "var(--brand)", abg: "var(--tint)" } },
-  { name: "Bored", hint: "This part feels familiar", color: "var(--bored)", bg: "rgba(100,116,139,.16)", bars: [72, 16, 12], keys: ["Bored", "Engaged", "Confused"], showHint: false, prog: 88, toast: { ic: "bolt", t: "Skip ahead?", p: "You've got this — jump to the challenge.", ac: "var(--brand)", abg: "var(--tint)" } },
-  { name: "Frustrated", hint: "Things aren't clicking", color: "var(--frustrated)", bg: "rgba(220,38,38,.12)", bars: [70, 18, 12], keys: ["Frustrated", "Confused", "Bored"], showHint: false, prog: 88, toast: { ic: "clock", t: "Take a 5-min break?", p: "A reset helps this concept land.", ac: "var(--frustrated)", abg: "rgba(220,38,38,.12)" } },
+  { name: "Bored", hint: "Attention drifting from this page", color: "var(--bored)", bg: "rgba(100,116,139,.16)", bars: [72, 16, 12], keys: ["Bored", "Engaged", "Confused"], showHint: false, prog: 88, toast: { ic: "bolt", t: "Move on?", p: "You've stalled here — jump to the next part.", ac: "var(--brand)", abg: "var(--tint)" } },
 ];
 
 function HeroMock() {
@@ -445,7 +437,7 @@ const FAQS: Array<{ q: string; a: string }> = [
   },
   {
     q: "What states can it actually detect?",
-    a: "Four learning states that matter most for keeping you on track: engaged, confused, bored, and frustrated. Each one triggers a different, helpful response — a hint, a tougher challenge, a faster pace, or a break.",
+    a: "Two, and we would rather say so than claim four. Confusion is read from how you work — mouse, scroll and typing rhythm — and drifting attention is read from the camera. Frustration and boredom have no detector we would trust, so the system does not pretend to see them. Confusion brings a hint; drifting attention nudges the lesson on.",
   },
   {
     q: "Will it interrupt me or take over my lesson?",
@@ -587,10 +579,10 @@ export default function LandingPage() {
               Learning that adapts to <em>how you feel</em>, not just what you score.
             </h1>
             <p className="hero-sub reveal in d2">
-              AffectLearn senses the moment you get stuck, bored, or frustrated,
-              then reshapes the lesson in real time. A hint when you&apos;re lost, a
-              challenge when you&apos;re ahead, a breather when you need one. All from
-              a standard webcam and your browser.
+              AffectLearn senses the moment you get stuck or start drifting, then
+              reshapes the lesson in real time. A hint when you&apos;re lost, a nudge
+              onward when you&apos;ve stalled, a breather when you need one. All from a
+              standard webcam and your browser.
             </p>
             <div className="hero-actions reveal in d3">
               <Link className="btn btn-primary btn-lg" href="/register">
@@ -652,7 +644,7 @@ export default function LandingPage() {
               <div className="no">02</div>
               <div className="ic"><ClockSimple /></div>
               <h4>Understand</h4>
-              <p>Combines those signals into a clear read of your state — engaged, confused, bored or frustrated.</p>
+              <p>Each signal answers the question it is good at — your camera reads drifting attention, your typing and scrolling read confusion.</p>
               <div className="arrow"><ArrowRight /></div>
             </div>
             <div className="step reveal d3">
@@ -666,7 +658,7 @@ export default function LandingPage() {
               <div className="no">04</div>
               <div className="ic"><Trend /></div>
               <h4>Adapt</h4>
-              <p>Reshapes the lesson — a hint, a simpler explanation, a tougher challenge, or a well-timed break.</p>
+              <p>Offers a hint, a different explanation, a move onward, or a well-timed break — always as a suggestion you can wave away.</p>
             </div>
           </div>
         </div>
@@ -741,8 +733,8 @@ export default function LandingPage() {
               <div className="item reveal d3">
                 <div className="n">3</div>
                 <div>
-                  <h4>Difficulty that meets you</h4>
-                  <p>Sustained boredom nudges the lesson forward; sustained engagement raises the challenge. The pace becomes yours.</p>
+                  <h4>Pace that meets you</h4>
+                  <p>Attention drifting for more than a moment nudges the lesson forward rather than leaving you stuck on a page you have stopped reading.</p>
                 </div>
               </div>
             </div>
@@ -837,46 +829,64 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ============ TESTIMONIALS ============ */}
-      <section className="block">
+      {/* ============ EVIDENCE ============ */}
+      {/*
+        This section replaced three fabricated testimonials — invented learners and an invented
+        named academic. On a public page that is a straightforward misrepresentation, and it was
+        also the weakest thing here: every competitor can invent a quote, and none of them can
+        show a measured number with its sample and its limits.
+
+        Every figure below is reported with the corpus it was measured on and the number of
+        held-out participants behind it. The last card states plainly that no learner trial has
+        run, because a page that lists two AUCs and stays silent about that would imply an
+        outcome claim the work does not have.
+      */}
+      <section className="block" id="evidence">
         <div className="wrap">
           <div className="sec-head reveal">
-            <span className="eyebrow">What people say</span>
-            <h2 className="display">The moment it feels like the lesson gets you.</h2>
+            <span className="eyebrow">Evidence</span>
+            <h2 className="display">Measured, not asserted.</h2>
+            <p className="lead">
+              Affect detection is easy to claim and hard to do. Here is what ours actually
+              scores, on public benchmarks, with the sample behind each number.
+            </p>
           </div>
           <div className="quotes">
             <div className="q reveal d1">
-              <Stars />
-              <blockquote>&ldquo;It gave me help exactly when I was stuck — not before, not after. For the first time I finished an online module in one sitting.&rdquo;</blockquote>
-              <div className="who">
-                <div className="av" style={{ background: "var(--brand)" }}>KP</div>
-                <div>
-                  <div className="nm">Kamal P.</div>
-                  <div className="ro">IT student</div>
-                </div>
+              <div className="eyebrow">Disengagement, from the camera</div>
+              <div style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-.02em", lineHeight: 1 }}>
+                0.92<small style={{ fontSize: ".45em", fontWeight: 700, opacity: .75 }}> AUC</small>
               </div>
+              <blockquote>
+                Measured on EngageNet across 26 held-out participants — people the model had never
+                seen. The best published result on the same benchmark is 0.74. The model reads
+                facial <em>geometry</em>, not pixels: about 600 bytes leave your browser per
+                cycle, against the ~3.3 MB a face crop would cost.
+              </blockquote>
             </div>
             <div className="q reveal d2">
-              <Stars />
-              <blockquote>&ldquo;It told me to take a break, and when I came back the explanation was completely different — and it finally clicked. I didn&apos;t quit this time.&rdquo;</blockquote>
-              <div className="who">
-                <div className="av" style={{ background: "var(--bored)" }}>NS</div>
-                <div>
-                  <div className="nm">Nadeesha S.</div>
-                  <div className="ro">Part-time learner</div>
-                </div>
+              <div className="eyebrow">Confusion, from how you work</div>
+              <div style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-.02em", lineHeight: 1 }}>
+                0.74<small style={{ fontSize: ".45em", fontWeight: 700, opacity: .75 }}> AUC</small>
               </div>
+              <blockquote>
+                Measured on DUX across 46 annotated sessions, from mouse, scroll and typing
+                rhythm alone. On the one dataset that carries both signals, interaction beat
+                facial expression for confusion — which is the opposite of what most of the field
+                assumes, so we publish it rather than bury it.
+              </blockquote>
             </div>
             <div className="q reveal d3">
-              <Stars />
-              <blockquote>&ldquo;For eight years I redesigned my course on gut feeling. Now I can see exactly which section confuses students — and fix it with evidence.&rdquo;</blockquote>
-              <div className="who">
-                <div className="av" style={{ background: "var(--ink)" }}>DP</div>
-                <div>
-                  <div className="nm">Dr. Perera</div>
-                  <div className="ro">Senior lecturer</div>
-                </div>
+              <div className="eyebrow">What we have not measured</div>
+              <div style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-.02em", lineHeight: 1 }}>
+                Not yet
               </div>
+              <blockquote>
+                Whether adaptation improves learning outcomes is an open question here. The
+                trial that would answer it has not run, so we do not claim a result. Two of the
+                four classic states — boredom and frustration — have no detector we would stand
+                behind either, so the system acts on the two it can actually see.
+              </blockquote>
             </div>
           </div>
         </div>
@@ -909,43 +919,37 @@ export default function LandingPage() {
               <h5>Product</h5>
               <a href="#how">How it works</a>
               <a href="#features">Features</a>
-              <a href="#privacy">Privacy</a>
+              <a href="#evidence">Evidence</a>
               <a href="#audiences">For creators</a>
             </div>
             <div className="ft-col">
               <h5>Company</h5>
-              <a href="#top">About</a>
+              <a href="#evidence">About the research</a>
               <Link href="/login">Sign in</Link>
               <Link href="/register">Sign up</Link>
               <a href="#faq">FAQ</a>
             </div>
+            {/*
+              These four used to point at `#privacy` and `#faq` — on-page anchors, on a site whose
+              central promise is privacy. A footer link labelled "Privacy policy" that scrolls you
+              to a marketing section is worse than no link at all.
+            */}
             <div className="ft-col">
               <h5>Legal</h5>
-              <a href="#privacy">Privacy policy</a>
-              <a href="#privacy">Terms of service</a>
-              <a href="#privacy">Data &amp; consent</a>
-              <a href="#faq">Accessibility</a>
+              <Link href="/legal/privacy">Privacy policy</Link>
+              <Link href="/legal/terms">Terms of service</Link>
+              <Link href="/legal/data-and-consent">Data &amp; consent</Link>
+              <Link href="/legal/accessibility">Accessibility</Link>
             </div>
           </div>
+          {/*
+            The social row here held three icons — X, LinkedIn, GitHub — all pointing at `#top`.
+            No such accounts exist, so they were decoration shaped like links. A footer with no
+            social icons is unremarkable; one with three that go nowhere is a defect.
+          */}
           <div className="ft-bottom">
             <p>© {new Date().getFullYear()} AffectLearn. All rights reserved.</p>
-            <div className="ft-social">
-              <a href="#top" aria-label="X">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M18.2 3H21l-6.5 7.4L22 21h-6l-4.7-6.1L5.8 21H3l7-8L2.5 3h6.1l4.2 5.6zM17 19.3h1.6L7.1 4.6H5.4z" />
-                </svg>
-              </a>
-              <a href="#top" aria-label="LinkedIn">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M4.98 3.5A2.5 2.5 0 102.5 6 2.5 2.5 0 004.98 3.5zM3 8.98h4V21H3zM9 8.98h3.8v1.64h.05a4.17 4.17 0 013.75-2.06c4 0 4.75 2.64 4.75 6.07V21h-4v-5.34c0-1.27 0-2.9-1.77-2.9s-2.04 1.38-2.04 2.81V21H9z" />
-                </svg>
-              </a>
-              <a href="#top" aria-label="GitHub">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2a10 10 0 00-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.1-1.47-1.1-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 015 0c1.9-1.29 2.74-1.02 2.74-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0012 2z" />
-                </svg>
-              </a>
-            </div>
+            <p>A research project. <Link href="/legal/data-and-consent">What that means</Link>.</p>
           </div>
         </div>
       </footer>
