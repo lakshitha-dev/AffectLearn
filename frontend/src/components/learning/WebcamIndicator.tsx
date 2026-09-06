@@ -54,10 +54,14 @@ export function WebcamIndicator() {
         {expanded && (
           <div className="ml-1 flex items-center gap-2 border-l border-border pl-2 text-muted-foreground">
             <span className="hidden sm:inline">No video is stored.</span>
-            <Link
-              href="/onboarding?step=webcam"
-              className="text-primary hover:underline text-xs"
-            >
+            {/*
+              Was `/onboarding?step=webcam`. The wizard ignores `step` entirely and always starts
+              at "welcome", and it redirects anyone who has already consented straight to
+              `/courses` — so this link silently dumped the learner on the course list instead of
+              anywhere they could change the setting. `/profile` is where the webcam toggle
+              actually lives.
+            */}
+            <Link href="/profile" className="text-primary hover:underline text-xs">
               Settings
             </Link>
           </div>
