@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { EnrollButton } from "@/components/learning/EnrollButton";
 import { useCourse, useEnrollmentStatus } from "@/hooks/use-courses";
+import { ModuleOutline } from "@/components/learning/ModuleOutline";
+import { LeaveCourseButton } from "@/components/learning/LeaveCourseButton";
 
 interface PageProps {
   params: Promise<{ courseId: string }>;
@@ -42,6 +44,8 @@ export default function CourseOverviewPage({ params }: PageProps) {
   }
 
   const course = courseQuery.data;
+  const isEnrolled =
+    enrollmentQuery.data != null && enrollmentQuery.data.status !== "dropped";
   const lessonsTotal = course.modules.reduce(
     (acc, mod) => acc + (mod.lessons?.length ?? 0),
     0,
@@ -78,6 +82,11 @@ export default function CourseOverviewPage({ params }: PageProps) {
             enrollment={enrollmentQuery.data}
             isLoading={enrollmentQuery.isLoading}
           />
+          {isEnrolled && (
+            <div className="mt-3">
+              <LeaveCourseButton courseId={course.id} />
+            </div>
+          )}
         </div>
       </header>
 
@@ -104,33 +113,18 @@ export default function CourseOverviewPage({ params }: PageProps) {
         </h2>
         {course.modules.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border bg-surface p-6 text-muted-foreground">
-            Module structure coming soon.
+            This course has no modules yet.
           </p>
         ) : (
           <ol className="space-y-3">
             {course.modules.map((mod, idx) => (
-              <li
+              <ModuleOutline
                 key={mod.id}
-                className="rounded-lg border border-border bg-surface p-4"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-base font-medium text-foreground">
-                    <span className="mr-2 text-muted-foreground">
-                      {idx + 1}.
-                    </span>
-                    {mod.title}
-                  </h3>
-                  <span className="text-xs text-muted-foreground">
-                    {(mod.lessons?.length ?? 0)}{" "}
-                    {(mod.lessons?.length ?? 0) === 1 ? "lesson" : "lessons"}
-                  </span>
-                </div>
-                {mod.description ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {mod.description}
-                  </p>
-                ) : null}
-              </li>
+                courseId={course.id}
+                module={mod}
+                index={idx}
+                enrolled={isEnrolled}
+              />
             ))}
           </ol>
         )}
