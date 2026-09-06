@@ -133,9 +133,23 @@ async def test_quiz_response_emits_quiz_submitted(
     assert "selected_answers" not in quiz[0]["payload"]
 
 
-async def test_quiz_idempotent_repeat_does_not_re_emit(
+async def test_quiz_repeat_still_emits_because_it_is_a_real_attempt(
     client: AsyncClient, enrolled_course, auth_headers, section_events, db
 ):
+    """CHANGED with migration 022, deliberately.
+
+    This test previously asserted that a repeat submission emitted NOTHING, because the route
+    early-returned on the existing summary row before reaching the emit. That was the bug, not
+    the contract: a learner answering a second time IS a second attempt, and suppressing it made
+    every attempt after the first invisible to the research record as well as to the database.
+
+    `section_features` counts `quiz_submitted` into `quiz_attempt_count` and `quiz_incorrect_count`
+    -- its two strongest struggle signals -- so under the old behaviour both were effectively
+    capped at one per block, and a learner who took five tries looked identical to one who took
+    one. Emitting per attempt is what makes those features mean what their names say.
+
+    The RESPONSE contract is unchanged and still asserted here: repeats remain 200.
+    """
     section = enrolled_course["sections"][0]
     block = await _create_content_block(db, section.id)
     payload = {
@@ -147,7 +161,11 @@ async def test_quiz_idempotent_repeat_does_not_re_emit(
     section_events.clear()
     resp = await client.post("/api/v1/quiz-responses", json=payload, headers=auth_headers)
     assert resp.status_code == 200
-    assert [e for e in section_events if e["event_type"] == "quiz_submitted"] == []
+
+    emitted = [e for e in section_events if e["event_type"] == "quiz_submitted"]
+    assert len(emitted) == 1
+    # And it is identifiable AS a repeat, which is the whole point.
+    assert emitted[0]["payload"]["attempt_number"] == 2
 
 
 # ── exercise_attempted ──────────────────────────────────────────────────────────

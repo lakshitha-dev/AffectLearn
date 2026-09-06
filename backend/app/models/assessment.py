@@ -58,6 +58,16 @@ class AssessmentAttempt(BaseModel):
     score = Column(Integer, nullable=False)
     max_score = Column(Integer, nullable=False)
     submitted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    #: 1-based, per (user, assessment). Migration 022.
+    #:
+    #: `api/routes/assessments.py` already reads this when it emits `exercise_attempted` --
+    #: int(getattr(result, "attempt_number", 0) or 0) -- but nothing ever set it, so every
+    #: research event recorded `attempt: 0`. A pre/post design turns on knowing which attempt a
+    #: score belongs to, so a silent constant zero there is a data defect, not a cosmetic one.
+    attempt_number = Column(Integer, nullable=False, default=1)
+    #: When the learner opened the assessment, so time-taken is derivable. Nullable: attempts
+    #: recorded before migration 022 have no start, and a client may not report one.
+    started_at = Column(DateTime(timezone=True), nullable=True)
 
     assessment = relationship("Assessment", back_populates="attempts")
     responses = relationship("QuestionResponse", back_populates="attempt", cascade="all, delete-orphan")
