@@ -25,6 +25,24 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Settings that must exist for `app.core.config.Settings()` to construct at IMPORT time.
+#
+# `DATABASE_URL` and `JWT_SECRET` have no defaults, so merely importing anything under `app.`
+# raises a pydantic ValidationError without them. Locally that is masked by an untracked
+# `backend/.env`; CI has no such file, which is why this workflow failed on its first real run
+# while every developer machine passed.
+#
+# The DATABASE_URL VALUE is never used: `tests/conftest.py` builds its own in-memory SQLite
+# engine. It only has to be present and well-formed.
+#
+# Defined once as a YAML anchor so a third job cannot be added without it and fail the same way.
+x-test-env: &test-env
+  DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/unused"
+  JWT_SECRET: "ci-only-not-a-real-secret"
+  # The retention sweep is a background task; a test run must never delete rows from under
+  # itself. 0 disables it.
+  RESEARCH_RETENTION_DAYS: "0"
+
 jobs:
   backend:
     name: Backend (pytest + ruff)
@@ -54,10 +72,7 @@ jobs:
         run: ruff check app tests
 
       - name: Tests
-        env:
-          # The retention sweep is a background task; a test run must never delete rows from
-          # under itself. 0 disables it.
-          RESEARCH_RETENTION_DAYS: "0"
+        env: *test-env
         run: pytest -q
 
   frontend:
@@ -112,6 +127,7 @@ jobs:
       # production, silently, on any code path that degrades rather than raises. That has already
       # happened once here: `learner_profiles` ran for weeks without existing.
       - name: Schema guard
+        env: *test-env
         run: pytest tests/test_migrations_cover_models.py -q
 
       - name: Single migration head
