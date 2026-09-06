@@ -368,3 +368,79 @@ async def test_course_list_module_count(
     assert resp.status_code == 200
     item = resp.json()["items"][0]
     assert item["moduleCount"] == 2
+
+
+class TestLeavingACourseKeepsTheData:
+    """Leaving is a status change, never a delete.
+
+    `Enrollment.section_progress` cascades delete-orphan and `assessment_attempts.enrollment_id`
+    is ON DELETE CASCADE, so a DELETE endpoint here would take every completed section and every
+    pre/post score with it. During a pilot those scores are the study.
+    """
+
+    async def test_drop_marks_the_enrollment_and_keeps_progress(
+        self, client, auth_headers, enrolled_course, db, test_user
+    ):
+        from sqlalchemy import func, select
+
+        from app.models.section_progress import SectionProgress
+
+        section = enrolled_course["sections"][0]
+        await client.post(
+            "/api/v1/section-progress",
+            headers=auth_headers,
+            json={"sectionId": str(section.id), "timeSpentSeconds": 30},
+        )
+        course_id = enrolled_course["course"].id
+
+        resp = await client.post(f"/api/v1/enrollments/{course_id}/drop", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "dropped"
+
+        remaining = (
+            await db.execute(
+                select(func.count(SectionProgress.id)).where(
+                    SectionProgress.user_id == test_user.id
+                )
+            )
+        ).scalar_one()
+        assert remaining == 1
+
+    async def test_re_enrolling_reactivates_the_same_row(
+        self, client, auth_headers, enrolled_course
+    ):
+        course_id = enrolled_course["course"].id
+
+        before = (
+            await client.get(f"/api/v1/enrollments/{course_id}", headers=auth_headers)
+        ).json()
+        await client.post(f"/api/v1/enrollments/{course_id}/drop", headers=auth_headers)
+
+        again = await client.post(
+            "/api/v1/enrollments",
+            json={"courseId": str(course_id)},
+            headers=auth_headers,
+        )
+        assert again.status_code in (200, 201)
+        assert again.json()["id"] == before["id"]
+        assert again.json()["status"] == "active"
+
+    async def test_still_conflicts_when_actively_enrolled(
+        self, client, auth_headers, enrolled_course
+    ):
+        course_id = enrolled_course["course"].id
+        resp = await client.post(
+            "/api/v1/enrollments",
+            json={"courseId": str(course_id)},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error"]["code"] == "ALREADY_ENROLLED"
+
+    async def test_dropping_a_course_you_never_joined_is_404(self, client, auth_headers):
+        import uuid
+
+        resp = await client.post(
+            f"/api/v1/enrollments/{uuid.uuid4()}/drop", headers=auth_headers
+        )
+        assert resp.status_code == 404
