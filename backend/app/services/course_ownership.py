@@ -139,3 +139,129 @@ async def assert_can_edit_block(
         .where(ContentBlock.id == block_id),
     )
     return await assert_can_edit_course(db, user, course_id)
+
+
+# --- READ authorisation -------------------------------------------------------------------
+#
+# Editing was guarded above; reading was not. `course_service.get_course` applies no
+# `is_published` filter, so any authenticated learner holding a course UUID could pull the whole
+# draft tree — unpublished modules, unreleased lessons, and every content block inside them. The
+# LIST endpoint has always filtered correctly (`published_only=is_learner`), which is what made
+# the omission easy to miss: browsing behaved, and only a direct fetch by id did not.
+#
+# The rule mirrors the list endpoint exactly: a learner sees published courses, everyone else
+# sees what they already saw. Designers deliberately keep read access to courses they do not own
+# — the course list shows them every course with `canEdit: false` — so this narrows learners only.
+#
+# WHY 404 AND NOT 403
+#
+# Answering "forbidden" for an unpublished course confirms that a course with that id exists and
+# is being worked on. A learner has no business distinguishing "no such course" from "not yet
+# released", so both answer the same way.
+
+
+def can_read(user: User, course: Course) -> bool:
+    """Whether `user` may read `course`. Learners are limited to published courses."""
+    if user.role == Role.learner:
+        return bool(course.is_published)
+    return True
+
+
+async def assert_can_read_course(
+    db: AsyncSession, user: User, course_id: uuid.UUID
+) -> Course:
+    """Raise 404 unless `user` may read this course. Returns the course when they may."""
+    course = (
+        await db.execute(select(Course).where(Course.id == course_id))
+    ).scalar_one_or_none()
+    if course is None or not can_read(user, course):
+        raise _not_found()
+    return course
+
+
+async def assert_can_read_module(
+    db: AsyncSession, user: User, module_id: uuid.UUID
+) -> Course:
+    course_id = await _course_id_from(
+        db, select(Module.course_id).where(Module.id == module_id)
+    )
+    return await assert_can_read_course(db, user, course_id)
+
+
+async def assert_can_read_lesson(
+    db: AsyncSession, user: User, lesson_id: uuid.UUID
+) -> Course:
+    course_id = await _course_id_from(
+        db,
+        select(Module.course_id)
+        .join(Lesson, Lesson.module_id == Module.id)
+        .where(Lesson.id == lesson_id),
+    )
+    return await assert_can_read_course(db, user, course_id)
+
+
+async def assert_can_read_section(
+    db: AsyncSession, user: User, section_id: uuid.UUID
+) -> Course:
+    course_id = await _course_id_from(
+        db,
+        select(Module.course_id)
+        .join(Lesson, Lesson.module_id == Module.id)
+        .join(Section, Section.lesson_id == Lesson.id)
+        .where(Section.id == section_id),
+    )
+    return await assert_can_read_course(db, user, course_id)
+
+
+# --- ANALYTICS authorisation --------------------------------------------------------------
+#
+# `/analytics/*` was `require_role(course_designer, admin)` with no course scoping, so any
+# designer could read any other designer's course analytics — learner affect distributions,
+# struggle leaderboards, per-paragraph confusion. The writes have always been scoped; the reads
+# over the same tree were not.
+#
+# WHY THIS IS NOT `assert_can_edit_course`
+#
+# The obvious fix — reuse the edit guard — would break the pilot. Seeded courses have
+# `created_by = NULL`, which the edit rule treats as admin-only system content (`canEdit: false`
+# in the designer UI). The pilot runs on exactly such a course, so reusing the edit rule would
+# lock every designer out of the analytics the platform exists to show them.
+#
+# The rule that actually matches the intent: shared/system content is visible to any designer,
+# and a course with a named owner is visible to that owner (and to admins). That closes the
+# cross-designer leak without pretending analytics and authoring are the same permission.
+
+
+def can_view_analytics(user: User, course: Course) -> bool:
+    """Whether `user` may read analytics for `course`."""
+    if user.role == Role.admin:
+        return True
+    if course.created_by is None:
+        return True  # system/seeded content is shared, and the pilot course is one of these
+    return course.created_by == user.id
+
+
+async def assert_can_view_course_analytics(
+    db: AsyncSession, user: User, course_id: uuid.UUID
+) -> Course:
+    course = (
+        await db.execute(select(Course).where(Course.id == course_id))
+    ).scalar_one_or_none()
+    if course is None:
+        raise _not_found()
+    if not can_view_analytics(user, course):
+        raise _forbidden("You can only view analytics for courses you created")
+    return course
+
+
+async def assert_can_view_section_analytics(
+    db: AsyncSession, user: User, section_id: uuid.UUID
+) -> Course:
+    course_id = await _course_id_from(
+        db,
+        select(Module.course_id)
+        .join(Lesson, Lesson.module_id == Module.id)
+        .join(Section, Section.lesson_id == Lesson.id)
+        .where(Section.id == section_id),
+    )
+    return await assert_can_view_course_analytics(db, user, course_id)

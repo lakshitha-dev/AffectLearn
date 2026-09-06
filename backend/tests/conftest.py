@@ -169,8 +169,23 @@ def admin_headers(test_admin: User) -> dict:
 
 
 @pytest_asyncio.fixture
-async def test_course(db: AsyncSession) -> Course:
-    course = Course(title="Test Course", description="A test course", is_published=True)
+async def test_course(db: AsyncSession, test_designer: User) -> Course:
+    """A published course OWNED by `test_designer`.
+
+    Ownership matters now that content mutations are scoped: a course with `created_by = NULL` is
+    system content that only an admin may edit (see `course_ownership`), so leaving this fixture
+    unowned would mean `designer_headers` could not author against it — which is a property of
+    seeded pilot content, not of the ordinary designer flows these tests exercise.
+
+    `test_course_ownership.py` builds its own courses and does not use this fixture, so the
+    unowned/system case stays covered there.
+    """
+    course = Course(
+        title="Test Course",
+        description="A test course",
+        is_published=True,
+        created_by=test_designer.id,
+    )
     db.add(course)
     await db.commit()
     await db.refresh(course)

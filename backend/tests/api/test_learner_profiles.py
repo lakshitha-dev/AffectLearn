@@ -37,11 +37,31 @@ async def test_learner_cannot_read_another_learners_progress(client, auth_header
 
 
 @pytest.mark.asyncio
-async def test_designer_can_read_any_learner_progress(
+async def test_designer_cannot_read_a_learners_progress(
     client, designer_headers, test_user, enrolled_course
 ):
+    """This endpoint aggregates across EVERY course the learner is enrolled in.
+
+    It previously answered 200 for any course designer, which handed one designer a learner's
+    progress through other designers' courses — a cross-course read that no designer screen ever
+    requested. Both real callers (`/progress` and the study thank-you summary) read the caller's
+    own progress, so narrowing to self-or-admin costs nothing that was in use.
+
+    A designer's legitimate need is the roster for a course they own; that is course-scoped by
+    construction and belongs on its own endpoint rather than by widening this one.
+    """
     resp = await client.get(
         f"/api/v1/learner-profiles/{test_user.id}/progress", headers=designer_headers
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_can_read_any_learner_progress(
+    client, admin_headers, test_user, enrolled_course
+):
+    resp = await client.get(
+        f"/api/v1/learner-profiles/{test_user.id}/progress", headers=admin_headers
     )
     assert resp.status_code == 200
     assert resp.json()["courses"][0]["totalSections"] == 12

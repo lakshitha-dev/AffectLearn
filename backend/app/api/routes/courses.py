@@ -102,6 +102,7 @@ async def get_course(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await course_ownership.assert_can_read_course(db, current_user, course_id)
     course = await course_service.get_course(db, course_id)
     response = CourseDetailResponse.model_validate(course)
     # Same annotation as the list view, and for the same reason: the structure builder decides
@@ -178,6 +179,7 @@ async def list_modules(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await course_ownership.assert_can_read_course(db, current_user, course_id)
     return await course_service.list_modules(db, course_id)
 
 
@@ -230,6 +232,7 @@ async def list_lessons(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await course_ownership.assert_can_read_module(db, current_user, module_id)
     return await course_service.list_lessons(db, module_id)
 
 
@@ -240,6 +243,7 @@ async def get_lesson_detail(
     current_user: User = Depends(get_current_user),
 ):
     """Return a lesson with all sections and content blocks (single query)."""
+    await course_ownership.assert_can_read_lesson(db, current_user, lesson_id)
     return await course_service.get_lesson_detail(db, lesson_id)
 
 
@@ -289,6 +293,7 @@ async def list_sections(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await course_ownership.assert_can_read_lesson(db, current_user, lesson_id)
     return await course_service.list_sections(db, lesson_id)
 
 
@@ -338,6 +343,7 @@ async def list_content_blocks(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await course_ownership.assert_can_read_section(db, current_user, section_id)
     return await course_service.list_content_blocks(db, section_id)
 
 

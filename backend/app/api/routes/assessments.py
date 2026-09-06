@@ -23,7 +23,7 @@ from app.schemas.assessment import (
     AssessmentResponse, AssessmentWithQuestionsResponse,
     AttemptCreate, AttemptResponse,
 )
-from app.services import assessment_service, study_service
+from app.services import assessment_service, course_ownership, study_service
 from app.services.research_logger import emit as emit_research_event
 
 logger = structlog.get_logger(__name__)
@@ -74,12 +74,38 @@ async def _safe_emit(event: dict) -> None:
         )
 
 
+async def _assert_can_edit_assessment(
+    db: AsyncSession, user: User, assessment_id: uuid.UUID
+) -> None:
+    """Resolve an assessment to its module and apply the course-ownership rule.
+
+    An assessment names a module, not a course, so the ownership check has to walk up the same
+    way the content guards do.
+    """
+    from app.models.assessment import Assessment
+
+    module_id = (
+        await db.execute(
+            select(Assessment.module_id).where(Assessment.id == assessment_id)
+        )
+    ).scalars().first()
+    if module_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Assessment not found"}},
+        )
+    await course_ownership.assert_can_edit_module(db, user, module_id)
+
+
 @router.post("", response_model=AssessmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_assessment(
     body: AssessmentCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    # Scoped to the owning course. Being a designer said nothing about WHOSE module this is, so
+    # a designer could hang a pre-assessment off another designer's course.
+    await course_ownership.assert_can_edit_module(db, current_user, body.module_id)
     return await assessment_service.create_assessment(db, data=body)
 
 
@@ -90,6 +116,7 @@ async def add_question(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await _assert_can_edit_assessment(db, current_user, assessment_id)
     return await assessment_service.add_question(db, assessment_id=assessment_id, data=body)
 
 
