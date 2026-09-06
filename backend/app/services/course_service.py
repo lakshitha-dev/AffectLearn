@@ -18,10 +18,13 @@ from app.models.enrollment import Enrollment
 
 async def create_course(db: AsyncSession, *, title: str, description: str | None = None,
                         estimated_duration_minutes: int | None = None, is_published: bool = False,
-                        learning_objectives: str | None = None) -> Course:
+                        learning_objectives: str | None = None,
+                        created_by: uuid.UUID | None = None) -> Course:
+    # `created_by` is optional so `seed_courses.py` can keep creating system content with no
+    # owner, which is what makes seeded courses admin-only (migration 024).
     course = Course(title=title, description=description,
                     estimated_duration_minutes=estimated_duration_minutes, is_published=is_published,
-                    learning_objectives=learning_objectives)
+                    learning_objectives=learning_objectives, created_by=created_by)
     db.add(course)
     await db.commit()
     await db.refresh(course)
