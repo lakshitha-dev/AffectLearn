@@ -112,3 +112,45 @@ Phase A needs no GPU at all (log-only).
 - Azure Postgres requires **SSL** (`?ssl=require`) and Redis uses **TLS** (`rediss://:KEY@...:6380`).
 - Keep `SEED_ON_STARTUP=false` / `EXPOSE_DEV_CREDENTIALS=false` in production.
 - Don't commit the 46MB facial ONNX (gitignored) — it's served from Blob or baked at build.
+
+## Research-data retention
+
+`RESEARCH_RETENTION_DAYS` controls the sweep that deletes `research_events` older than the limit
+the participant-facing copy promises. The application default is **90**; the deployed backend is
+set to **0**, which disables the sweep.
+
+That is deliberate and it is a decision, not an oversight. The sweep is the only irreversible
+thing the platform does on its own: it starts sixty seconds after boot and deletes permanently,
+then repeats daily. Turning it on before anyone has looked at what is in the table would have
+destroyed research data as a side effect of a deploy.
+
+**Before enabling it**, check what would go:
+
+```sql
+SELECT to_timestamp(MIN(timestamp)/1000) AS oldest,
+       to_timestamp(MAX(timestamp)/1000) AS newest,
+       COUNT(*) AS rows
+FROM research_events;
+```
+
+Then set it deliberately:
+
+```bash
+az webapp config appsettings set   --subscription 8a419620-bdcc-4074-8bea-2749bcafcb38   -g affectlearn-rg -n affectlearn-api-2026   --settings RESEARCH_RETENTION_DAYS=90
+```
+
+The consent form commits to 90-day deletion, so this SHOULD be on before recruitment opens. It is
+off now because there are no participants yet and there is existing development data worth
+keeping.
+
+## Which subscription the deployment lives in
+
+The live apps are `affectlearn-api-2026` and `affectlearn-web-2026` in resource group
+`affectlearn-rg`, under the **Azure for Students - Lakshani** subscription
+(`8a419620-bdcc-4074-8bea-2749bcafcb38`).
+
+Recorded here because `az` defaults to a different subscription on the development machine, and
+the older `-4905` apps in a third subscription are `AdminDisabled` leftovers from the migration.
+Running a deployment command without `--subscription` targets the wrong tenant and fails with
+`ResourceGroupNotFound`, which reads like the resource is gone rather than like the wrong account
+is selected.
