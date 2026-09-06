@@ -229,10 +229,14 @@ async def me(current_user: User = Depends(get_current_user)):
 async def dev_credentials():
     """Return the seeded role-based accounts for the login page in dev mode.
 
-    Gated by `EXPOSE_DEV_CREDENTIALS`. Returns 404 in production so the route
-    is invisible to clients.
+    Returns 404 unless BOTH conditions hold: the environment is not production, and
+    `EXPOSE_DEV_CREDENTIALS` is set. The route is unauthenticated and its body is the plaintext
+    password of the seeded ADMIN account, so a single mis-copied environment file was the whole
+    distance between a normal deployment and handing out admin credentials to anyone who knew the
+    path. One flag is not enough separation for that payload; the environment check cannot be
+    switched on by accident when copying a working `.env` from a developer machine.
     """
-    if not settings.EXPOSE_DEV_CREDENTIALS:
+    if settings.ENVIRONMENT.lower() == "production" or not settings.EXPOSE_DEV_CREDENTIALS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": {"code": "NOT_FOUND", "message": "Not found"}},
@@ -457,7 +461,7 @@ async def change_password(
     await db.commit()
 
     try:
-        await send_password_changed_email(current_user)
+        await send_password_changed_email(current_user.email_address)
     except Exception:  # noqa: BLE001 — the password IS changed; a mail failure must not undo it
         logger.warning("password_changed_email_failed", user_id=str(current_user.id))
 

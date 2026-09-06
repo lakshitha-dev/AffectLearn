@@ -406,3 +406,136 @@ async def test_register_without_code_is_learner(client: AsyncClient, db):
         await db.execute(select(User).where(User.email_address == "plain-learner@example.com"))
     ).scalar_one()
     assert user.role == Role.learner
+
+
+# --- Change Password Tests ---
+
+
+def _capture_notice(monkeypatch, target: str) -> dict:
+    """Capture a single-argument notification email sent from the auth route module.
+
+    Deliberately typed `to: str` and asserted against below. The production defect this guards
+    passed the whole `User` object here; because `_send` swallows every exception, the failure
+    surfaced only as a missing email in production and nothing failed in test or in the request.
+    """
+    captured: dict = {}
+
+    async def fake_send(to: str) -> None:
+        captured["to"] = to
+
+    monkeypatch.setattr(f"app.api.routes.auth.{target}", fake_send)
+    return captured
+
+
+async def test_change_password_sends_notice_to_the_email_address(
+    client: AsyncClient, test_user, monkeypatch
+):
+    """The confirmation must be addressed to the email STRING, not the User object.
+
+    Regression test: `send_password_changed_email` takes `to: str`. Passing `current_user` made
+    the address an ORM object, which the mail transport could not serialise; the error was
+    swallowed and the security confirmation silently never sent.
+    """
+    captured = _capture_notice(monkeypatch, "send_password_changed_email")
+    token = create_access_token(str(test_user.id))
+
+    resp = await client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"currentPassword": "Password1!", "newPassword": "NewStrongPass1!"},
+    )
+
+    assert resp.status_code == 200
+    assert captured["to"] == "learner@test.com"
+    assert isinstance(captured["to"], str)
+
+
+async def test_change_password_then_login_with_new_password(
+    client: AsyncClient, test_user, monkeypatch
+):
+    _capture_notice(monkeypatch, "send_password_changed_email")
+    token = create_access_token(str(test_user.id))
+
+    resp = await client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"currentPassword": "Password1!", "newPassword": "NewStrongPass1!"},
+    )
+    assert resp.status_code == 200
+
+    old = await client.post(
+        "/api/v1/auth/login",
+        json={"emailAddress": "learner@test.com", "password": "Password1!"},
+    )
+    assert old.status_code == 401
+
+    new = await client.post(
+        "/api/v1/auth/login",
+        json={"emailAddress": "learner@test.com", "password": "NewStrongPass1!"},
+    )
+    assert new.status_code == 200
+
+
+async def test_change_password_rejects_wrong_current_password(
+    client: AsyncClient, test_user, monkeypatch
+):
+    captured = _capture_notice(monkeypatch, "send_password_changed_email")
+    token = create_access_token(str(test_user.id))
+
+    resp = await client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"currentPassword": "NotMyPassword1!", "newPassword": "NewStrongPass1!"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"]["code"] == "INVALID_CREDENTIALS"
+    # No password changed means no security notice.
+    assert captured == {}
+
+
+async def test_change_password_requires_authentication(client: AsyncClient):
+    resp = await client.post(
+        "/api/v1/auth/change-password",
+        json={"currentPassword": "Password1!", "newPassword": "NewStrongPass1!"},
+    )
+    assert resp.status_code == 401
+
+
+# --- Dev credentials exposure ---
+
+
+class TestDevCredentialsAreNotReachableInProduction:
+    """This route is unauthenticated and returns the seeded ADMIN password in plaintext.
+
+    It had no tests at all, including none asserting it disappears in production. The flag alone
+    was the only thing standing between a normal deployment and giving away admin credentials to
+    anyone who knew the path, and a flag is exactly the kind of thing that travels in a copied
+    `.env`. The environment check is the part that cannot be enabled by accident.
+    """
+
+    async def test_404_in_production_even_when_the_flag_is_on(
+        self, client: AsyncClient, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+        monkeypatch.setattr(settings, "EXPOSE_DEV_CREDENTIALS", True)
+
+        resp = await client.get("/api/v1/auth/dev-credentials")
+        assert resp.status_code == 404
+
+    async def test_404_when_the_flag_is_off(self, client: AsyncClient, monkeypatch):
+        monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+        monkeypatch.setattr(settings, "EXPOSE_DEV_CREDENTIALS", False)
+
+        resp = await client.get("/api/v1/auth/dev-credentials")
+        assert resp.status_code == 404
+
+    async def test_available_in_development_when_explicitly_enabled(
+        self, client: AsyncClient, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+        monkeypatch.setattr(settings, "EXPOSE_DEV_CREDENTIALS", True)
+
+        resp = await client.get("/api/v1/auth/dev-credentials")
+        assert resp.status_code == 200
+        assert "accounts" in resp.json()

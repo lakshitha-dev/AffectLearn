@@ -76,6 +76,13 @@ export default function LoginPage() {
   });
 
   useEffect(() => {
+    // Never in a production bundle. The response body is the seeded ADMIN account's plaintext
+    // password, and the backend now refuses to serve it outside development — but a login page
+    // that still ASKS leaves the one-click sign-in buttons in the shipped JavaScript and puts the
+    // path in every production browser's network tab. `process.env.NODE_ENV` is substituted at
+    // build time, so this whole block is dead-stripped rather than merely skipped.
+    if (process.env.NODE_ENV === "production") return;
+
     let cancelled = false;
     fetch(`${API_BASE}/auth/dev-credentials`)
       .then((res) => (res.ok ? res.json() : null))
