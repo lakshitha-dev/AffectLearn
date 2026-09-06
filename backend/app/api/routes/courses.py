@@ -11,6 +11,7 @@ from app.schemas.course import (
     ContentBlockCreate,
     ContentBlockResponse,
     ContentBlockUpdate,
+    ContentBlockVariantCreate,
     CourseCreate,
     CourseDetailResponse,
     CourseListResponse,
@@ -244,7 +245,9 @@ async def get_lesson_detail(
 ):
     """Return a lesson with all sections and content blocks (single query)."""
     await course_ownership.assert_can_read_lesson(db, current_user, lesson_id)
-    return await course_service.get_lesson_detail(db, lesson_id)
+    return await course_service.get_lesson_detail(
+        db, lesson_id, originals_only=current_user.role == Role.learner
+    )
 
 
 @router.put("/lessons/{lesson_id}", response_model=LessonResponse)
@@ -344,7 +347,9 @@ async def list_content_blocks(
     current_user: User = Depends(get_current_user),
 ):
     await course_ownership.assert_can_read_section(db, current_user, section_id)
-    return await course_service.list_content_blocks(db, section_id)
+    return await course_service.list_content_blocks(
+        db, section_id, originals_only=current_user.role == Role.learner
+    )
 
 
 @router.put("/content-blocks/{block_id}", response_model=ContentBlockResponse)
@@ -367,3 +372,52 @@ async def delete_content_block(
 ):
     await course_ownership.assert_can_edit_block(db, current_user, block_id)
     await course_service.delete_content_block(db, block_id)
+
+
+# ---------------------------------------------------------------------------
+# Content-block variants (FR19 / FR21)
+# ---------------------------------------------------------------------------
+#
+# `content_blocks` has carried `variant_key` and `variant_group` since migration 005, and until
+# now nothing wrote anything but `"original"` into them. The adaptation loop consequently had no
+# alternative content to reach for: `show_alternative` and `increase_difficulty` fell through to
+# generated text, and `skip_ahead` degraded to "the next section".
+#
+# A variant is a sibling block in the SAME section sharing the original's `variant_group` and
+# carrying a different `variant_key`. Learner-facing reads filter to `"original"`, so authoring
+# one adds nothing to the ordinary reading experience — it only gives the loop something to swap
+# in when it decides to.
+
+
+@router.get("/content-blocks/{block_id}/variants", response_model=list[ContentBlockResponse])
+async def list_content_block_variants(
+    block_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """Every alternative authored for this block, the original first."""
+    await course_ownership.assert_can_edit_block(db, current_user, block_id)
+    return await course_service.list_block_variants(db, block_id)
+
+
+@router.post(
+    "/content-blocks/{block_id}/variants",
+    response_model=ContentBlockResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upsert_content_block_variant(
+    block_id: uuid.UUID,
+    body: ContentBlockVariantCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """Create or replace one alternative of a block.
+
+    Idempotent on `(variant_group, variant_key)`: saving the "simpler" variant twice edits it
+    rather than accumulating duplicates, which matters because the loop selects by key and two
+    blocks answering to the same key would make which one a learner sees arbitrary.
+    """
+    await course_ownership.assert_can_edit_block(db, current_user, block_id)
+    return await course_service.upsert_block_variant(
+        db, block_id, variant_key=body.variant_key, content=body.content
+    )
