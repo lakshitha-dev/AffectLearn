@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 
 import { AffectHeatmapGrid } from "@/components/designer/AffectHeatmapGrid";
 import { HeatmapGridSkeleton } from "@/components/designer/HeatmapGridSkeleton";
+import { ContentEffectiveness } from "@/components/designer/ContentEffectiveness";
 import { useAffectHeatmap } from "@/hooks/use-analytics";
 
 /**
@@ -37,9 +38,9 @@ export default function CourseAffectHeatmapPage() {
         >
           ← Back to dashboard
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-foreground">Affect Heatmap</h1>
+        <h1 className="mt-2 text-2xl font-bold text-foreground">Course analytics</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Per-section emotional analytics for this course
+          How learners felt, and what they did, section by section
         </p>
       </div>
 
@@ -72,6 +73,19 @@ export default function CourseAffectHeatmapPage() {
       ) : (
         <AffectHeatmapGrid courseId={courseId} sections={sections} />
       )}
+
+      {/*
+        The behavioural evidence, below the affect heatmap and on the same page ON PURPOSE.
+
+        The heatmap reports inferred emotion from a detector the platform is candid about: two
+        states, both well below certainty, on a channel its own code documents as structurally
+        weak on this paginated reader. This panel reports what learners actually did. Putting
+        them side by side is what lets a designer weigh one against the other instead of
+        treating the heatmap as the whole picture.
+      */}
+      <div className="mt-10">
+        <ContentEffectiveness courseId={courseId} />
+      </div>
     </div>
   );
 }
