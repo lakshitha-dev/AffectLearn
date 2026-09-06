@@ -13,6 +13,8 @@ const NAV_ITEMS = [
   { label: "System Health", href: "/system-health" },
   { label: "Data Export", href: "/data-export" },
   { label: "Settings", href: "/admin-settings" },
+  // The admin's own profile/password, distinct from the system-wide gate configuration above.
+  { label: "Account", href: "/account" },
 ];
 
 export default function AdminLayout({
