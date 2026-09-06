@@ -26,7 +26,12 @@ All four thresholds are env-tunable so the pilot can be re-calibrated without a 
 
 from __future__ import annotations
 
+import hashlib
 import os
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from app.services.config_service import GateConfig as GateConfigLike
 
 import structlog
 
@@ -94,7 +99,7 @@ ADAPT_MIN_CONFIDENCE = _env_float("ADAPT_MIN_CONFIDENCE", 0.70)
 # persistence 2 and cooldown 3, intervals resampling participants):
 #
 #   channel            floor   gated precision        interventions/h
-#   behavioural        0.50    0.500 [0.273, 0.737]   ~1.5      <- deployed setting, unchanged
+#   behavioural        0.50    0.500 [0.273, 0.737]   ~1.5      <- WAS deployed; raised to 0.70
 #   facial geometry    0.50    0.763 [0.635, 0.853]   ~10.3
 #   facial geometry    0.70    0.872 [0.783, 0.937]   ~7.1      <- chosen
 #
@@ -103,6 +108,18 @@ ADAPT_MIN_CONFIDENCE = _env_float("ADAPT_MIN_CONFIDENCE", 0.70)
 # it at 0.50 would give away 0.109 of precision on the geometry channel for no reason.
 _CHANNEL_MIN_CONFIDENCE: dict[str, float] = {
     AFFECT_SOURCE_FACIAL_GEOMETRY: _env_float("ADAPT_MIN_CONFIDENCE_GEOMETRY", 0.70),
+    # RAISED from the 0.50 the deployment was running (2026-09), where measured precision at that
+    # operating point is 0.500 [0.273, 0.737] -- a coin flip. Half of every confusion intervention
+    # was firing on a learner who was not confused, which is not a threshold that can support a
+    # claim about whether confusion interventions help.
+    #
+    # Stated EXPLICITLY here rather than left to fall through to `ADAPT_MIN_CONFIDENCE`, because
+    # the deployment overrides that global to 0.50 for other reasons; an inherited floor would
+    # silently drop this channel back to the coin flip. Fewer, better-founded triggers is the
+    # right trade when the detector is this weak -- and the confusion literature agrees for an
+    # unrelated reason: confusion that resolves on its own teaches better than confusion that is
+    # interrupted (D'Mello et al. 2014), so a late, confident trigger is preferable anyway.
+    AFFECT_SOURCE_BEHAVIORAL: _env_float("ADAPT_MIN_CONFIDENCE_BEHAVIORAL", 0.70),
     # The performance channel's "confidence" is a weighted count of observed behaviours, not a
     # calibrated probability, so it does not share an operating point with either model. 0.60 is
     # CHOSEN, not calibrated: it sits where at least two independent indicators must be present,
@@ -144,6 +161,148 @@ GATE_NOT_SUSTAINED = "not_sustained"
 GATE_COOLDOWN = "cooldown"
 # The channel is inferred and logged, but is not authorised to intervene alone.
 GATE_CHANNEL_ADVISORY = "channel_advisory"
+# The cycle cleared EVERY gate condition and was then withheld by the randomised trial draw.
+# This is not a failure: it is the control arm, and the cycles carrying it are the comparison
+# group the delivered arm is measured against.
+GATE_WITHHELD_RANDOM = "withheld_random"
+# The learner has already had this session's full allowance of interventions.
+GATE_SESSION_CAP = "session_cap"
+
+# ── the randomised trial arm ──────────────────────────────────────────────────────────
+#
+# WHY THE SYSTEM DELIBERATELY WITHHOLDS HELP FROM SOME QUALIFYING MOMENTS.
+#
+# An intervention fires when the detector is MOST confident the learner is bored or confused --
+# which is, by construction, near the peak of that state. States drift back toward baseline on
+# their own, so the cycles after any trigger improve whether or not anything was delivered.
+# Measuring only delivered cycles therefore reports regression to the mean as an intervention
+# effect, and reports it as a positive result. No amount of care downstream recovers from that.
+#
+# So the gate decides ELIGIBILITY and this draw decides DELIVERY. The withheld cycles are matched
+# to the delivered ones on every gate condition -- same state, same confidence floor, same
+# persistence, same cooldown -- because they are drawn from exactly the same set. That makes them
+# a valid control, and it makes the detector's own later readings a valid outcome measure: any
+# bias in the detector applies equally to both arms and cancels out of the difference.
+ADAPT_WITHHOLD_RATE = _env_float("ADAPT_WITHHOLD_RATE", 0.35)
+
+# Most interventions one session may produce, counted across BOTH arms.
+#
+# There was no ceiling at all before this. The geometry channel triggers at roughly 7.1/hour and
+# each modality runs the gate independently, so a long session could deliver an intervention every
+# ~90 seconds indefinitely. Past some rate the study stops measuring whether help helps and starts
+# measuring how people respond to being interrupted -- and the states it interrupts them about are
+# exactly the ones repeated interruption produces.
+ADAPT_MAX_PER_SESSION = _env_int("ADAPT_MAX_PER_SESSION", 6)
+
+#: `arm` values recorded on the research event. `None` means the cycle never became eligible,
+#: so it belongs to neither arm and must be excluded from the trial analysis.
+ARM_DELIVERED = "delivered"
+ARM_WITHHELD = "withheld"
+
+
+def withhold_draw(learner_id: Any, session_id: Any, cycle_number: Any) -> float:
+    """A uniform [0, 1) draw that is a pure function of the cycle's identity.
+
+    Hashed rather than sampled from `random`: a PRNG's output depends on process state, so the
+    same cycle would draw differently on a replay, in a test, or after a restart -- and the
+    assignment would then be unauditable. Hashing the identity means `gate_replay_service` can
+    re-derive every historical arm exactly, months later, from the event record alone.
+    """
+    key = f"{learner_id}|{session_id}|{cycle_number}".encode("utf-8")
+    return int.from_bytes(hashlib.sha256(key).digest()[:8], "big") / 2**64
+
+
+def _session_cap_reached(
+    profile: dict, session_id: Any, config: "GateConfigLike | None" = None
+) -> bool:
+    """Whether this session has already used its allowance.
+
+    The counter is session-scoped the same way the cooldown marker is: `cycle_number` restarts at
+    1 each session while the profile outlives it, so a count carried over from an earlier session
+    would suppress interventions in this one from its first cycle.
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        return False
+    cap = config.max_per_session if config else ADAPT_MAX_PER_SESSION
+    return int(profile.get("eligible_this_session", 0) or 0) >= max(0, cap)
+
+
+def record_eligible_cycle(profile: dict, session_id: Any) -> None:
+    """Count a cycle that entered the trial. Mutates `profile` in place.
+
+    Counts BOTH arms: a withheld cycle used up an eligible moment just as a delivered one did,
+    and the cap exists to bound how much of the session the trial occupies, not how much help
+    was given.
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        profile["adaptation_session_id"] = session_id
+        profile["eligible_this_session"] = 0
+    profile["eligible_this_session"] = int(profile.get("eligible_this_session", 0) or 0) + 1
+
+
+def _ladder_key(section_id: Any, affect_state: Any) -> str:
+    """Rungs are tracked per SECTION and per STATE.
+
+    Per section, because escalation is about this material: a learner confused by recursion and
+    later bored by an easy example are two independent situations, and carrying a deep rung across
+    them would open with the heaviest intervention on material the learner has not yet struggled
+    with. Per state for the same reason — the ladders are different ladders.
+    """
+    return f"{section_id or '-'}|{affect_state or '-'}"
+
+
+def current_rung(profile: dict, session_id: Any, section_id: Any, affect_state: Any) -> int:
+    """How many interventions this learner has already been DELIVERED here, for this state.
+
+    Session-scoped like the cooldown marker and the cap: a rung carried in from an earlier
+    session would open a fresh session at the deepest intervention.
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        return 0
+    rungs = profile.get("ladder_rungs")
+    if not isinstance(rungs, dict):
+        return 0
+    return int(rungs.get(_ladder_key(section_id, affect_state), 0) or 0)
+
+
+def record_delivered_rung(
+    profile: dict, session_id: Any, section_id: Any, affect_state: Any
+) -> None:
+    """Advance the ladder. Mutates `profile` in place.
+
+    Advanced on DELIVERY only, unlike the cap and the cooldown which both arms spend. A withheld
+    cycle showed the learner nothing, so nothing was tried and nothing has been ruled out — the
+    next delivered intervention must still start where this one would have. (This does not
+    desynchronise the arms: the rung decides WHAT is delivered, never WHETHER.)
+    """
+    if profile.get("adaptation_session_id") != session_id:
+        profile["adaptation_session_id"] = session_id
+        profile["ladder_rungs"] = {}
+        profile["eligible_this_session"] = 0
+    rungs = profile.setdefault("ladder_rungs", {})
+    if not isinstance(rungs, dict):
+        rungs = profile["ladder_rungs"] = {}
+    key = _ladder_key(section_id, affect_state)
+    rungs[key] = int(rungs.get(key, 0) or 0) + 1
+
+
+def consumes_cooldown(gate_reason: str) -> bool:
+    """Whether this verdict spends the cooldown window.
+
+    A withheld cycle MUST spend it exactly as a delivered one does. If it did not, the control
+    arm would become eligible again sooner, drift to a higher trigger rate, and stop being
+    matched to the delivered arm -- which is the whole basis of the comparison.
+    """
+    return gate_reason in (GATE_OK, GATE_WITHHELD_RANDOM)
+
+
+def arm_for(gate_reason: str) -> str | None:
+    """Which trial arm this cycle belongs to, or None if it never became eligible."""
+    if gate_reason == GATE_OK:
+        return ARM_DELIVERED
+    if gate_reason == GATE_WITHHELD_RANDOM:
+        return ARM_WITHHELD
+    return None
 
 
 def should_adapt(state: AgentState) -> bool:
@@ -212,7 +371,7 @@ _KNOWN_AFFECT_SOURCES = frozenset({
 })
 
 
-def is_decisive(affect_source: str | None) -> bool:
+def is_decisive(affect_source: str | None, sources: tuple[str, ...] | None = None) -> bool:
     """Whether a reading from this channel may trigger an intervention on its own.
 
     An allowlist, so anything absent from it is non-decisive -- including a channel added later
@@ -224,8 +383,13 @@ def is_decisive(affect_source: str | None) -> bool:
 
     A MISSING source fails open. The gate is called directly by tests and by callers that
     predate provenance, and those must behave exactly as they did.
+
+    `sources` overrides the module constant, for the runtime-editable config. It is a parameter
+    rather than a second implementation so the two paths CANNOT diverge: the fail-open rules above
+    are subtle enough that a duplicated membership test silently lost them once already.
     """
-    if not DECISIVE_AFFECT_SOURCES:
+    allowed = DECISIVE_AFFECT_SOURCES if sources is None else sources
+    if not allowed:
         return True
     if not affect_source:
         return True
@@ -233,11 +397,11 @@ def is_decisive(affect_source: str | None) -> bool:
         logger.warning(
             "affect_source_unclassified",
             affect_source=affect_source,
-            decisive_sources=list(DECISIVE_AFFECT_SOURCES),
+            decisive_sources=list(allowed),
             consequence="treated as advisory; it will never trigger an adaptation",
         )
         return False
-    return affect_source in DECISIVE_AFFECT_SOURCES
+    return affect_source in allowed
 
 
 def passes_adaptation_gate(
@@ -247,29 +411,42 @@ def passes_adaptation_gate(
     cycle_number: int | None,
     last_adaptation_cycle: int | None,
     affect_source: str | None = None,
+    config: "GateConfigLike | None" = None,
 ) -> tuple[bool, str]:
     """Pure gate. Returns `(allowed, reason)`; `reason` is one of the `GATE_*` constants.
 
     `affect_history` is the profile's history INCLUDING the current cycle (the profiler folds
     the current affect in before calling this). `last_adaptation_cycle` is None when this
     learner has never been adapted.
+
+    `config` carries runtime-editable thresholds from the admin settings page. It is OPTIONAL and
+    defaults to the module constants, which keeps this function pure and keeps every existing
+    caller and test working unchanged — the settings feature adds a parameter rather than taking
+    a dependency on a service. It is duck-typed rather than imported, because `config_service`
+    imports this module and a real import would be circular.
     """
+    states = tuple(config.adapt_states) if config else ADAPT_STATES
+    floor = (config.min_confidence_for(affect_source) if config
+             else min_confidence_for(affect_source))
+    need_consecutive = config.min_consecutive if config else ADAPT_MIN_CONSECUTIVE
+    cooldown = config.cooldown_cycles if config else ADAPT_COOLDOWN_CYCLES
+    decisive = is_decisive(affect_source, tuple(config.decisive_sources) if config else None)
     if not affect_state:
         return False, GATE_NO_AFFECT
 
-    if affect_state not in ADAPT_STATES:
+    if affect_state not in states:
         return False, GATE_STATE_NOT_ACTIONABLE
 
-    if float(affect_confidence or 0.0) < min_confidence_for(affect_source):
+    if float(affect_confidence or 0.0) < floor:
         return False, GATE_LOW_CONFIDENCE
 
-    need = max(1, ADAPT_MIN_CONSECUTIVE)
+    need = max(1, need_consecutive)
     recent = list(affect_history or [])[-need:]
     if len(recent) < need or any(a != affect_state for a in recent):
         return False, GATE_NOT_SUSTAINED
 
     if last_adaptation_cycle is not None and cycle_number is not None:
-        if int(cycle_number) - int(last_adaptation_cycle) < ADAPT_COOLDOWN_CYCLES:
+        if int(cycle_number) - int(last_adaptation_cycle) < cooldown:
             return False, GATE_COOLDOWN
 
     # Evaluated LAST, deliberately. Checking authority earlier would mask the binding
@@ -280,7 +457,7 @@ def passes_adaptation_gate(
     # measurement of what the advisory channel would have done, and therefore evidence for or
     # against promoting it later. The same reason the idle-window suppression records
     # `would_have_been` rather than discarding it.
-    if not is_decisive(affect_source):
+    if not decisive:
         return False, GATE_CHANNEL_ADVISORY
 
     return True, GATE_OK
@@ -290,6 +467,7 @@ def adaptation_decision(
     state: AgentState,
     profile: dict | None,
     last_adaptation_cycle: int | None,
+    config: "GateConfigLike | None" = None,
 ) -> tuple[bool, str]:
     """Combine eligibility and the gate. Pure — the caller supplies the fresh profile.
 
@@ -306,14 +484,35 @@ def adaptation_decision(
     # consecutive-cycle condition effectively unsatisfiable. See profile_service.apply_affect.
     from app.services.profile_service import sustain_history
 
-    return passes_adaptation_gate(
+    allowed, reason = passes_adaptation_gate(
         state.get("affect_state"),
         state.get("affect_confidence"),
         sustain_history(profile or {}, state.get("affect_source")),
         state.get("cycle_number"),
         last_adaptation_cycle,
         state.get("affect_source"),
+        config,
     )
+    if not allowed:
+        return False, reason
+
+    # Checked BEFORE the draw, and counted across BOTH arms. Capping only DELIVERED interventions
+    # would stop the delivered arm at six while the withheld arm carried on accruing controls --
+    # the two would then cover different parts of the session, and later observations would appear
+    # in one arm only. Counting eligibility instead makes both arms end together.
+    if _session_cap_reached(profile or {}, state.get("session_id"), config):
+        return False, GATE_SESSION_CAP
+
+    # Applied LAST, and only to cycles that already cleared everything else, so the withheld set
+    # is exactly the eligible set. Drawing earlier would withhold cycles that would have failed
+    # the gate anyway, which would put unmatched cycles in the control arm and bias the contrast.
+    rate = min(1.0, max(0.0, config.withhold_rate if config else ADAPT_WITHHOLD_RATE))
+    if rate > 0.0 and withhold_draw(
+        state.get("learner_id"), state.get("session_id"), state.get("cycle_number")
+    ) < rate:
+        return False, GATE_WITHHELD_RANDOM
+
+    return True, GATE_OK
 
 
 def route_after_profiler(state: AgentState) -> str:

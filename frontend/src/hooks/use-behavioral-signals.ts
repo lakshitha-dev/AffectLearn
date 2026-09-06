@@ -70,6 +70,19 @@ export interface UseBehavioralSignalsOptions {
 export interface UseBehavioralSignalsReturn {
   /** Live debug ref — populated only in dev (AC #10); null in production. */
   debug: React.RefObject<BehavioralDebug | null>;
+  /**
+   * The cycle currently being accumulated.
+   *
+   * Exposed so learner-response events (`self_report`, `adaptation_interaction`) can name the
+   * detection cycle they happened during. Without it every such event landed with
+   * `cycle_number: 0`, and a learner's answer to a hint could not be aligned to the cycle whose
+   * detection produced it — which is the join the post-intervention window is built on.
+   *
+   * A REF rather than state, deliberately: this advances every 30s and nothing renders from it,
+   * so returning state would re-render the whole lesson page on each cycle boundary for nothing.
+   * Read it at send time.
+   */
+  cycleNumber: React.RefObject<number>;
 }
 
 function makeEmptyDebug(): BehavioralDebug {
@@ -442,7 +455,7 @@ export function useBehavioralSignals(
     };
   }, [enabled, mode, sampleMs, cycleMs]);
 
-  return { debug: debugRef };
+  return { debug: debugRef, cycleNumber: cycleNumberRef };
 }
 
 /** Single-pass summary of a window's buffer (AC #4). */

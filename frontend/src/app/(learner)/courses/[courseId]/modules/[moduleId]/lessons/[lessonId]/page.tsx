@@ -14,7 +14,7 @@ import {
 import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
 import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
-import { IncreaseDifficulty } from "@/components/learning/IncreaseDifficulty";
+import { AdaptationProbe } from "@/components/learning/AdaptationProbe";
 import { activeInlineAdaptation, InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { SkipAheadSuggestion, type SkipInteraction } from "@/components/learning/SkipAheadSuggestion";
 import { SelfReportBar, type SelfReport } from "@/components/learning/SelfReportBar";
@@ -117,7 +117,7 @@ export default function LessonPage({ params }: PageProps) {
   // Behavioral signals run in ALL non-error modes (incl. webcam-denied), so this
   // is mounted unconditionally alongside the facial hook (Story 4.3). The debug
   // ref surfaces NFR9 data-loss metrics in the dev overlay (AC #10).
-  const { debug: behavioralDebug } = useBehavioralSignals({
+  const { debug: behavioralDebug, cycleNumber } = useBehavioralSignals({
     send,
     sectionId: currentSectionId,
   });
@@ -189,26 +189,20 @@ export default function LessonPage({ params }: PageProps) {
       send({
         type: "adaptation_interaction",
         ts: Date.now(),
-        data: { adaptation_id: adaptationId, action, interaction },
+        // Coordinates, which this event carried on NEITHER axis before. The backend has always
+        // promoted both to indexed columns when present; the client simply never sent them, so
+        // every response landed with cycle_number 0 and no section, and could not be joined to
+        // the material it happened in or the cycle whose detection triggered it.
+        data: {
+          adaptation_id: adaptationId,
+          action,
+          interaction,
+          section_id: currentSectionId,
+          cycle_number: cycleNumber.current,
+        },
       });
     },
-    [send],
-  );
-
-  // Story 5.6 (FR22): stable callback for the increase_difficulty applied acknowledgement.
-  // Wrapped in useCallback so IncreaseDifficulty's useEffect does not re-run on every
-  // lesson-page re-render (the inline arrow would create a new reference each render,
-  // causing the effect to fire unnecessarily — the appliedRef guard prevents double-logs
-  // but the extra runs waste CPU in a real-time WS context).
-  const logIncreaseDifficultyApplied = useCallback(
-    (id: string) => {
-      send({
-        type: "adaptation_interaction",
-        ts: Date.now(),
-        data: { adaptation_id: id, action: "increase_difficulty", interaction: "applied" },
-      });
-    },
-    [send],
+    [send, currentSectionId],
   );
 
   // Hints were the only adaptation type that reported nothing at all: skip_ahead and
@@ -220,10 +214,31 @@ export default function LessonPage({ params }: PageProps) {
       send({
         type: "adaptation_interaction",
         ts: Date.now(),
-        data: payload,
+        data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
       });
     },
-    [send],
+    [send, currentSectionId],
+  );
+
+  // The learner's appraisal of a specific intervention — the only ground truth that can speak to
+  // whether one helped. Everything else answers a different question: `self_report` fires on
+  // section completion and references no delivery, dismissal is an action rather than a judgement,
+  // and the detector's own later reading is the instrument being evaluated.
+  const logAdaptationProbe = useCallback(
+    (payload: {
+      adaptation_id: string;
+      action: string;
+      response: "helped" | "did_not_help" | "unsure" | null;
+      dismissed: boolean;
+      shown_after_ms: number;
+    }) => {
+      send({
+        type: "adaptation_probe",
+        ts: Date.now(),
+        data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
+      });
+    },
+    [send, currentSectionId],
   );
 
   // Pre-pilot research control (#7): log a due prompt that was RANDOMLY OMITTED (never shown)
@@ -234,10 +249,17 @@ export default function LessonPage({ params }: PageProps) {
       send({
         type: "self_report",
         ts: Date.now(),
-        data: { affect: null, skipped: false, omitted: true, prompt_index },
+        data: {
+          affect: null,
+          skipped: false,
+          omitted: true,
+          prompt_index,
+          section_id: currentSectionId,
+          cycle_number: cycleNumber.current,
+        },
       });
     },
-    [send],
+    [send, currentSectionId],
   );
 
   // Story 6.2: self-report pause-point trigger. Derived from distinct section completions
@@ -266,10 +288,14 @@ export default function LessonPage({ params }: PageProps) {
           affect: report.affect,
           skipped: report.skipped,
           prompt_index,
+          // section_features declares the self-report join key to be learner_id + section_id,
+          // and this is the only place that key can be supplied.
+          section_id: currentSectionId,
+          cycle_number: cycleNumber.current,
         },
       });
     },
-    [send],
+    [send, currentSectionId],
   );
 
   const course = courseQuery.data;
@@ -411,6 +437,9 @@ export default function LessonPage({ params }: PageProps) {
           inline at a natural content break; non-inline actions are left in the
           queue for Stories 5.5–5.7. */}
       <InlineAdaptations onInteraction={logHintInteraction} />
+      {/* Asked once, 30s after a content intervention is delivered — long enough that the answer
+          is about the help rather than about being interrupted. Inline, never blocking. */}
+      <AdaptationProbe onRespond={logAdaptationProbe} />
       {/* Break suggestion overlay (Story 5.5) — renders the latest suggest_break
           adaptation as a fixed-position, semi-transparent overlay card (not a true
           modal; content stays visible, no scroll-lock). Non-suggest_break actions are
@@ -425,11 +454,13 @@ export default function LessonPage({ params }: PageProps) {
         onSkip={handleSkipAhead}
         onInteraction={(id, interaction) => logAdaptationInteraction(id, "skip_ahead", interaction)}
       />
-      {/* Difficulty increase (Story 5.6) — UI-LESS invisible swap (UX spec line 675). Renders
-          nothing; the durable log is the server-side adaptation_delivered event. The optional
-          client ack rides the same FR22 channel. The real harder-variant swap is deferred
-          (content-variant catalog, Open Question #1). */}
-      <IncreaseDifficulty onApplied={logIncreaseDifficultyApplied} />
+      {/* `increase_difficulty` is no longer mounted separately. It used to render nothing at all —
+          the harder-content catalogue it selected against does not exist — while auto-firing an
+          "applied" acknowledgement from a useEffect on delivery. That ack was not a learner
+          response: nothing had been applied and the learner had done nothing, so it put rows in
+          adaptation_interaction that looked like engagement and were not. The action is now
+          generative text and renders through InlineAdaptations above, where a dismissal is a real
+          learner action. */}
       {/* Self-report affect widget (Story 6.2) — the pilot's ground-truth label source.
           Shown ONLY at a natural pause point (every ~3 section completions, derived by
           useSelfReportTrigger). Selection/skip is logged upstream as a self_report research

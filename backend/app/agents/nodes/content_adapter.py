@@ -8,7 +8,7 @@ node to push over the WebSocket.
 
 Two execution paths plus a no-op (epics 942-952; the partition lives in `fallbacks.py`):
 
-* GENERATIVE actions (`show_hint`, `show_alternative`, `show_breakdown`,
+* GENERATIVE actions (`show_hint`, `show_alternative`, `show_breakdown`, `increase_difficulty`,
   `show_encouragement`, `suggest_break`, `simplify`) -> call vLLM via the SHARED
   `app.agents.llm.get_chat_client()` (Story 5.1; do NOT introduce a second client) to
   produce warm, conversational, never-clinical text shaped by the action.
@@ -102,6 +102,17 @@ _ACTION_INSTRUCTION: dict[str, str] = {
     "simplify": (
         "Re-explain the current concept more gently, at a lower cognitive load — simpler "
         "words and smaller steps, with a brief encouraging tone."
+    ),
+    # The boredom response. Flow theory places boredom at challenge BELOW skill, so this must
+    # actually RAISE difficulty rather than re-present the same material more loudly. Asking a
+    # question also makes the intervention measurable: a question can be answered or ignored,
+    # where a statement can only be dismissed.
+    "increase_difficulty": (
+        "The learner already understands this and is disengaging from being under-challenged. "
+        "Pose ONE short, genuinely harder question about the section above — an edge case, a "
+        "'why does this work', or a case where the idea breaks down. Do NOT give the answer, "
+        "do not restate the section, and keep it to a single question the learner can attempt "
+        "right now without leaving the page."
     ),
 }
 

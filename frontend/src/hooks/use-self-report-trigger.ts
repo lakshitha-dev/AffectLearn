@@ -38,18 +38,29 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // Pause-point cadence: a prompt fires every N section completions ("every 2-3 sections").
 // Pilot value is 2, so it triggers within short lessons (the pilot lessons have ~2 sections).
 //
-// BOOTSTRAP OVERRIDE (single-subject collection, Aug 2026): set to 1. Windows are labelled by
-// their section's intended affect (AFFECT_SECTION_CODEBOOK.md) and the self-report serves as
-// the per-section MANIPULATION CHECK, so one report per section is what the scheme needs.
-// REVERT to 2 before the Phase A pilot.
-export const SECTIONS_PER_PROMPT = 1;
+// Restored to the design value of 2 for the intervention trial (Sep 2026). The bootstrap
+// override of 1 existed for single-subject collection, where a per-section manipulation check
+// was the point.
+//
+// Interruption load is now the binding constraint rather than label count: a learner in the
+// adaptive arm can receive an intervention, then a "did that help?" probe 30s later, and at 1
+// they would ALSO be asked to self-report at every section boundary. Over-prompting does not
+// merely annoy — it manufactures the boredom and frustration the study is trying to observe,
+// which contaminates the outcome rather than measuring it.
+export const SECTIONS_PER_PROMPT = 2;
 
 // Fraction of due self-report prompts to randomly omit in the pilot (research action item #7).
 //
-// BOOTSTRAP OVERRIDE (single-subject collection, Aug 2026): set to 0. Omission exists to
-// estimate prompt reactivity by comparing windows after a shown vs an omitted prompt — a
-// BETWEEN-participant control that cannot be estimated at n=1, where it is pure label loss.
-// REVERT to 0.2 before the Phase A pilot; the reactivity control is load-bearing there.
+// DELIBERATELY LEFT AT 0 for the intervention trial (Sep 2026), against the note below.
+//
+// Omission buys a reactivity estimate at the cost of 20% of self-report labels. That trade was
+// written for a Phase A pilot large enough to power a between-participant control. This study is
+// not: recruitment is the scarcest resource here, so 20% label loss is a real cost paid for an
+// estimate the sample cannot support anyway.
+//
+// The trial's own randomisation is at the INTERVENTION level (`ADAPT_WITHHOLD_RATE`), and that is
+// where the statistical power is spent. Re-enable this only if participant numbers turn out large
+// enough for the reactivity contrast to be estimable.
 export const SELF_REPORT_OMISSION_RATE = 0;
 
 interface UseSelfReportTriggerOptions {

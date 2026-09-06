@@ -57,6 +57,7 @@ def _build_human_prompt(
     affect_confidence: Any,
     profile: dict,
     content_context: dict,
+    rung: int = 0,
 ) -> str:
     """Compact, token-efficient context block for the LLM.
 
@@ -129,12 +130,13 @@ async def _decide(
     affect_confidence: Any,
     profile: dict,
     content_context: dict,
+    rung: int = 0,
 ) -> dict[str, Any]:
     """Produce a strategy dict (with `fallback`/`fallback_reason` provenance). Never raises."""
     # No usable affect this cycle (e.g. empty/face-less cycle that still routed here):
     # skip the LLM and take the safe no_action rule.
     if affect_state not in AFFECT_STATES:
-        strat = fallbacks.rule_based_strategy(affect_state, profile)
+        strat = fallbacks.rule_based_strategy(affect_state, profile, rung)
         return {**strat, "fallback": True, "fallback_reason": "no_affect"}
 
     try:
@@ -142,7 +144,9 @@ async def _decide(
         messages = [
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(
-                content=_build_human_prompt(affect_state, affect_confidence, profile, content_context)
+                content=_build_human_prompt(
+                    affect_state, affect_confidence, profile, content_context, rung
+                )
             ),
         ]
         resp = await asyncio.wait_for(
@@ -150,17 +154,17 @@ async def _decide(
         )
     except asyncio.TimeoutError:
         logger.warning("pedagogical_vllm_timeout", affect_state=affect_state)
-        strat = fallbacks.rule_based_strategy(affect_state, profile)
+        strat = fallbacks.rule_based_strategy(affect_state, profile, rung)
         return {**strat, "fallback": True, "fallback_reason": "timeout"}
     except Exception as exc:  # noqa: BLE001 — degrade on any vLLM/client error (NFR22)
         logger.warning("pedagogical_vllm_error", affect_state=affect_state, error=str(exc))
-        strat = fallbacks.rule_based_strategy(affect_state, profile)
+        strat = fallbacks.rule_based_strategy(affect_state, profile, rung)
         return {**strat, "fallback": True, "fallback_reason": "vllm_error"}
 
     parsed = _parse_strategy(_content_text(getattr(resp, "content", resp)))
     if parsed is None:
         logger.warning("pedagogical_parse_error", affect_state=affect_state)
-        strat = fallbacks.rule_based_strategy(affect_state, profile)
+        strat = fallbacks.rule_based_strategy(affect_state, profile, rung)
         return {**strat, "fallback": True, "fallback_reason": "parse_error"}
 
     return {**parsed, "fallback": False}
@@ -173,7 +177,16 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
     profile = state.get("learner_profile") or {}
     content_context = state.get("content_context") or {}
 
-    strategy = await _decide(affect_state, state.get("affect_confidence"), profile, content_context)
+    strategy = await _decide(
+        affect_state,
+        state.get("affect_confidence"),
+        profile,
+        content_context,
+        # Computed by the profiler, which is the only node holding the fresh profile. It is how
+        # many interventions were delivered to this learner, in this section, for this state
+        # BEFORE this cycle -- so rung 0 really is the first one.
+        int(state.get("ladder_rung", 0) or 0),
+    )
 
     logger.info(
         "strategy_decided",

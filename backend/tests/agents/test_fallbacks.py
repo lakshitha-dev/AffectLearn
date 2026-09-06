@@ -10,15 +10,32 @@ from app.agents.fallbacks import (
 )
 
 
-def test_each_affect_maps_to_documented_action():
+def test_each_affect_opens_at_the_first_rung_of_its_ladder():
+    """The default rung is 0, so an unescalated call is the ladder's FIRST action.
+
+    Two of these changed when the single-action map became a ladder (Sep 2026), and both changes
+    are deliberate:
+      * `bored` opens at `increase_difficulty`, not `skip_ahead`. Flow theory places boredom at
+        challenge BELOW skill, so raising challenge comes before conceding the material.
+      * `frustrated` opens at `show_encouragement`, not `simplify`. Re-explaining is a heavier
+        intervention than a word of encouragement and should not be the opening move.
+    """
     assert rule_based_strategy("confused")["action_type"] == "show_hint"
     assert rule_based_strategy("confused")["urgency"] == "medium"
-    assert rule_based_strategy("frustrated")["action_type"] == "simplify"
-    assert rule_based_strategy("frustrated")["urgency"] == "high"
-    assert rule_based_strategy("bored")["action_type"] == "skip_ahead"
+    assert rule_based_strategy("frustrated")["action_type"] == "show_encouragement"
+    assert rule_based_strategy("frustrated")["urgency"] == "medium"
+    assert rule_based_strategy("bored")["action_type"] == "increase_difficulty"
     assert rule_based_strategy("bored")["urgency"] == "low"
     assert rule_based_strategy("engaged")["action_type"] == "no_action"
     assert rule_based_strategy("engaged")["urgency"] == "low"
+
+
+def test_a_repeat_escalates_instead_of_repeating():
+    """The behaviour the single-action map could not produce: a learner confused three times in
+    one section used to receive the identical hint three times."""
+    assert rule_based_strategy("confused", rung=1)["action_type"] == "show_breakdown"
+    assert rule_based_strategy("bored", rung=1)["action_type"] == "skip_ahead"
+    assert rule_based_strategy("frustrated", rung=2)["action_type"] == "suggest_break"
 
 
 def test_unknown_or_missing_affect_is_safe_no_action():
@@ -37,7 +54,10 @@ def test_result_always_in_vocabulary_and_well_formed():
 
 def test_profile_arg_is_optional_and_ignored_safely():
     # Signature parity with the LLM path — passing a profile must not change the baseline.
-    assert rule_based_strategy("bored", profile={"skill_level": "advanced"})["action_type"] == "skip_ahead"
+    assert (
+        rule_based_strategy("bored", profile={"skill_level": "advanced"})["action_type"]
+        == "increase_difficulty"
+    )
 
 
 # ── Story 5.2: rule_based_content (Content Adapter fallback) ────────────────────

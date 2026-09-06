@@ -17,13 +17,17 @@ from typing import Any
 import structlog
 
 from app.agents.edges import (
-    GATE_OK,
+    GATE_OK as _GATE_OK,
     adaptation_decision,
+    arm_for,
+    consumes_cooldown,
+    current_rung,
     is_decisive,
-    min_confidence_for,
+    record_delivered_rung,
+    record_eligible_cycle,
 )
 from app.agents.state import AgentState
-from app.services import profile_service, redis_service
+from app.services import config_service, profile_service, redis_service
 from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
@@ -88,10 +92,32 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     if profile.get("last_adaptation_session") != session_id:
         last_adapt = None
     affect_source = state.get("affect_source")
-    adapt, gate_reason = adaptation_decision(state, profile, last_adapt)
-    if adapt:
+    # A SYNCHRONOUS cache read, not a database call: the cache is primed at startup and
+    # invalidated on write, so a threshold changed on the settings page applies from the next
+    # cycle without putting a query in the hot path.
+    config = config_service.get_config()
+    adapt, gate_reason = adaptation_decision(state, profile, last_adapt, config)
+    # Stamped on the RANDOMISED-TRIAL condition, not on `adapt`. A cycle withheld by the trial
+    # draw cleared every gate condition and must spend the cooldown exactly as a delivered one
+    # does -- otherwise the control arm becomes eligible again sooner, drifts to a higher trigger
+    # rate, and stops being matched to the delivered arm it exists to be compared against.
+    # Read BEFORE advancing: this is the rung the strategist should use for THIS cycle, and the
+    # stored counter is how many were delivered BEFORE it. Reading after would open every learner
+    # one rung deep and the first rung of every ladder would never be used.
+    section_id = (state.get("content_context") or {}).get("section_id")
+    rung = current_rung(profile, session_id, section_id, state.get("affect_state"))
+
+    if consumes_cooldown(gate_reason):
         profile["last_adaptation_cycle"] = int(cycle or 0)
         profile["last_adaptation_session"] = session_id
+        # Counts BOTH arms, for the same reason the cooldown is spent by both: the cap bounds how
+        # much of the session the trial occupies, not how much help was given.
+        record_eligible_cycle(profile, session_id)
+        # The LADDER advances on delivery only. A withheld cycle showed the learner nothing, so
+        # nothing was tried and nothing ruled out; the next delivered intervention must still
+        # start where this one would have.
+        if gate_reason == _GATE_OK:
+            record_delivered_rung(profile, session_id, section_id, state.get("affect_state"))
 
     # Write-through: Redis hot (best-effort) + Postgres cold (best-effort)
     try:
@@ -138,8 +164,20 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
             # withheld for having no authority, and that is not visible from the reason alone.
             "affect_source": affect_source,
             "affect_confidence": state.get("affect_confidence"),
-            "min_confidence_applied": min_confidence_for(affect_source),
-            "decisive_channel": is_decisive(affect_source),
+            "min_confidence_applied": config.min_confidence_for(affect_source),
+            "decisive_channel": is_decisive(affect_source, config.decisive_sources),
+            # RANDOMISED TRIAL ARM: "delivered", "withheld", or None when the cycle never became
+            # eligible and so belongs to neither. Analysis must filter to the two named arms --
+            # a null here is not a control observation, it is a cycle that never qualified.
+            "arm": arm_for(gate_reason),
+            # Read from the LIVE config, not from a module constant imported by value. The
+            # constant was bound at this module's import time, so once the rate became editable
+            # it would have kept stamping the value the process started with -- the record would
+            # have reported a trial condition that was no longer in force, and nothing downstream
+            # could have detected it.
+            "withhold_rate": config.withhold_rate,
+            # Which configuration produced this decision, so an analysis can split on a change.
+            "config_version": config.version,
         },
     })
 
@@ -147,4 +185,5 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         "learner_profile": profile,
         "should_adapt": adapt,
         "adaptation_gate_reason": gate_reason,
+        "ladder_rung": rung,
     }

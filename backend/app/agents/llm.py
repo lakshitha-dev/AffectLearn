@@ -13,11 +13,20 @@ though vLLM ignores it, hence the `not-needed` default.
 
 from __future__ import annotations
 
+import asyncio
+
+import structlog
 from langchain_openai import ChatOpenAI
 
 from app.core.config import settings
 
+logger = structlog.get_logger(__name__)
+
 _CLIENT: ChatOpenAI | None = None
+
+#: Generous, because a cold provider is exactly the case being paid for here. It only bounds how
+#: long the background warm-up lingers; nothing waits on it.
+_WARM_UP_TIMEOUT_SECONDS = 60.0
 
 
 def get_chat_client() -> ChatOpenAI:
@@ -39,6 +48,33 @@ def get_chat_client() -> ChatOpenAI:
             temperature=0.3,  # mostly deterministic pedagogical decisions
         )
     return _CLIENT
+
+
+async def warm_up() -> bool:
+    """Issue one throwaway completion so the FIRST real intervention is not the cold one.
+
+    The measured cost of a cold provider on this deployment is ~23s for the first call of a
+    session against ~60ms once warm. That gap does not merely feel slow: the study measures the
+    learner's state in a window that starts at delivery, so a 23s stall sits between the detection
+    that triggered the intervention and the intervention arriving. The first observation of every
+    session would be systematically different from the rest, and it would differ in the DELIVERED
+    arm only -- the withheld arm calls no model -- which puts the distortion exactly where it can
+    masquerade as an effect.
+
+    Fire-and-forget by contract: returns a bool for tests and callers that care, never raises, and
+    never blocks a learner's connection. A failed warm-up simply means the first call pays the
+    cost, which is the behaviour without this function.
+    """
+    try:
+        client = get_chat_client()
+        await asyncio.wait_for(
+            client.ainvoke([{"role": "user", "content": "ok"}]),
+            timeout=_WARM_UP_TIMEOUT_SECONDS,
+        )
+        return True
+    except Exception as exc:
+        logger.info("llm_warm_up_skipped", error=f"{type(exc).__name__}: {exc}")
+        return False
 
 
 def _reset() -> None:
