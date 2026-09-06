@@ -14,7 +14,6 @@ import {
 import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
 import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
-import { IncreaseDifficulty } from "@/components/learning/IncreaseDifficulty";
 import { activeInlineAdaptation, InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { SkipAheadSuggestion, type SkipInteraction } from "@/components/learning/SkipAheadSuggestion";
 import { SelfReportBar, type SelfReport } from "@/components/learning/SelfReportBar";
@@ -190,22 +189,6 @@ export default function LessonPage({ params }: PageProps) {
         type: "adaptation_interaction",
         ts: Date.now(),
         data: { adaptation_id: adaptationId, action, interaction },
-      });
-    },
-    [send],
-  );
-
-  // Story 5.6 (FR22): stable callback for the increase_difficulty applied acknowledgement.
-  // Wrapped in useCallback so IncreaseDifficulty's useEffect does not re-run on every
-  // lesson-page re-render (the inline arrow would create a new reference each render,
-  // causing the effect to fire unnecessarily — the appliedRef guard prevents double-logs
-  // but the extra runs waste CPU in a real-time WS context).
-  const logIncreaseDifficultyApplied = useCallback(
-    (id: string) => {
-      send({
-        type: "adaptation_interaction",
-        ts: Date.now(),
-        data: { adaptation_id: id, action: "increase_difficulty", interaction: "applied" },
       });
     },
     [send],
@@ -425,11 +408,13 @@ export default function LessonPage({ params }: PageProps) {
         onSkip={handleSkipAhead}
         onInteraction={(id, interaction) => logAdaptationInteraction(id, "skip_ahead", interaction)}
       />
-      {/* Difficulty increase (Story 5.6) — UI-LESS invisible swap (UX spec line 675). Renders
-          nothing; the durable log is the server-side adaptation_delivered event. The optional
-          client ack rides the same FR22 channel. The real harder-variant swap is deferred
-          (content-variant catalog, Open Question #1). */}
-      <IncreaseDifficulty onApplied={logIncreaseDifficultyApplied} />
+      {/* `increase_difficulty` is no longer mounted separately. It used to render nothing at all —
+          the harder-content catalogue it selected against does not exist — while auto-firing an
+          "applied" acknowledgement from a useEffect on delivery. That ack was not a learner
+          response: nothing had been applied and the learner had done nothing, so it put rows in
+          adaptation_interaction that looked like engagement and were not. The action is now
+          generative text and renders through InlineAdaptations above, where a dismissal is a real
+          learner action. */}
       {/* Self-report affect widget (Story 6.2) — the pilot's ground-truth label source.
           Shown ONLY at a natural pause point (every ~3 section completions, derived by
           useSelfReportTrigger). Selection/skip is logged upstream as a self_report research

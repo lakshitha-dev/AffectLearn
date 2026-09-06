@@ -33,11 +33,40 @@ import type { AdaptationAction } from "@/types/ws-messages";
  * and we never `dismissAdaptation` a non-`show_*` item we do not own.
  */
 
+/**
+ * What renders in the inline callout.
+ *
+ * `simplify` and `increase_difficulty` were added once both became generative text actions.
+ * Before that neither reached a learner at all: `simplify` had no consumer anywhere in the
+ * routing matrix, so a frustrated learner on a degraded LLM got silence; `increase_difficulty`
+ * had a consumer that rendered `null`, because the harder-content catalogue it was written to
+ * select from does not exist. Both now produce prose grounded in the section, which is exactly
+ * what this surface displays.
+ */
 const INLINE_ACTIONS = new Set<AdaptationAction>([
   "show_hint",
   "show_alternative",
   "show_breakdown",
   "show_encouragement",
+  "simplify",
+  "increase_difficulty",
+]);
+
+/**
+ * What counts as ASSISTANCE when a quiz answer is attributed to preceding help.
+ *
+ * Deliberately narrower than INLINE_ACTIONS. `increase_difficulty` renders on the same surface
+ * but is the opposite intervention: it asks the learner a harder question rather than helping
+ * them with this one. Counting it as assistance would put "was the learner helped before
+ * answering" and "was the learner challenged before answering" in the same column, and the
+ * research question that column exists to answer could no longer be asked of it.
+ */
+const ASSISTANCE_ACTIONS = new Set<AdaptationAction>([
+  "show_hint",
+  "show_alternative",
+  "show_breakdown",
+  "show_encouragement",
+  "simplify",
 ]);
 
 /**
@@ -55,8 +84,22 @@ const INLINE_ACTIONS = new Set<AdaptationAction>([
 export function activeInlineAdaptation(
   queue: readonly Adaptation[],
 ): Adaptation | null {
+  return latestMatching(queue, ASSISTANCE_ACTIONS);
+}
+
+/** The item this component should DISPLAY — the wider set, including the challenge action. */
+export function activeRenderableAdaptation(
+  queue: readonly Adaptation[],
+): Adaptation | null {
+  return latestMatching(queue, INLINE_ACTIONS);
+}
+
+function latestMatching(
+  queue: readonly Adaptation[],
+  actions: ReadonlySet<AdaptationAction>,
+): Adaptation | null {
   for (let i = queue.length - 1; i >= 0; i -= 1) {
-    if (INLINE_ACTIONS.has(queue[i].action)) return queue[i];
+    if (actions.has(queue[i].action)) return queue[i];
   }
   return null;
 }
@@ -76,7 +119,7 @@ export function InlineAdaptations({
 } = {}) {
   const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
 
-  const active = activeInlineAdaptation(adaptationQueue);
+  const active = activeRenderableAdaptation(adaptationQueue);
   if (!active) return null;
 
   return (

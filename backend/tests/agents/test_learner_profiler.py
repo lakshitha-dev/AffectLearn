@@ -129,3 +129,68 @@ async def test_cold_path_used_on_redis_miss_with_db(monkeypatch, profile_events,
     assert prof["skill_level"] == "low"             # came from the cold store
     assert prof["affect_history"] == ["frustrated"]
     assert profile_events[0]["payload"]["source"] == "postgres_or_init"
+
+
+# ── randomised trial: the arms must stay matched through the profiler ─────────────────
+
+async def _run_gated_cycle(monkeypatch, profile_events, *, rate, cycle, session="s1"):
+    """Drive one cycle that clears every gate condition, at the given withhold rate."""
+    from app.agents import edges
+
+    _patch_redis(monkeypatch, get_value={
+        "affect_state": "bored", "affect_history": ["bored", "bored"],
+        "affect_history_by_source": {"facial_geometry": ["bored", "bored"]},
+        "skill_level": "intermediate", "topic_mastery": {}, "format_preferences": {},
+        "session_count": 0, "cycle_count": 3, "updated_at": 1,
+    })
+    state = make_initial_state(learner_id="u1", session_id=session, cycle_number=cycle)
+    state.update({
+        "affect_state": "bored", "affect_confidence": 0.95,
+        "affect_source": "facial_geometry", "phase": "phase_b", "group": "adaptive",
+    })
+    monkeypatch.setattr(edges, "ADAPT_WITHHOLD_RATE", rate)
+    out = await lp.learner_profiler_node(state)
+    return out, profile_events[-1]["payload"]
+
+
+async def test_a_withheld_cycle_still_spends_the_cooldown(monkeypatch, profile_events):
+    """The property the whole comparison rests on.
+
+    A withheld cycle cleared every gate condition; it is the control observation. If it did not
+    spend the cooldown, the control arm would become eligible again sooner than the delivered
+    arm, drift to a higher trigger rate, and stop being matched to it -- and nothing downstream
+    could detect that had happened.
+    """
+    out, payload = await _run_gated_cycle(monkeypatch, profile_events, rate=1.0, cycle=9)
+
+    assert out["should_adapt"] is False
+    assert out["adaptation_gate_reason"] == "withheld_random"
+    assert payload["arm"] == "withheld"
+    # The cooldown marker is stamped exactly as it would be for a delivered cycle.
+    assert out["learner_profile"]["last_adaptation_cycle"] == 9
+    assert out["learner_profile"]["last_adaptation_session"] == "s1"
+
+
+async def test_a_delivered_cycle_spends_the_cooldown_identically(monkeypatch, profile_events):
+    out, payload = await _run_gated_cycle(monkeypatch, profile_events, rate=0.0, cycle=9)
+
+    assert out["should_adapt"] is True
+    assert payload["arm"] == "delivered"
+    assert out["learner_profile"]["last_adaptation_cycle"] == 9
+    assert out["learner_profile"]["last_adaptation_session"] == "s1"
+
+
+async def test_a_cycle_that_failed_the_gate_spends_nothing(monkeypatch, profile_events):
+    """Only cycles that reached the trial spend the window; a rejected one costs the learner nothing."""
+    _patch_redis(monkeypatch, get_value=None)
+    state = make_initial_state(learner_id="u1", session_id="s1", cycle_number=4)
+    state.update({
+        "affect_state": "bored", "affect_confidence": 0.10,   # under the geometry floor
+        "affect_source": "facial_geometry", "phase": "phase_b", "group": "adaptive",
+    })
+
+    out = await lp.learner_profiler_node(state)
+
+    assert out["adaptation_gate_reason"] == "low_confidence"
+    assert profile_events[-1]["payload"]["arm"] is None
+    assert "last_adaptation_cycle" not in out["learner_profile"]

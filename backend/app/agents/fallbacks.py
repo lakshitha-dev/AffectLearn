@@ -71,10 +71,17 @@ def rule_based_strategy(affect_state: Any, profile: dict | None = None) -> dict[
 #                            text. When vLLM is slow/absent/unusable the node falls
 #                            back to the pre-written copy below (NFR22, NFR5).
 #   - SELECTIVE_ACTIONS   -> do NOT generate prose; SELECT an existing content variant
-#                            (harder section / challenge exercise) by reference. Because
-#                            no course-content variant catalog exists in AgentState/DB
-#                            yet (Open Question #3), we emit a *selection descriptor*
-#                            (`metadata.select`) the later catalog lookup will resolve.
+#                            by reference, emitting a *selection descriptor*
+#                            (`metadata.select`) a catalog lookup resolves.
+#
+# `increase_difficulty` MOVED from selective to generative (2026-09). It was the only
+# response to boredom that raises challenge, and it delivered NOTHING: its descriptor
+# pointed at a `challenge_exercise` catalog that does not exist -- no table, no resolver,
+# no difficulty column on any content model -- so the client rendered null and the learner
+# saw an empty box. Flow theory puts boredom at challenge BELOW skill, which makes raising
+# challenge the theoretically correct response and not one worth leaving unimplemented.
+# Generating a question from the section body needs no catalog: the Content Adapter is
+# already given that body, so the challenge can be written against the real material.
 #   - no_action           -> neither; produces NO content (the cycle ends cleanly).
 GENERATIVE_ACTIONS: tuple[str, ...] = (
     "show_hint",
@@ -83,8 +90,9 @@ GENERATIVE_ACTIONS: tuple[str, ...] = (
     "show_encouragement",
     "suggest_break",
     "simplify",
+    "increase_difficulty",
 )
-SELECTIVE_ACTIONS: tuple[str, ...] = ("skip_ahead", "increase_difficulty")
+SELECTIVE_ACTIONS: tuple[str, ...] = ("skip_ahead",)
 
 # Module-level invariant: every action is classified exactly once, except `no_action`
 # which is deliberately in neither set (it produces no content). This keeps the
@@ -123,6 +131,13 @@ _GENERATIVE_COPY: dict[str, str] = {
         "Let's slow down and take this more gently. Here's the same idea in simpler "
         "terms — no rush, we'll build it back up once this part feels comfortable."
     ),
+    # Deliberately a QUESTION, not an announcement. The point of this action is to raise
+    # challenge, so the fallback has to ask the learner to do something -- "here is a harder
+    # thing" with no harder thing attached is exactly the empty gesture this action used to be.
+    "increase_difficulty": (
+        "Ready for something with a bit more bite? Try this: without scrolling back, explain "
+        "in your own words why this idea works the way it does — and where it would break down."
+    ),
 }
 
 # Selection descriptors for selective actions: what an existing-variant lookup should
@@ -132,10 +147,6 @@ _SELECTIVE_COPY: dict[str, tuple[str, str]] = {
     "skip_ahead": (
         "You've got a good handle on this — let's move ahead to something new.",
         "next_section",
-    ),
-    "increase_difficulty": (
-        "You're ready for more of a challenge. Here's something with a bit more bite.",
-        "challenge_exercise",
     ),
 }
 

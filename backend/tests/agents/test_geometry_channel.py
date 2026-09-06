@@ -220,36 +220,51 @@ async def test_empty_chair_is_blocked_before_either_branch(monkeypatch):
 def test_each_channel_gets_its_own_calibrated_floor():
     """A single global floor would force one channel onto the other's operating point.
 
-    The two were calibrated separately and their probability distributions are not comparable:
-    geometry reaches 0.872 precision at 0.70, while behavioural was tuned to 0.50 in production.
+    The two were calibrated separately and their probability distributions are not comparable.
+    Both now sit at 0.70 but for DIFFERENT reasons, and each states its own floor explicitly so
+    a change to the global default cannot silently move either: geometry because 0.70 is where
+    it reaches 0.872 precision, behavioural because its measured precision at the 0.50 it used
+    to run at is 0.500 -- a coin flip, which cannot support a claim about whether confusion
+    interventions help.
     """
     from app.agents.edges import ADAPT_MIN_CONFIDENCE, min_confidence_for
 
     assert min_confidence_for(AFFECT_SOURCE_FACIAL_GEOMETRY) == 0.70
-    # Anything without an override keeps the global setting, so nothing else moves.
-    assert min_confidence_for(AFFECT_SOURCE_BEHAVIORAL) == ADAPT_MIN_CONFIDENCE
+    assert min_confidence_for(AFFECT_SOURCE_BEHAVIORAL) == 0.70
+    # Anything without an override still keeps the global setting.
     assert min_confidence_for(None) == ADAPT_MIN_CONFIDENCE
+    assert min_confidence_for("fusion") == ADAPT_MIN_CONFIDENCE
 
 
-def test_geometry_below_its_own_floor_is_blocked_even_if_above_the_global_one(monkeypatch):
-    """0.60 clears a 0.50 global floor but not geometry's 0.70. The channel floor must win."""
+def test_a_channel_floor_overrides_a_lower_global_one(monkeypatch):
+    """0.60 clears a 0.50 global floor but neither deployed channel's 0.70.
+
+    This is the case that actually bit production: the deployment sets the global to 0.50, so a
+    channel that inherited it gated at the coin-flip operating point while the monitor displayed
+    the global as though it applied. Both deployed channels now state their own floor, so the
+    global cannot pull either of them down.
+    """
     import app.agents.edges as edges
     monkeypatch.setattr(edges, "ADAPT_MIN_CONFIDENCE", 0.50)
 
-    ok, reason = edges.passes_adaptation_gate(
-        affect_state="bored",
-        affect_confidence=0.60,
-        affect_history=["bored", "bored"],
-        affect_source=AFFECT_SOURCE_FACIAL_GEOMETRY,
-        cycle_number=10,
-        last_adaptation_cycle=None,
-    )
-    assert (ok, reason) == (False, edges.GATE_LOW_CONFIDENCE)
+    for source, state in (
+        (AFFECT_SOURCE_FACIAL_GEOMETRY, "bored"),
+        (AFFECT_SOURCE_BEHAVIORAL, "confused"),
+    ):
+        ok, reason = edges.passes_adaptation_gate(
+            affect_state=state,
+            affect_confidence=0.60,
+            affect_history=[state, state],
+            affect_source=source,
+            cycle_number=10,
+            last_adaptation_cycle=None,
+        )
+        assert (ok, reason) == (False, edges.GATE_LOW_CONFIDENCE), source
 
-    # The same confidence from the behavioural channel passes, because 0.50 is its floor.
+    # 0.75 clears both.
     ok2, reason2 = edges.passes_adaptation_gate(
         affect_state="confused",
-        affect_confidence=0.60,
+        affect_confidence=0.75,
         affect_history=["confused", "confused"],
         affect_source=AFFECT_SOURCE_BEHAVIORAL,
         cycle_number=10,

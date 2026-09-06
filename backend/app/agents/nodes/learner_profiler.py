@@ -17,8 +17,11 @@ from typing import Any
 import structlog
 
 from app.agents.edges import (
+    ADAPT_WITHHOLD_RATE,
     GATE_OK,
     adaptation_decision,
+    arm_for,
+    consumes_cooldown,
     is_decisive,
     min_confidence_for,
 )
@@ -89,7 +92,11 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         last_adapt = None
     affect_source = state.get("affect_source")
     adapt, gate_reason = adaptation_decision(state, profile, last_adapt)
-    if adapt:
+    # Stamped on the RANDOMISED-TRIAL condition, not on `adapt`. A cycle withheld by the trial
+    # draw cleared every gate condition and must spend the cooldown exactly as a delivered one
+    # does -- otherwise the control arm becomes eligible again sooner, drifts to a higher trigger
+    # rate, and stops being matched to the delivered arm it exists to be compared against.
+    if consumes_cooldown(gate_reason):
         profile["last_adaptation_cycle"] = int(cycle or 0)
         profile["last_adaptation_session"] = session_id
 
@@ -140,6 +147,11 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
             "affect_confidence": state.get("affect_confidence"),
             "min_confidence_applied": min_confidence_for(affect_source),
             "decisive_channel": is_decisive(affect_source),
+            # RANDOMISED TRIAL ARM: "delivered", "withheld", or None when the cycle never became
+            # eligible and so belongs to neither. Analysis must filter to the two named arms --
+            # a null here is not a control observation, it is a cycle that never qualified.
+            "arm": arm_for(gate_reason),
+            "withhold_rate": ADAPT_WITHHOLD_RATE,
         },
     })
 
