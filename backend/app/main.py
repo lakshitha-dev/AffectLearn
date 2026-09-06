@@ -20,6 +20,22 @@ async def lifespan(app: FastAPI):
         async with async_session() as db:
             await seed_accounts(db)
 
+    # Prime the runtime configuration cache and apply any admin-set API key.
+    #
+    # Both are best-effort by design. If the table does not exist yet (a deploy that has not run
+    # migration 027) or the row is empty, `config_service` falls back to the environment defaults
+    # -- i.e. exactly the behaviour that shipped before this feature -- so a settings problem can
+    # never stop the app serving learners.
+    try:
+        from app.db.session import async_session
+        from app.services import config_service
+
+        async with async_session() as db:
+            await config_service.load(db)
+            await config_service.apply_stored_llm_key(db)
+    except Exception:
+        pass
+
     # Start the research-event worker (Story 4.7) — best-effort; no-op if Redis is down.
     stop_event = asyncio.Event()
     background_tasks: list[asyncio.Task] = []

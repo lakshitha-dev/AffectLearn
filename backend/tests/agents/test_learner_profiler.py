@@ -149,6 +149,11 @@ async def _run_gated_cycle(monkeypatch, profile_events, *, rate, cycle, session=
         "affect_source": "facial_geometry", "phase": "phase_b", "group": "adaptive",
     })
     monkeypatch.setattr(edges, "ADAPT_WITHHOLD_RATE", rate)
+    # The node reads the CACHED config, so the patched constant only takes effect once the cache
+    # is rebuilt from it. Without this the patch would silently not apply.
+    from app.services import config_service
+    config_service._reset()
+
     out = await lp.learner_profiler_node(state)
     return out, profile_events[-1]["payload"]
 

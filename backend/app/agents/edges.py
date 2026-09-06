@@ -28,7 +28,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from app.services.config_service import GateConfig as GateConfigLike
 
 import structlog
 
@@ -209,7 +212,9 @@ def withhold_draw(learner_id: Any, session_id: Any, cycle_number: Any) -> float:
     return int.from_bytes(hashlib.sha256(key).digest()[:8], "big") / 2**64
 
 
-def _session_cap_reached(profile: dict, session_id: Any) -> bool:
+def _session_cap_reached(
+    profile: dict, session_id: Any, config: "GateConfigLike | None" = None
+) -> bool:
     """Whether this session has already used its allowance.
 
     The counter is session-scoped the same way the cooldown marker is: `cycle_number` restarts at
@@ -218,7 +223,8 @@ def _session_cap_reached(profile: dict, session_id: Any) -> bool:
     """
     if profile.get("adaptation_session_id") != session_id:
         return False
-    return int(profile.get("eligible_this_session", 0) or 0) >= max(0, ADAPT_MAX_PER_SESSION)
+    cap = config.max_per_session if config else ADAPT_MAX_PER_SESSION
+    return int(profile.get("eligible_this_session", 0) or 0) >= max(0, cap)
 
 
 def record_eligible_cycle(profile: dict, session_id: Any) -> None:
@@ -365,7 +371,7 @@ _KNOWN_AFFECT_SOURCES = frozenset({
 })
 
 
-def is_decisive(affect_source: str | None) -> bool:
+def is_decisive(affect_source: str | None, sources: tuple[str, ...] | None = None) -> bool:
     """Whether a reading from this channel may trigger an intervention on its own.
 
     An allowlist, so anything absent from it is non-decisive -- including a channel added later
@@ -377,8 +383,13 @@ def is_decisive(affect_source: str | None) -> bool:
 
     A MISSING source fails open. The gate is called directly by tests and by callers that
     predate provenance, and those must behave exactly as they did.
+
+    `sources` overrides the module constant, for the runtime-editable config. It is a parameter
+    rather than a second implementation so the two paths CANNOT diverge: the fail-open rules above
+    are subtle enough that a duplicated membership test silently lost them once already.
     """
-    if not DECISIVE_AFFECT_SOURCES:
+    allowed = DECISIVE_AFFECT_SOURCES if sources is None else sources
+    if not allowed:
         return True
     if not affect_source:
         return True
@@ -386,11 +397,11 @@ def is_decisive(affect_source: str | None) -> bool:
         logger.warning(
             "affect_source_unclassified",
             affect_source=affect_source,
-            decisive_sources=list(DECISIVE_AFFECT_SOURCES),
+            decisive_sources=list(allowed),
             consequence="treated as advisory; it will never trigger an adaptation",
         )
         return False
-    return affect_source in DECISIVE_AFFECT_SOURCES
+    return affect_source in allowed
 
 
 def passes_adaptation_gate(
@@ -400,29 +411,42 @@ def passes_adaptation_gate(
     cycle_number: int | None,
     last_adaptation_cycle: int | None,
     affect_source: str | None = None,
+    config: "GateConfigLike | None" = None,
 ) -> tuple[bool, str]:
     """Pure gate. Returns `(allowed, reason)`; `reason` is one of the `GATE_*` constants.
 
     `affect_history` is the profile's history INCLUDING the current cycle (the profiler folds
     the current affect in before calling this). `last_adaptation_cycle` is None when this
     learner has never been adapted.
+
+    `config` carries runtime-editable thresholds from the admin settings page. It is OPTIONAL and
+    defaults to the module constants, which keeps this function pure and keeps every existing
+    caller and test working unchanged — the settings feature adds a parameter rather than taking
+    a dependency on a service. It is duck-typed rather than imported, because `config_service`
+    imports this module and a real import would be circular.
     """
+    states = tuple(config.adapt_states) if config else ADAPT_STATES
+    floor = (config.min_confidence_for(affect_source) if config
+             else min_confidence_for(affect_source))
+    need_consecutive = config.min_consecutive if config else ADAPT_MIN_CONSECUTIVE
+    cooldown = config.cooldown_cycles if config else ADAPT_COOLDOWN_CYCLES
+    decisive = is_decisive(affect_source, tuple(config.decisive_sources) if config else None)
     if not affect_state:
         return False, GATE_NO_AFFECT
 
-    if affect_state not in ADAPT_STATES:
+    if affect_state not in states:
         return False, GATE_STATE_NOT_ACTIONABLE
 
-    if float(affect_confidence or 0.0) < min_confidence_for(affect_source):
+    if float(affect_confidence or 0.0) < floor:
         return False, GATE_LOW_CONFIDENCE
 
-    need = max(1, ADAPT_MIN_CONSECUTIVE)
+    need = max(1, need_consecutive)
     recent = list(affect_history or [])[-need:]
     if len(recent) < need or any(a != affect_state for a in recent):
         return False, GATE_NOT_SUSTAINED
 
     if last_adaptation_cycle is not None and cycle_number is not None:
-        if int(cycle_number) - int(last_adaptation_cycle) < ADAPT_COOLDOWN_CYCLES:
+        if int(cycle_number) - int(last_adaptation_cycle) < cooldown:
             return False, GATE_COOLDOWN
 
     # Evaluated LAST, deliberately. Checking authority earlier would mask the binding
@@ -433,7 +457,7 @@ def passes_adaptation_gate(
     # measurement of what the advisory channel would have done, and therefore evidence for or
     # against promoting it later. The same reason the idle-window suppression records
     # `would_have_been` rather than discarding it.
-    if not is_decisive(affect_source):
+    if not decisive:
         return False, GATE_CHANNEL_ADVISORY
 
     return True, GATE_OK
@@ -443,6 +467,7 @@ def adaptation_decision(
     state: AgentState,
     profile: dict | None,
     last_adaptation_cycle: int | None,
+    config: "GateConfigLike | None" = None,
 ) -> tuple[bool, str]:
     """Combine eligibility and the gate. Pure — the caller supplies the fresh profile.
 
@@ -466,6 +491,7 @@ def adaptation_decision(
         state.get("cycle_number"),
         last_adaptation_cycle,
         state.get("affect_source"),
+        config,
     )
     if not allowed:
         return False, reason
@@ -474,13 +500,13 @@ def adaptation_decision(
     # would stop the delivered arm at six while the withheld arm carried on accruing controls --
     # the two would then cover different parts of the session, and later observations would appear
     # in one arm only. Counting eligibility instead makes both arms end together.
-    if _session_cap_reached(profile or {}, state.get("session_id")):
+    if _session_cap_reached(profile or {}, state.get("session_id"), config):
         return False, GATE_SESSION_CAP
 
     # Applied LAST, and only to cycles that already cleared everything else, so the withheld set
     # is exactly the eligible set. Drawing earlier would withhold cycles that would have failed
     # the gate anyway, which would put unmatched cycles in the control arm and bias the contrast.
-    rate = min(1.0, max(0.0, ADAPT_WITHHOLD_RATE))
+    rate = min(1.0, max(0.0, config.withhold_rate if config else ADAPT_WITHHOLD_RATE))
     if rate > 0.0 and withhold_draw(
         state.get("learner_id"), state.get("session_id"), state.get("cycle_number")
     ) < rate:

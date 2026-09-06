@@ -42,10 +42,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.edges import (
-    ADAPT_COOLDOWN_CYCLES,
-    ADAPT_MIN_CONSECUTIVE,
-    ADAPT_STATES,
-    DECISIVE_AFFECT_SOURCES,
     GATE_CHANNEL_ADVISORY,
     GATE_COOLDOWN,
     GATE_LOW_CONFIDENCE,
@@ -55,6 +51,7 @@ from app.agents.edges import (
     GATE_STATE_NOT_ACTIONABLE,
 )
 from app.models.research_event import ResearchEvent
+from app.services import config_service
 
 logger = structlog.get_logger(__name__)
 
@@ -298,9 +295,14 @@ async def sweep(
     varies one thing at a time against what is actually running rather than against an invented
     baseline.
     """
-    consecutive = ADAPT_MIN_CONSECUTIVE if min_consecutive is None else min_consecutive
-    cooldown = ADAPT_COOLDOWN_CYCLES if cooldown_cycles is None else cooldown_cycles
-    decisive = list(DECISIVE_AFFECT_SOURCES if decisive_sources is None else decisive_sources)
+    # Defaults come from the LIVE configuration, not from constants bound when this module was
+    # imported. The thresholds are editable at runtime now, so a replay that defaulted to the
+    # process's start-up values would silently compare the record against a gate that is no
+    # longer deployed -- and report the difference as though it were a finding.
+    live = config_service.get_config()
+    consecutive = live.min_consecutive if min_consecutive is None else min_consecutive
+    cooldown = live.cooldown_cycles if cooldown_cycles is None else cooldown_cycles
+    decisive = list(live.decisive_sources if decisive_sources is None else decisive_sources)
 
     readings, reports = await _load_sessions(db, phase=phase, group=group)
     total_cycles = sum(len(v) for v in readings.values())
@@ -318,7 +320,7 @@ async def sweep(
                 min_consecutive=consecutive,
                 cooldown_cycles=cooldown,
                 decisive_sources=decisive,
-                adapt_states=ADAPT_STATES,
+                adapt_states=live.adapt_states,
             )
             interventions.extend(result["interventions"])
             for reason, count in result["reasons"].items():
@@ -358,7 +360,7 @@ async def sweep(
             "min_consecutive": consecutive,
             "cooldown_cycles": cooldown,
             "decisive_sources": decisive,
-            "adapt_states": list(ADAPT_STATES),
+            "adapt_states": list(live.adapt_states),
         },
         "rows": rows,
         # Stated in the response, not only in the docs. A sweep table is the kind of output that

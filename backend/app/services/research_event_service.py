@@ -15,7 +15,7 @@ from app.models.research_event import ResearchEvent
 
 _FIELDS = ("event_type", "learner_id", "session_id", "cycle_number",
            "timestamp", "sequence_number", "payload", "phase", "group",
-           "course_id", "section_id", "block_id")
+           "course_id", "section_id", "block_id", "config_version")
 
 #: Top-level identity fields persisted as their own columns rather than inside `payload`.
 #: All are optional and all are stringified, matching `learner_id` / `session_id`.
@@ -36,6 +36,10 @@ def _row(event: dict[str, Any]) -> ResearchEvent:
         timestamp=int(event.get("timestamp", 0) or 0),
         sequence_number=event.get("sequence_number"),
         payload=event.get("payload"),
+        # Migration 027: which runtime configuration produced this row. Nullable, because rows
+        # written before the settings feature existed have no answer and must not claim one.
+        config_version=(int(event["config_version"])
+                        if event.get("config_version") is not None else None),
         # Story 6.5: top-level study phase / A/B group for dataset filtering.
         # Migration 021: content coordinates -- where in the course the event happened.
         # All tolerate absence: connection- and account-level events carry no coordinate.
