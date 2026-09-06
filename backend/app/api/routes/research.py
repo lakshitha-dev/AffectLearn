@@ -16,7 +16,7 @@ consumes. `eventType` accepts a comma-separated list (e.g. `eventType=self_repor
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, require_role
@@ -26,7 +26,7 @@ from app.schemas.research_export import (
     ResearchEventPage,
     SequenceGapsOut,
 )
-from app.services import research_export_service
+from app.services import gate_replay_service, research_export_service
 
 router = APIRouter()
 
@@ -150,4 +150,64 @@ async def phase_a_dataset(
         total=result["total"],
         page=result["page"],
         page_size=result["page_size"],
+    )
+
+
+@router.get("/research/gate-replay", tags=["research"])
+async def gate_replay(
+    floors: str = Query(
+        default="0.50,0.55,0.60,0.65,0.70,0.75,0.80",
+        description="Comma-separated confidence floors to sweep.",
+    ),
+    min_consecutive: int | None = Query(default=None, ge=1, le=10, alias="minConsecutive"),
+    cooldown_cycles: int | None = Query(default=None, ge=0, le=60, alias="cooldownCycles"),
+    decisive_sources: str | None = Query(default=None, alias="decisiveSources"),
+    phase: str | None = Query(default=None),
+    group: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role(Role.admin)),
+):
+    """What the adaptation gate WOULD have done at other settings, over the recorded cycles.
+
+    Section 7.4 records why this exists: the deployed thresholds were calibrated on out-of-fold
+    predictions from a corpus of business-software users, and inherit two artefacts from that
+    simulation. It also records the fix -- the gate now logs a reason for every withheld cycle,
+    so the calibration can be repeated on real ones.
+
+    `decisiveSources` is the parameter that answers a live question: pass it including
+    `performance` to see how often the behaviour-driven channel WOULD have intervened if it were
+    promoted from advisory, before promoting it.
+
+    Settings not swept default to the DEPLOYED configuration, so a sweep varies one thing at a
+    time against what is actually running rather than an invented baseline.
+    """
+    try:
+        parsed = [float(f) for f in floors.split(",") if f.strip()]
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": {"code": "INVALID_FLOORS",
+                              "message": "floors must be comma-separated numbers"}},
+        ) from None
+    if not parsed or len(parsed) > 25:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": {"code": "INVALID_FLOORS",
+                              "message": "supply between 1 and 25 floors"}},
+        )
+
+    sources = (
+        [s.strip() for s in decisive_sources.split(",") if s.strip()]
+        if decisive_sources is not None
+        else None
+    )
+
+    return await gate_replay_service.sweep(
+        db,
+        confidence_floors=parsed,
+        min_consecutive=min_consecutive,
+        cooldown_cycles=cooldown_cycles,
+        decisive_sources=sources,
+        phase=phase,
+        group=group,
     )
