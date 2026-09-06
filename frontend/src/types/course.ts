@@ -56,6 +56,15 @@ export interface Course {
   isEnrolled?: boolean | null;
   enrollmentProgress?: number | null;
   moduleCount?: number | null;
+  /** Author's user id. Null for seeded system content, and never sent to learners. */
+  createdBy?: string | null;
+  /**
+   * Whether the REQUESTING user may modify this course, computed server-side from the same
+   * predicate the write guards use. Render destructive actions from this rather than
+   * re-deriving "admin, or mine" here — the rule would then exist twice, in two languages.
+   * Null for learners, who are not shown authorship at all.
+   */
+  canEdit?: boolean | null;
 }
 
 export interface CourseDetail extends Course {

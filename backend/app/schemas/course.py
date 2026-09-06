@@ -170,6 +170,12 @@ class CourseResponse(CamelModel):
     is_enrolled: bool | None = None
     enrollment_progress: float | None = None
     module_count: int | None = None
+    # Ownership (migration 024). `created_by` is null for seeded system content.
+    created_by: uuid.UUID | None = None
+    # Whether the REQUESTING user may modify this course. Computed server-side from the same
+    # predicate the write guards use, so the authoring UI can hide actions the API would refuse
+    # instead of re-deriving the rule in TypeScript and letting the two drift.
+    can_edit: bool | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
