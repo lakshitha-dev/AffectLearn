@@ -48,6 +48,27 @@ def _reset_fusion_buffer():
     fusion_buffer._reset()
 
 
+@pytest.fixture(autouse=True)
+def _no_trial_withholding():
+    """Turn the randomised-trial draw OFF by default.
+
+    `ADAPT_WITHHOLD_RATE` withholds ~35% of otherwise-eligible cycles so the study has a matched
+    control arm. That is correct in production and wrong as a default in tests: every existing
+    test that asserts "these conditions produce an adaptation" would fail on roughly a third of
+    its inputs, depending on nothing but the learner/session/cycle ids it happened to pick, and
+    the failure would look like a gate bug rather than a coin flip.
+
+    Tests that are ABOUT the trial set the rate themselves -- see tests/agents/test_withholding.py,
+    which covers the draw, the arms, and cooldown parity between them.
+    """
+    from app.agents import edges
+
+    original = edges.ADAPT_WITHHOLD_RATE
+    edges.ADAPT_WITHHOLD_RATE = 0.0
+    yield
+    edges.ADAPT_WITHHOLD_RATE = original
+
+
 @pytest_asyncio.fixture
 async def db() -> AsyncGenerator[AsyncSession, None]:
     async with _TestSession() as session:

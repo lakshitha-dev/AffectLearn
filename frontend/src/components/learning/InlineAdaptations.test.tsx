@@ -88,3 +88,74 @@ describe("InlineAdaptations", () => {
     expect(useAdaptationStore.getState().adaptationQueue).toHaveLength(1);
   });
 });
+
+describe("actions that previously reached no learner", () => {
+  beforeEach(() => {
+    useAdaptationStore.getState().reset();
+    seq = 0;
+    stubMatchMedia(true);
+  });
+
+  it("renders simplify, which had no consumer anywhere in the routing matrix", () => {
+    // It is the rule-based fallback for `frustrated`, so on a degraded LLM the most distressed
+    // learner in the system was the one guaranteed to receive silence.
+    seed("simplify", "Let's take this more gently.");
+    render(<InlineAdaptations />);
+    expect(screen.getByText("Let's take this more gently.")).toBeInTheDocument();
+  });
+
+  it("renders increase_difficulty, which used to render null", () => {
+    // Its consumer selected against a harder-content catalogue that does not exist, so a bored
+    // learner got an empty box. It is generative text now.
+    seed("increase_difficulty", "Why would this break for an empty list?");
+    render(<InlineAdaptations />);
+    expect(screen.getByText("Why would this break for an empty list?")).toBeInTheDocument();
+  });
+});
+
+describe("assistance attribution is narrower than what is rendered", () => {
+  beforeEach(() => {
+    useAdaptationStore.getState().reset();
+    seq = 0;
+    stubMatchMedia(true);
+  });
+
+  it("does not attribute a quiz answer to a challenge question", async () => {
+    // `increase_difficulty` shares the callout surface but is the opposite intervention: it asks
+    // the learner something harder rather than helping with this one. Counting it as assistance
+    // would merge "was the learner helped before answering" with "was the learner challenged
+    // before answering" into one column, and neither question could then be asked of it.
+    const { activeInlineAdaptation } = await import("./InlineAdaptations");
+    seed("increase_difficulty", "A harder question.");
+    expect(activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue)).toBeNull();
+  });
+
+  it("still attributes a quiz answer to a hint that preceded it", async () => {
+    const { activeInlineAdaptation } = await import("./InlineAdaptations");
+    seed("show_hint", "Try relating it to something you know.");
+    const active = activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue);
+    expect(active?.action).toBe("show_hint");
+  });
+
+  it("counts simplify as assistance, because it genuinely is help", async () => {
+    const { activeInlineAdaptation } = await import("./InlineAdaptations");
+    seed("simplify", "Here it is in simpler terms.");
+    expect(
+      activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue)?.action,
+    ).toBe("simplify");
+  });
+
+  it("a challenge shown after a hint does not displace the hint as the assistance", async () => {
+    const { activeInlineAdaptation, activeRenderableAdaptation } = await import(
+      "./InlineAdaptations"
+    );
+    seed("show_hint", "The hint.");
+    seed("increase_difficulty", "The challenge.");
+    const queue = useAdaptationStore.getState().adaptationQueue;
+
+    // The challenge is what is on screen...
+    expect(activeRenderableAdaptation(queue)?.action).toBe("increase_difficulty");
+    // ...but the hint is still what any subsequent answer is attributed to.
+    expect(activeInlineAdaptation(queue)?.action).toBe("show_hint");
+  });
+});

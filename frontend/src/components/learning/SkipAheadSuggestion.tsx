@@ -15,7 +15,7 @@ import { useAdaptationStore } from "@/stores/adaptation-store";
  *
  * It IGNORES every non-`skip_ahead` item and leaves them untouched in the queue: the four
  * `show_*` inline actions are consumed by 5.4 (`InlineAdaptations`), `suggest_break` by 5.5
- * (`BreakSuggestion`), `increase_difficulty` by the sibling `IncreaseDifficulty` consumer
+ * (`BreakSuggestion`), `increase_difficulty` by the inline callout (`InlineAdaptations`)
  * (5.6), and `simplify` (5.4-adjacent) / `notification` (5.7) are deferred to those stories.
  *
  * NAVIGATION (AC2): on accept the card advances the content view to the NEXT section. We use

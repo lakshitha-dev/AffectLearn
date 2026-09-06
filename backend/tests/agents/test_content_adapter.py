@@ -164,12 +164,24 @@ async def test_skip_ahead_selects_without_calling_llm(monkeypatch, events):
     assert events[0]["payload"]["generated"] is False
 
 
-async def test_increase_difficulty_selects_without_calling_llm(monkeypatch, events):
-    _boom_client(monkeypatch)
+async def test_increase_difficulty_generates_a_challenge_rather_than_selecting(monkeypatch, events):
+    """It used to emit a `challenge_exercise` selection descriptor and deliver NOTHING.
+
+    The catalog that descriptor pointed at never existed -- no table, no resolver, no difficulty
+    column on any content model -- so the client rendered null and a bored learner saw an empty
+    box. Since this is the only response to boredom that raises challenge, and flow theory puts
+    boredom at challenge BELOW skill, leaving it unimplemented left the boredom branch with
+    nothing but pagination. It is now generative, written against the section body the adapter
+    is already given.
+    """
+    _boom_client(monkeypatch)   # LLM unavailable -> pre-written challenge copy
     out = await ca.content_adapter_node(_state("increase_difficulty", affect="bored"))
     content = out["adaptation_content"]
-    assert content["metadata"]["select"] == "challenge_exercise"
-    assert content["metadata"]["fallback"] is False
+
+    assert "select" not in content["metadata"], "no longer a selection descriptor"
+    assert content["metadata"]["fallback"] is True, "LLM was down, so this is the written copy"
+    assert content["text"].strip(), "a bored learner must actually receive something"
+    assert "?" in content["text"], "the challenge has to ask something, not announce something"
     assert len(events) == 1
 
 
