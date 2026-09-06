@@ -1,58 +1,150 @@
-export default function ABGroupsPage() {
-  const groups = [
-    { id: "1", name: "Control Group", description: "Standard e-learning without affect detection", members: 12, condition: "control" },
-    { id: "2", name: "Webcam Affect", description: "Full affect detection with webcam + behavioral signals", members: 11, condition: "webcam" },
-    { id: "3", name: "Behavioral Only", description: "Affect detection via mouse/keyboard signals only", members: 13, condition: "behavioral" },
-  ];
+"use client";
 
-  const CONDITION_COLORS: Record<string, string> = {
-    control: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-    webcam: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    behavioral: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  };
+/**
+ * A/B research groups — what the study allocation ACTUALLY is.
+ *
+ * This page previously rendered a hardcoded array: three conditions that do not exist in the
+ * system (`control` / `webcam` / `behavioral`, where the real vocabulary is `control` /
+ * `adaptive`), invented member counts of 12/11/13, and a claim that "learners are automatically
+ * assigned to groups during registration based on a balanced randomization algorithm."
+ *
+ * No such algorithm exists. Nothing calls `assign_group` outside the admin route and its tests:
+ * allocation is a manual `POST /admin/study/groups` per learner, and an account with no
+ * assignment defaults to `control`. A research console that asserts a randomisation procedure it
+ * does not perform is a methodological claim the thesis cannot support, so the page now reads the
+ * real endpoints and states the real procedure.
+ */
+
+import { useMemo } from "react";
+
+import { useStudyGroups, useStudyPhase } from "@/hooks/use-study";
+
+const CONDITION_COLORS: Record<string, string> = {
+  control: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  adaptive: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+};
+
+const CONDITION_COPY: Record<string, string> = {
+  control:
+    "Detection runs and is logged, but no adaptation is ever delivered. Also the default for any account with no assignment.",
+  adaptive:
+    "Eligible to receive interventions, but only once the global phase is phase_b.",
+};
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm text-muted-foreground">{children}</p>;
+}
+
+export default function ABGroupsPage() {
+  const groupsQ = useStudyGroups();
+  const phaseQ = useStudyPhase();
+
+  const counts = useMemo(() => {
+    const items = groupsQ.data?.items ?? [];
+    const byGroup: Record<string, number> = { adaptive: 0, control: 0 };
+    let locked = 0;
+    for (const a of items) {
+      byGroup[a.group] = (byGroup[a.group] ?? 0) + 1;
+      if (a.locked_at) locked += 1;
+    }
+    return { byGroup, locked, total: items.length };
+  }, [groupsQ.data]);
+
+  const phase = phaseQ.data?.phase;
+  const interventionsPossible = phase === "phase_b";
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground">A/B Research Groups</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage experimental conditions for the pilot study
+          Live allocation, read from the study record.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3 mb-8">
-        {groups.map((group) => (
-          <div key={group.id} className="rounded-lg border border-border bg-surface p-5">
-            <div className="flex items-start justify-between mb-3">
+      {/* Phase gates everything below it: no learner in any group receives an intervention
+          while the global phase is phase_a. Stating it first avoids reading the group counts
+          as if they described who is currently being adapted. */}
+      <div className="mb-6 rounded-lg border border-border bg-surface p-5">
+        <h2 className="mb-1 font-semibold text-foreground">Study phase</h2>
+        {phaseQ.isLoading ? (
+          <Empty>Loading…</Empty>
+        ) : phaseQ.isError ? (
+          <Empty>Phase could not be read.</Empty>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            <span className="font-mono text-foreground">{phase}</span>
+            {phaseQ.data?.transitioned_at ? (
+              <> · changed {new Date(phaseQ.data.transitioned_at).toLocaleString()}</>
+            ) : (
+              <> · never transitioned</>
+            )}
+            {" — "}
+            {interventionsPossible
+              ? "the adaptive group can receive interventions."
+              : "no learner receives interventions in phase_a, in either group."}
+          </p>
+        )}
+      </div>
+
+      <div className="mb-8 grid gap-4 sm:grid-cols-2">
+        {(["adaptive", "control"] as const).map((group) => (
+          <div key={group} className="rounded-lg border border-border bg-surface p-5">
+            <div className="mb-3 flex items-start justify-between">
               <span
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${CONDITION_COLORS[group.condition]}`}
+                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${CONDITION_COLORS[group]}`}
               >
-                {group.condition}
+                {group}
               </span>
-              <span className="text-2xl font-bold text-foreground">{group.members}</span>
+              <span className="text-2xl font-bold tabular-nums text-foreground">
+                {groupsQ.isLoading ? "—" : (counts.byGroup[group] ?? 0)}
+              </span>
             </div>
-            <h3 className="font-semibold text-foreground mb-1">{group.name}</h3>
-            <p className="text-sm text-muted-foreground">{group.description}</p>
+            <p className="text-sm text-muted-foreground">{CONDITION_COPY[group]}</p>
           </div>
         ))}
       </div>
 
       <div className="rounded-lg border border-border bg-surface p-6">
-        <h2 className="font-semibold text-foreground mb-2">Group Assignment</h2>
+        <h2 className="mb-2 font-semibold text-foreground">Group assignment</h2>
         <p className="text-sm text-muted-foreground">
-          Learners are automatically assigned to groups during registration based on a balanced
-          randomization algorithm. Manual reassignment can be done through the user management
-          interface.
+          Assignment is <strong className="text-foreground">manual</strong>: an admin issues{" "}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+            POST /api/v1/admin/study/groups
+          </code>{" "}
+          per learner. There is no automatic or balanced allocation, and an account with no
+          assignment defaults to <span className="font-mono">control</span>. Assignment is keyed to
+          the account rather than the device, so the same learner on two devices stays in one group.
         </p>
-        <div className="mt-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800/40 dark:bg-amber-900/20 px-4 py-3">
-          <svg className="h-4 w-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <p className="text-sm text-amber-700 dark:text-amber-400">
-            Reassigning participants during an active study session may affect result validity.
-          </p>
-        </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          {groupsQ.isLoading
+            ? "Loading assignments…"
+            : groupsQ.isError
+              ? "Assignments could not be read."
+              : counts.total === 0
+                ? "No learners have been assigned yet."
+                : `${counts.total} assigned · ${counts.locked} locked.`}
+        </p>
+
+        {/* Locking is the "the pilot has begun" gate: once locked, an assignment can no longer be
+            corrected, which is what stops a participant being moved between conditions mid-study. */}
+        {!groupsQ.isLoading && !groupsQ.isError && counts.total > 0 && counts.locked === 0 ? (
+          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/20">
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              Assignments are unlocked, so they can still be changed. Lock them before data
+              collection begins — moving a participant between conditions mid-study invalidates
+              their data.
+            </p>
+          </div>
+        ) : null}
       </div>
+
+      <p className="mt-6 text-xs text-muted-foreground">
+        Note: the randomisation in this study is at the <strong>intervention</strong> level, not
+        the participant level. Within the adaptive group, every cycle that clears the adaptation
+        gate is randomly either delivered or withheld, and the withheld cycles are the matched
+        control the delivered ones are compared against.
+      </p>
     </div>
   );
 }
