@@ -29,8 +29,25 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+// The page now renders the content-effectiveness panel below the heatmap, so its hooks have to
+// be mocked here too — a module mock replaces the WHOLE module, and an unmocked export comes
+// back undefined rather than falling through to the real implementation.
+//
+// They return empty, not fixtures: these tests are about the heatmap, and the panel's own
+// behaviour is covered in `components/designer/ContentEffectiveness.test.tsx`.
 vi.mock("@/hooks/use-analytics", () => ({
   useAffectHeatmap: vi.fn(),
+  useCourseEffectiveness: vi.fn(() => ({
+    data: { courseId: "course-1", sections: [] },
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  })),
+  useStruggleLeaderboard: vi.fn(() => ({
+    data: { courseId: "course-1", sections: [] },
+    isPending: false,
+    isError: false,
+  })),
 }));
 
 import { useAffectHeatmap } from "@/hooks/use-analytics";

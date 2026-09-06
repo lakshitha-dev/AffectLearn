@@ -99,6 +99,10 @@ class AnswerCreate(CamelModel):
 
 class AttemptCreate(CamelModel):
     answers: list[AnswerCreate]
+    # Migration 022: when the learner opened the assessment, so time-taken is derivable. Sent by
+    # the client because only the client knows when the screen was rendered; optional and
+    # back-compatible, and a missing value simply leaves the attempt without a start.
+    started_at: datetime | None = None
 
 
 class AttemptResponse(CamelModel):

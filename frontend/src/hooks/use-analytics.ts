@@ -5,8 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
 import type {
   AffectHeatmapResponse,
+  CourseEffectivenessResponse,
   CourseOverview,
   SectionDetailResponse,
+  SectionQuestionsResponse,
+  StruggleLeaderboardResponse,
 } from "@/types/analytics";
 
 /** Root query-key namespace for analytics caches (reused for invalidation by 7.3/7.4). */
@@ -65,6 +68,51 @@ export function useAffectHeatmap(courseId: string | undefined) {
         `/analytics/courses/${courseId}/affect-heatmap`,
       ),
     enabled: Boolean(courseId),
+    staleTime: STALE_5_MIN,
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Content effectiveness                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Per-section behavioural evidence: dwell, revisits, answer reveals, wrong answers, and the
+ * help offered around them.
+ *
+ * Complements `useAffectHeatmap` rather than replacing it. The heatmap answers "how did learners
+ * FEEL here", from a detector honest about its limits; this answers "what did they DO here",
+ * which on a paginated reader is the stronger evidence and needs no model to interpret.
+ */
+export function useCourseEffectiveness(courseId: string | undefined) {
+  return useQuery<CourseEffectivenessResponse>({
+    queryKey: [ANALYTICS_KEY, "effectiveness", courseId],
+    queryFn: () =>
+      apiFetch<CourseEffectivenessResponse>(`/analytics/courses/${courseId}/effectiveness`),
+    enabled: Boolean(courseId),
+    staleTime: STALE_5_MIN,
+  });
+}
+
+/** The sections learners struggle with most. Thin samples are excluded server-side. */
+export function useStruggleLeaderboard(courseId: string | undefined, limit = 5) {
+  return useQuery<StruggleLeaderboardResponse>({
+    queryKey: [ANALYTICS_KEY, "struggle", courseId, limit],
+    queryFn: () =>
+      apiFetch<StruggleLeaderboardResponse>(
+        `/analytics/courses/${courseId}/struggle?limit=${limit}`,
+      ),
+    enabled: Boolean(courseId),
+    staleTime: STALE_5_MIN,
+  });
+}
+
+/** Item analysis for a section's quiz blocks. */
+export function useSectionQuestions(sectionId: string | undefined) {
+  return useQuery<SectionQuestionsResponse>({
+    queryKey: [ANALYTICS_KEY, "questions", sectionId],
+    queryFn: () => apiFetch<SectionQuestionsResponse>(`/analytics/sections/${sectionId}/questions`),
+    enabled: Boolean(sectionId),
     staleTime: STALE_5_MIN,
   });
 }

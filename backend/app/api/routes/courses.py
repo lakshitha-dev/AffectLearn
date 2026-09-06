@@ -27,7 +27,7 @@ from app.schemas.course import (
     SectionResponse,
     SectionUpdate,
 )
-from app.services import course_service
+from app.services import content_version_service, course_ownership, course_service
 
 router = APIRouter()
 
@@ -42,10 +42,12 @@ async def create_course(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    # An admin creating a course still owns it: leaving it NULL would make it system content
+    # that even its own author could not edit as a designer later.
     course = await course_service.create_course(
         db, title=body.title, description=body.description,
         estimated_duration_minutes=body.estimated_duration_minutes, is_published=body.is_published,
-        learning_objectives=body.learning_objectives,
+        learning_objectives=body.learning_objectives, created_by=current_user.id,
     )
     return course
 
@@ -82,6 +84,13 @@ async def list_courses(
                 module_count=item.get("module_count"),
                 is_enrolled=item.get("is_enrolled") if is_learner else None,
                 enrollment_progress=item.get("enrollment_progress") if is_learner else None,
+                # Ownership, for authors only. A learner has no use for it, and telling them who
+                # wrote a course is not theirs to know.
+                created_by=course.created_by if not is_learner else None,
+                can_edit=(
+                    None if is_learner
+                    else course_ownership.can_edit(current_user, course)
+                ),
             )
         )
     return CourseListResponse(items=response_items, total=total, page=page, page_size=page_size)
@@ -93,7 +102,21 @@ async def get_course(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await course_service.get_course(db, course_id)
+    course = await course_service.get_course(db, course_id)
+    response = CourseDetailResponse.model_validate(course)
+    # Same annotation as the list view, and for the same reason: the structure builder decides
+    # whether to render destructive actions from this, and must not offer what the API refuses.
+    #
+    # `created_by` is CLEARED for learners rather than simply not set: `model_validate` reads it
+    # straight off the ORM object, so leaving it alone would leak the author's user id to every
+    # enrolled learner. Who wrote a course is not theirs to know.
+    if current_user.role == Role.learner:
+        response.created_by = None
+        response.can_edit = None
+    else:
+        response.created_by = course.created_by
+        response.can_edit = course_ownership.can_edit(current_user, course)
+    return response
 
 
 @router.put("/{course_id}", response_model=CourseResponse)
@@ -103,8 +126,23 @@ async def update_course(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_course(db, current_user, course_id)
     fields = body.model_dump(exclude_unset=True)
-    return await course_service.update_course(db, course_id, **fields)
+    course = await course_service.update_course(db, course_id, **fields)
+
+    # Publishing is the moment a designer asserts the content is ready for learners, so it is the
+    # boundary worth freezing. Snapshotting on every edit instead would produce hundreds of
+    # versions per paragraph, because the content editor autosaves as you type.
+    #
+    # Only on the false -> true transition: `fields` carries `is_published` only when the caller
+    # sent it, so a title change never triggers a version.
+    if fields.get("is_published") is True:
+        await content_version_service.snapshot_on_publish(
+            db, course_id=course_id, published_by=current_user.id
+        )
+        await db.commit()
+        await db.refresh(course)
+    return course
 
 
 @router.delete("/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -113,6 +151,7 @@ async def delete_course(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_course(db, current_user, course_id)
     await course_service.delete_course(db, course_id)
 
 
@@ -127,6 +166,7 @@ async def create_module(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_course(db, current_user, course_id)
     return await course_service.create_module(
         db, course_id, title=body.title, description=body.description, sort_order=body.sort_order,
     )
@@ -152,6 +192,7 @@ async def update_module(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_module(db, current_user, module_id)
     fields = body.model_dump(exclude_unset=True)
     return await course_service.update_module(db, module_id, **fields)
 
@@ -162,6 +203,7 @@ async def delete_module(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_module(db, current_user, module_id)
     await course_service.delete_module(db, module_id)
 
 
@@ -176,6 +218,7 @@ async def create_lesson(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_module(db, current_user, module_id)
     return await course_service.create_lesson(
         db, module_id, title=body.title, description=body.description, sort_order=body.sort_order,
     )
@@ -207,6 +250,7 @@ async def update_lesson(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_lesson(db, current_user, lesson_id)
     fields = body.model_dump(exclude_unset=True)
     return await course_service.update_lesson(db, lesson_id, **fields)
 
@@ -217,6 +261,7 @@ async def delete_lesson(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_lesson(db, current_user, lesson_id)
     await course_service.delete_lesson(db, lesson_id)
 
 
@@ -231,6 +276,7 @@ async def create_section(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_lesson(db, current_user, lesson_id)
     return await course_service.create_section(
         db, lesson_id, title=body.title, sort_order=body.sort_order,
         estimated_duration_minutes=body.estimated_duration_minutes,
@@ -253,6 +299,7 @@ async def update_section(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_section(db, current_user, section_id)
     fields = body.model_dump(exclude_unset=True)
     return await course_service.update_section(db, section_id, **fields)
 
@@ -263,6 +310,7 @@ async def delete_section(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_section(db, current_user, section_id)
     await course_service.delete_section(db, section_id)
 
 
@@ -277,6 +325,7 @@ async def create_content_block(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_section(db, current_user, section_id)
     return await course_service.create_content_block(
         db, section_id, block_type=body.block_type, content=body.content,
         sort_order=body.sort_order, variant_key=body.variant_key, variant_group=body.variant_group,
@@ -299,6 +348,7 @@ async def update_content_block(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_block(db, current_user, block_id)
     fields = body.model_dump(exclude_unset=True)
     return await course_service.update_content_block(db, block_id, **fields)
 
@@ -309,4 +359,5 @@ async def delete_content_block(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
+    await course_ownership.assert_can_edit_block(db, current_user, block_id)
     await course_service.delete_content_block(db, block_id)

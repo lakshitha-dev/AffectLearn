@@ -22,6 +22,7 @@ import structlog
 from app.agents.affect_mapping import resolve_affect
 from app.agents.fusion import fuse_modalities
 from app.agents.state import AFFECT_SOURCE_BEHAVIORAL, AgentState
+from app.services import performance_signals
 from app.services.behavioral_inference import predict_from_window
 from app.services.geometry_inference import predict_from_payload as predict_geometry
 from app.services.model_inference import predict_from_payload
@@ -289,9 +290,37 @@ async def affect_detection_node(state: AgentState) -> dict[str, Any]:
     the WS handler boundary degrades the cycle gracefully (NFR22) without crashing the
     session.
     """
+    # The performance channel is checked FIRST because it is not a model and does not share the
+    # dispatch below: a cycle carries either a model payload or a performance payload, never
+    # both, since they arrive on separate WebSocket messages.
+    if state.get("performance_payload"):
+        return _run_performance(state)
+
     mode = _resolve_detection_mode(state)
     if mode == "multimodal":
         return await _run_multimodal(state, mode)
     if mode == "behavioral_only":
         return await _run_behavioral(state, mode)
     return await _run_facial(state, mode)
+
+
+def _run_performance(state: AgentState) -> dict[str, Any]:
+    """Score the struggle counters the client accumulated for the section it is on.
+
+    Synchronous and pure -- there is no model to run, which is the point of the channel. It reads
+    a handful of counts the learner produced by acting, and weights them in the open.
+
+    Returns `{}` when the score is below the actionable floor, so a stream of near-zero readings
+    never reaches the research record or the learner profile's affect history, where it would
+    dilute the sustain check the other channels depend on.
+    """
+    payload = state.get("performance_payload") or {}
+    # Word count comes from the section context the prompt is already grounded in, so pace is
+    # normalised by measured content rather than by the authored duration estimate -- which
+    # across the seeded sections takes five distinct values and does not track content at all.
+    context = state.get("content_context") or {}
+    reading = performance_signals.detect(payload, section_words=context.get("n_words"))
+    if reading is None:
+        return {}
+
+    return {**reading, "detection_mode": "performance_only"}

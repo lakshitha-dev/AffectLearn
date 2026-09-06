@@ -8,6 +8,14 @@ with `get_db` injected, mirroring the read-only discipline of `research.py`.
   - GET /api/v1/analytics/courses/{courseId}/overview        → CourseOverviewResponse
   - GET /api/v1/analytics/courses/{courseId}/affect-heatmap  → AffectHeatmapResponse
   - GET /api/v1/analytics/sections/{sectionId}/detail        → SectionDetailResponse
+  - GET /api/v1/analytics/courses/{courseId}/effectiveness   → CourseEffectivenessResponse
+  - GET /api/v1/analytics/courses/{courseId}/struggle        → StruggleLeaderboardResponse
+  - GET /api/v1/analytics/sections/{sectionId}/questions     → SectionQuestionsResponse
+
+The last three answer "what did learners DO here" rather than "how did they FEEL here". On a
+paginated one-section-per-page reader that is the stronger evidence: going back to re-read,
+revealing an answer and getting a question wrong need no model to interpret, and the platform has
+been logging all three on every completion without anything reading them.
 
 404 on unknown course/section (raised from the service); 403 for learners; 200 for
 designer/admin. No writes, no migration.
@@ -25,14 +33,17 @@ from app.models.user import Role, User
 from app.schemas.analytics import (
     AffectDistribution,
     AffectHeatmapResponse,
+    CourseEffectivenessResponse,
     CourseOverviewResponse,
     HeatmapSectionRow,
     ParagraphAnnotation,
     SectionDetailResponse,
     SectionInsights,
+    SectionQuestionsResponse,
+    StruggleLeaderboardResponse,
     TemporalBin,
 )
-from app.services import analytics_service
+from app.services import analytics_service, content_effectiveness_service
 
 router = APIRouter()
 
@@ -94,3 +105,57 @@ async def get_section_detail(
         confidence=data["confidence"],
         insufficient_data=data["insufficient_data"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Content effectiveness
+# ---------------------------------------------------------------------------
+
+
+@router.get("/courses/{course_id}/effectiveness", response_model=CourseEffectivenessResponse)
+async def get_course_effectiveness(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """Per-section behavioural evidence: dwell, revisits, answer reveals, wrong answers, and the
+    help offered around them.
+
+    Every rate can be null, and null is not zero. A section where no help was offered and one
+    where help was offered but never followed by an attempt are different facts.
+    """
+    return await content_effectiveness_service.course_effectiveness(db, course_id)
+
+
+@router.get("/courses/{course_id}/struggle", response_model=StruggleLeaderboardResponse)
+async def get_struggle_leaderboard(
+    course_id: uuid.UUID,
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """The sections learners struggle with most, worst first.
+
+    Sections with too few observations are EXCLUDED rather than ranked low: a section completed
+    twice can top any leaderboard by accident, and a designer acting on that would rewrite the
+    wrong material.
+    """
+    sections = await content_effectiveness_service.struggle_leaderboard(
+        db, course_id, limit=max(1, min(limit, 50))
+    )
+    return {"course_id": str(course_id), "sections": sections}
+
+
+@router.get("/sections/{section_id}/questions", response_model=SectionQuestionsResponse)
+async def get_section_questions(
+    section_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """Item analysis for a section's quiz blocks.
+
+    `facility` is over all attempts; `firstAttemptFacility` is over each learner's first attempt
+    only, which is the fairer measure of whether the material taught it — later attempts are
+    contaminated by the feedback earlier ones gave.
+    """
+    return await content_effectiveness_service.section_questions(db, section_id)

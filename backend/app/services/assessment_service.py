@@ -2,7 +2,7 @@
 
 import random
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -241,6 +241,7 @@ async def submit_attempt(
     user_id: uuid.UUID,
     assessment_id: uuid.UUID,
     answers: list[AnswerCreate],
+    started_at: Any = None,
 ) -> AttemptResponse:
     assessment = await _get_assessment_or_404(db, assessment_id)
     course_id = await _get_course_id_for_module(db, assessment.module_id)
@@ -267,12 +268,26 @@ async def submit_attempt(
             option_map[o.id] = o
 
     score = 0
+    # Migration 022. `api/routes/assessments.py` has always emitted this ordinal on the
+    # `exercise_attempted` research event, reading it with a getattr default of 0 -- and nothing
+    # ever assigned it, so every event recorded a constant zero. A pre/post design turns on
+    # knowing which attempt a score belongs to, so counting it here is a data fix, not a feature.
+    prior_attempts = (
+        await db.execute(
+            select(func.count(AssessmentAttempt.id)).where(
+                AssessmentAttempt.user_id == user_id,
+                AssessmentAttempt.assessment_id == assessment_id,
+            )
+        )
+    ).scalar_one()
     attempt = AssessmentAttempt(
         user_id=user_id,
         assessment_id=assessment_id,
         enrollment_id=enrollment.id,
         score=0,
         max_score=len(assessment.questions),
+        attempt_number=int(prior_attempts or 0) + 1,
+        started_at=started_at,
     )
     db.add(attempt)
     await db.flush()

@@ -150,3 +150,85 @@ export interface SectionDetailResponse {
   confidence: Confidence;
   insufficientData: boolean;
 }
+
+/* ------------------------------------------------------------------ */
+/* Content effectiveness                                               */
+/*                                                                     */
+/* Every rate is `number | null`. Null is not zero: a section where no  */
+/* help was offered and one where help was offered but never followed  */
+/* by an attempt both have "no outcome rate", and rendering both as 0   */
+/* would tell a designer that help never works there.                  */
+/* ------------------------------------------------------------------ */
+
+export interface SectionAssistance {
+  offers: number;
+  learnersHelped: number;
+  dismissalRate: number | null;
+  /**
+   * Share of delivered help written by the model rather than the rule fallback. Production has
+   * no GPU quota, so this is expected to be low — hiding it would report the fine-tuned agent's
+   * behaviour while showing the fallback's.
+   */
+  generatedRate: number | null;
+  /**
+   * Share of FOLLOWED-UP offers where the learner's next attempt was correct.
+   *
+   * An association, not a cause. The learner may have solved it despite the hint or ignored it.
+   * Anything rendering this must say which of the two it is asserting.
+   */
+  followedByCorrectRate: number | null;
+  outcomesRecorded: number;
+}
+
+export interface SectionEffectivenessRow {
+  sectionId: string;
+  sectionTitle: string;
+  observedLearners: number;
+  timeOnSectionS: number | null;
+  timePer100Words: number | null;
+  backNavCount: number | null;
+  quizAttemptCount: number | null;
+  quizIncorrectCount: number | null;
+  quizResponseTimeMsMean: number | null;
+  showAnswerUsedRate: number | null;
+  revisitRate: number | null;
+  quizIncorrectRate: number | null;
+  assistance: SectionAssistance;
+  confidence: "low" | "medium" | "high";
+  insufficientData: boolean;
+}
+
+export interface CourseEffectivenessResponse {
+  courseId: string;
+  sections: SectionEffectivenessRow[];
+}
+
+export interface StruggleRow extends SectionEffectivenessRow {
+  struggleScore: number;
+}
+
+export interface StruggleLeaderboardResponse {
+  courseId: string;
+  sections: StruggleRow[];
+}
+
+export interface QuestionDifficultyRow {
+  blockId: string;
+  question: string | null;
+  attempts: number;
+  learners: number;
+  /** Share of ALL attempts correct — the classic p-value, low meaning hard. */
+  facility: number | null;
+  /** The same over each learner's FIRST attempt only, uncontaminated by earlier feedback. */
+  firstAttemptFacility: number | null;
+  meanAttemptsPerLearner: number | null;
+  meanResponseTimeMs: number | null;
+  attemptsWithHelpOnScreen: number;
+  confidence: "low" | "medium" | "high";
+  insufficientData: boolean;
+}
+
+export interface SectionQuestionsResponse {
+  sectionId: string;
+  questions: QuestionDifficultyRow[];
+}

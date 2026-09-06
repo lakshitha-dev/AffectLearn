@@ -13,6 +13,10 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Courses", href: "/courses-editor" },
   { label: "Analytics", href: "/analytics" },
+  // Expert review of the system's own pedagogical decisions. Sits in the designer nav because
+  // course designers ARE the educators here — requiring an admin account to rate a hint would
+  // mean handing out admin, or transcribing ratings by hand.
+  { label: "Review", href: "/review" },
   { label: "Settings", href: "/settings" },
 ];
 

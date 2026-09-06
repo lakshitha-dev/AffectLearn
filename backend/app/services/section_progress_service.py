@@ -118,12 +118,23 @@ async def mark_section_complete(
         await db.refresh(existing)
         return existing, False
 
+    # Which published snapshot of the course this completion belongs to (migration 025).
+    # Without it, "learners were confused in section X" cannot be told apart from "learners were
+    # confused in a section that has since been rewritten". Read from the course the hierarchy
+    # already loaded, so this costs no extra query; null when the course was never published.
+    content_version_id = (
+        await db.execute(
+            select(Course.published_version_id).where(Course.id == course_id)
+        )
+    ).scalars().first()
+
     progress = SectionProgress(
         user_id=user_id,
         section_id=section_id,
         enrollment_id=enrollment.id,
         time_spent_seconds=time_spent_seconds,
         affect_states=affect_states,
+        content_version_id=content_version_id,
     )
     db.add(progress)
     try:

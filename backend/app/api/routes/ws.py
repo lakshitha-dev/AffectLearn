@@ -48,6 +48,7 @@ from app.services.research_logger import emit as emit_research_event
 # imported, so that path raised NameError, was swallowed by its own `except Exception`,
 # and salvage NEVER ran -- the exact failure it was written to prevent.
 from app.services import (
+    assistance_service,
     behavioral_inference,
     content_context_service,
     fusion_buffer,
@@ -284,7 +285,9 @@ async def _handle_facial_features(
 
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
-    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group, coords)
+    await _deliver_adaptation(
+        result_state, user_id, session_id, cycle, phase, group, coords, db
+    )
 
 
 async def _handle_behavioral_window(
@@ -426,7 +429,9 @@ async def _handle_behavioral_window(
 
     # Story 5.3: push any adaptation the Phase B cycle produced (no-op for no_action /
     # Phase A — `result_state` then carries no `delivery_message`).
-    await _deliver_adaptation(result_state, user_id, session_id, cycle, phase, group, coords)
+    await _deliver_adaptation(
+        result_state, user_id, session_id, cycle, phase, group, coords, db
+    )
 
 
 def _seed_counterpart(session_id: str, modality: str) -> dict[str, Any]:
@@ -502,6 +507,7 @@ async def _deliver_adaptation(
     result_state: dict[str, Any] | None, user_id: str, session_id: str, cycle: int,
     phase: str = "phase_a", group: str = "control",
     coords: dict[str, Any] | None = None,
+    db: AsyncSession | None = None,
 ) -> None:
     """Push the cycle's `adaptation` message to the learner socket (Story 5.3).
 
@@ -556,6 +562,10 @@ async def _deliver_adaptation(
                 "reason": "socket_unavailable_or_send_failed",
             },
         })
+        await _record_assistance(
+            result_state, delivery_message, user_id, session_id, cycle,
+            phase, group, coords, db, delivered=False,
+        )
         return
 
     metadata = (result_state.get("adaptation_content") or {}).get("metadata") or {}
@@ -581,6 +591,148 @@ async def _deliver_adaptation(
             "fallback": bool(metadata.get("fallback")),
         },
     })
+    await _record_assistance(
+        result_state, delivery_message, user_id, session_id, cycle,
+        phase, group, coords, db, delivered=True,
+    )
+
+
+async def _record_assistance(
+    result_state: dict[str, Any] | None,
+    delivery_message: dict[str, Any],
+    user_id: str,
+    session_id: str,
+    cycle: int,
+    phase: str,
+    group: str,
+    coords: dict[str, Any] | None,
+    db: AsyncSession | None,
+    *,
+    delivered: bool,
+) -> None:
+    """Write the durable ledger row for this intervention (migration 023).
+
+    The research event above remains the immutable record. This is the queryable projection: one
+    row per intervention that a learner-facing history or a per-section effectiveness read can be
+    served from without a four-way self-join over an unindexed JSON payload -- and, unlike the
+    research path, one that does not vanish when Redis is down.
+
+    Skipped when there is no session to write with. Never raises.
+    """
+    if db is None:
+        logger.debug("assistance_ledger_no_session", user_id=user_id, cycle=cycle)
+        return
+
+    content = (result_state or {}).get("adaptation_content") or {}
+    metadata = content.get("metadata") or {}
+    strategy = (result_state or {}).get("strategy") or {}
+    coords = coords or {}
+
+    await assistance_service.record_delivery(
+        db,
+        adaptation_id=delivery_message.get("adaptation_id"),
+        learner_id=user_id,
+        session_id=session_id,
+        cycle_number=cycle,
+        action_type=delivery_message.get("action") or metadata.get("action_type") or "unknown",
+        delivered=delivered,
+        hint_text=(delivery_message.get("content") or {}).get("text"),
+        variant=(delivery_message.get("content") or {}).get("variant"),
+        urgency=strategy.get("urgency"),
+        rationale=strategy.get("reason"),
+        affect_state=(result_state or {}).get("affect_state"),
+        affect_source=(result_state or {}).get("affect_source"),
+        affect_confidence=(result_state or {}).get("affect_confidence"),
+        gate_reason=(result_state or {}).get("adaptation_gate_reason"),
+        generated=bool(metadata.get("generated")),
+        fallback=bool(metadata.get("fallback")),
+        fallback_reason=metadata.get("fallback_reason"),
+        course_id=coords.get("course_id"),
+        section_id=coords.get("section_id"),
+        phase=phase,
+        group=group,
+    )
+
+
+async def _handle_performance_window(
+    envelope: dict[str, Any],
+    user_id: str,
+    session_id: str,
+    db: AsyncSession | None = None,
+    phase: str = "phase_a",
+    group: str = "control",
+) -> None:
+    """Score the struggle counters the client accumulated for the section it is on.
+
+    A third detection channel, and the only one that is not a model. It exists because both
+    trained channels are weak on THIS interface and the code says so: `section_features` records
+    the behavioural model as "structurally blind on this UI" (two scroll events per window,
+    P(confused) = 0.008 under deliberate confusion), and Chapter 4 records the facial channel's
+    live scores compressing into a 0.127-wide band around its own threshold.
+
+    A gate that almost never opens makes the adaptive arm of a study indistinguishable, from the
+    learner's side, from the control condition. This gives it something that fires on evidence a
+    reader can check -- the learner went back twice, revealed an answer, got it wrong three times.
+
+    Runs the same graph, through the same gate, with the same sustain and cooldown discipline.
+    Nothing here bypasses the machinery the other channels earned.
+    """
+    data = envelope.get("data") or {}
+    cycle = int(data.get("cycle_number", 0) or 0)
+
+    content_context = await content_context_service.build(data.get("section_id"), db)
+    coords = _coords(content_context)
+
+    result_state = None
+    try:
+        initial_state = make_initial_state(
+            learner_id=user_id,
+            session_id=session_id,
+            cycle_number=cycle,
+            performance_payload=data,
+            db=db,
+            phase=phase,
+            group=group,
+            content_context=content_context,
+        )
+        result_state = await get_graph().ainvoke(initial_state)
+    except Exception:
+        logger.exception("performance_scoring_failed", user_id=user_id, cycle=cycle)
+        return
+
+    # Below the actionable floor the node returns nothing. Emitting a research event anyway would
+    # fill the record with near-zero readings and dilute the sustain check the other channels
+    # depend on, so a quiet cycle stays quiet.
+    if not result_state or not result_state.get("affect_state"):
+        return
+
+    await _safe_emit({
+        "event_type": "performance_signal_detected",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": cycle,
+        "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
+        **coords,
+        "payload": {
+            "affect_state": result_state.get("affect_state"),
+            "affect_confidence": result_state.get("affect_confidence"),
+            "affect_source": result_state.get("affect_source"),
+            "detection_mode": result_state.get("detection_mode"),
+            # The counts and their weighted contributions, both recorded. A bare score invites
+            # exactly the treatment this channel avoids -- an opaque number nobody can argue
+            # with -- and the breakdown is what lets an analyst recompute it under different
+            # weights from the stored record rather than re-running the pilot.
+            "breakdown": result_state.get("performance_breakdown"),
+            "counts": result_state.get("performance_counts"),
+            "heuristic": True,
+        },
+    })
+
+    await _deliver_adaptation(
+        result_state, user_id, session_id, cycle, phase, group, coords, db
+    )
 
 
 _VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
@@ -589,6 +741,7 @@ _VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
 async def _handle_adaptation_interaction(
     envelope: dict[str, Any], user_id: str, session_id: str,
     phase: str = "phase_a", group: str = "control",
+    db: AsyncSession | None = None,
 ) -> None:
     """Emit a research event for an inbound `adaptation_interaction` message (Story 5.6, FR22).
 
@@ -635,6 +788,14 @@ async def _handle_adaptation_interaction(
             "interaction": interaction,
         },
     })
+
+    # Migration 023: close the loop on the ledger row this response belongs to. Unmatched ids are
+    # ignored rather than treated as errors -- the id is client-supplied, and a response can
+    # legitimately arrive for a delivery whose ledger write failed.
+    if db is not None and data.get("adaptation_id"):
+        await assistance_service.record_interaction(
+            db, adaptation_id=str(data["adaptation_id"]), interaction=interaction
+        )
 
 
 # Story 6.2: the 5-value self-report ground-truth vocabulary. This is `AFFECT_STATES`
@@ -822,11 +983,19 @@ async def websocket_endpoint(
                 )
                 continue
 
+            if msg_type == "performance_window":
+                # The behaviour-driven channel. Same graph, same gate, same cooldown as the
+                # models — it is the SIGNAL that differs, not the discipline applied to it.
+                await _handle_performance_window(
+                    envelope, user_id, session_id, db, phase, group
+                )
+                continue
+
             if msg_type == "adaptation_interaction":
                 # Story 5.6 (FR22): record the learner's accept/dismiss/apply of a delivered
                 # adaptation as a research event for the Learner Profiler. Never raises.
                 await _handle_adaptation_interaction(
-                    envelope, user_id, session_id, phase, group
+                    envelope, user_id, session_id, phase, group, db
                 )
                 continue
 
