@@ -118,3 +118,42 @@ class AdminUserItem(CamelModel):
     is_active: bool
     email_verified: bool
     created_at: str | None = None
+
+
+class ChangePasswordRequest(CamelModel):
+    """Change the password of the signed-in account.
+
+    The current password is required even though the caller is already authenticated: an access
+    token can be left behind on a shared machine, and a password change is the one action that
+    locks the real owner out of their own account.
+    """
+
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+    @field_validator("new_password")
+    @classmethod
+    def _complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
+
+
+class DeleteAccountRequest(CamelModel):
+    """Erase this account and everything recorded about it.
+
+    The password is required because this is irreversible. `confirm` must be the literal string
+    DELETE: a single boolean is too easy to send by accident from a half-written client, and this
+    endpoint destroys a participant's entire record.
+    """
+
+    password: str
+    confirm: str
+
+
+class ErasureReceipt(CamelModel):
+    """What erasure actually removed, per table.
+
+    Returned rather than a bare 204 so a participant who asked for deletion gets something they
+    can keep. "Deleted" with no numbers is indistinguishable from a no-op that returned 200.
+    """
+
+    deleted: dict[str, int]
