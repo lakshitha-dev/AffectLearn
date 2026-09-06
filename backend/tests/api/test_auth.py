@@ -539,3 +539,79 @@ class TestDevCredentialsAreNotReachableInProduction:
         resp = await client.get("/api/v1/auth/dev-credentials")
         assert resp.status_code == 200
         assert "accounts" in resp.json()
+
+
+# --- Profile update ---
+
+
+class TestProfileUpdate:
+    """`PATCH /auth/me` — the endpoint the designer settings page needed and did not have.
+
+    Before this, a name mistyped at registration was permanent for every role, and the designer
+    settings screen filled the gap with hardcoded placeholder details behind disabled inputs.
+    """
+
+    async def test_updates_only_the_fields_sent(self, client: AsyncClient, test_user):
+        token = create_access_token(str(test_user.id))
+        headers = {"Authorization": f"Bearer {token}"}
+
+        seed = await client.patch(
+            "/api/v1/auth/me",
+            headers=headers,
+            json={"firstName": "Ada", "lastName": "Lovelace", "degreeProgram": "Mathematics"},
+        )
+        assert seed.status_code == 200
+
+        # A form submitting only the name must not blank the degree programme.
+        resp = await client.patch(
+            "/api/v1/auth/me", headers=headers, json={"firstName": "Grace"}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["firstName"] == "Grace"
+        assert body["lastName"] == "Lovelace"
+        assert body["degreeProgram"] == "Mathematics"
+
+    async def test_persists_across_requests(self, client: AsyncClient, test_user):
+        headers = {"Authorization": f"Bearer {create_access_token(str(test_user.id))}"}
+        await client.patch("/api/v1/auth/me", headers=headers, json={"firstName": "Grace"})
+
+        me = await client.get("/api/v1/auth/me", headers=headers)
+        assert me.json()["firstName"] == "Grace"
+
+    async def test_cannot_change_email_or_role(self, client: AsyncClient, test_user):
+        """Email is the login identifier and role is an administrative decision.
+
+        Both are ignored rather than honoured — a profile form is not the place to grant
+        yourself a different role.
+        """
+        headers = {"Authorization": f"Bearer {create_access_token(str(test_user.id))}"}
+
+        resp = await client.patch(
+            "/api/v1/auth/me",
+            headers=headers,
+            json={"emailAddress": "new@example.com", "role": "admin", "firstName": "Grace"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["emailAddress"] == "learner@test.com"
+        assert body["role"] == "learner"
+
+    async def test_rejects_a_blank_name(self, client: AsyncClient, test_user):
+        headers = {"Authorization": f"Bearer {create_access_token(str(test_user.id))}"}
+        resp = await client.patch("/api/v1/auth/me", headers=headers, json={"firstName": ""})
+        assert resp.status_code == 422
+
+    async def test_designer_can_update_their_own_profile(
+        self, client: AsyncClient, test_designer
+    ):
+        headers = {"Authorization": f"Bearer {create_access_token(str(test_designer.id))}"}
+        resp = await client.patch(
+            "/api/v1/auth/me", headers=headers, json={"firstName": "Morgan"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["firstName"] == "Morgan"
+
+    async def test_requires_authentication(self, client: AsyncClient):
+        resp = await client.patch("/api/v1/auth/me", json={"firstName": "Nobody"})
+        assert resp.status_code == 401

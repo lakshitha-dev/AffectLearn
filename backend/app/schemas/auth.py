@@ -66,6 +66,24 @@ class UserResponse(CamelModel):
     webcam_enabled: bool = False
 
 
+class ProfileUpdateRequest(CamelModel):
+    """Editable profile fields.
+
+    Deliberately excludes `email_address` and `role`. Email is the login identifier and changing
+    it needs the same verification round-trip registration does, so it is not a profile edit;
+    role is an administrative decision and belongs behind the admin endpoints, not behind a form
+    the account holder controls.
+
+    Every field is optional so a caller may send only what changed, but a field that IS sent must
+    be valid — `first_name: ""` is rejected rather than quietly blanking the name.
+    """
+
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    age_range: str | None = Field(default=None, max_length=20)
+    degree_program: str | None = Field(default=None, max_length=200)
+
+
 class ConsentRequest(CamelModel):
     consent_given: Literal[True]
 

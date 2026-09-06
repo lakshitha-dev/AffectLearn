@@ -31,6 +31,7 @@ from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
     MessageResponse,
+    ProfileUpdateRequest,
     RefreshRequest,
     RegisterRequest,
     ResendVerificationRequest,
@@ -222,6 +223,33 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)):
+    return _build_user_response(current_user)
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    body: ProfileUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the signed-in account's own profile.
+
+    Every role reaches this: it is what makes the designer settings page real, and it is the only
+    way a learner can correct a name or degree programme they mistyped at registration.
+
+    Only the fields PRESENT in the request are written, so a form that submits one section cannot
+    blank the fields it does not render. `exclude_unset` is what distinguishes "not sent" from
+    "sent as null" — without it, a partial update would erase `age_range` and `degree_program` for
+    every caller that omitted them.
+    """
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(current_user, field, value)
+
+    if changes:
+        await db.commit()
+        await db.refresh(current_user)
+
     return _build_user_response(current_user)
 
 
