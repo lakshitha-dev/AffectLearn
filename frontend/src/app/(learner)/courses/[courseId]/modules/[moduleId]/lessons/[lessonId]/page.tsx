@@ -15,7 +15,7 @@ import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
 import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
 import { IncreaseDifficulty } from "@/components/learning/IncreaseDifficulty";
-import { InlineAdaptations } from "@/components/learning/InlineAdaptations";
+import { activeInlineAdaptation, InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { SkipAheadSuggestion, type SkipInteraction } from "@/components/learning/SkipAheadSuggestion";
 import { SelfReportBar, type SelfReport } from "@/components/learning/SelfReportBar";
 import { LessonProgressBar } from "@/components/learning/LessonProgressBar";
@@ -23,6 +23,7 @@ import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
 import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useSectionSignals } from "@/hooks/use-section-signals";
+import { useSectionVisits } from "@/hooks/use-section-visits";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -31,6 +32,7 @@ import {
   SECTIONS_PER_PROMPT,
   SELF_REPORT_OMISSION_RATE,
 } from "@/hooks/use-self-report-trigger";
+import { useAdaptationStore } from "@/stores/adaptation-store";
 import { useUiStore } from "@/stores/ui-store";
 import type { SectionDetail } from "@/types/course";
 
@@ -122,6 +124,9 @@ export default function LessonPage({ params }: PageProps) {
   // Per-section interaction counters for confusion detection (dark-shipped: logged for future
   // model training, never shown to the learner and never fed to the live model).
   const sectionSignals = useSectionSignals();
+  // Every VISIT to a section, not only its completion — a section revisited and never
+  // completed otherwise leaves no trace at all.
+  const sectionVisits = useSectionVisits(currentSectionId);
   useEffect(() => {
     sectionSignals.enterSection(currentSectionId);
   }, [currentSectionId, sectionSignals]);
@@ -143,6 +148,10 @@ export default function LessonPage({ params }: PageProps) {
     // Backwards navigation is the paginated equivalent of scrolling back to re-read — one of the
     // clearest confusion signals this UI produces, and previously not recorded at all.
     if (idx < currentIndex) sectionSignals.recordBackNav(currentSectionId);
+    // Tell the visit log HOW the learner got there before the section changes. Arriving by
+    // "back" is a learner returning to material they had left; arriving by "next" is the normal
+    // path. The two mean different things and cannot be recovered from timestamps.
+    sectionVisits.setEntrySource(idx < currentIndex ? "back" : "next");
     setCurrentIndex(idx);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -377,6 +386,12 @@ export default function LessonPage({ params }: PageProps) {
                   isCorrect,
                   responseTimeMs,
                   sectionId,
+                  // The hint on screen when this answer was given, if any. Read from the store
+                  // at submit time rather than tracked separately, and through the same selector
+                  // the callout renders with, so the page cannot attribute an answer to a hint
+                  // the learner was not actually looking at.
+                  assistanceId:
+                    activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue)?.id,
                 });
               }}
             />

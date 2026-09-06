@@ -1,6 +1,7 @@
 from app.models.base import Base, BaseModel
 from app.models.course import BlockType, ContentBlock, Course, Lesson, Module, Section
 from app.models.email_token import EmailToken
+from app.models.assistance_event import AssistanceEvent
 from app.models.enrollment import Enrollment
 # `learner_profile` and `research_event` were missing from this list, which is the root cause of
 # the `learner_profiles` table never existing: a model absent from `Base.metadata` is invisible to
@@ -15,7 +16,9 @@ from app.models.assessment import (
     AssessmentAttempt, QuestionResponse,
 )
 from app.models.questionnaire_response import QuestionnaireResponse
+from app.models.quiz_attempt import QuizAttempt
 from app.models.quiz_response import QuizBlockResponse
+from app.models.section_visit import SectionVisit
 from app.models.study_group import StudyGroup
 from app.models.study_phase import StudyPhase
 from app.models.survey_response import SurveyResponse
@@ -25,13 +28,16 @@ __all__ = [
     "Base", "BaseModel",
     "BlockType", "Course", "Module", "Lesson", "Section", "ContentBlock",
     "EmailToken",
+    "AssistanceEvent",
     "Enrollment",
     "LearnerProfile",
     "ResearchEvent",
     "SectionProgress",
     "Assessment", "AssessmentQuestion", "AssessmentOption",
     "AssessmentAttempt", "QuestionResponse",
+    "QuizAttempt",
     "QuizBlockResponse",
+    "SectionVisit",
     "QuestionnaireResponse",
     "StudyGroup", "StudyPhase",
     "SurveyResponse",

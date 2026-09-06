@@ -149,12 +149,25 @@ interface QuizResponsePayload {
   isCorrect: boolean;
   responseTimeMs: number;
   sectionId: string;
+  /**
+   * The server-issued `adaptationId` of the help that was on screen when the learner answered.
+   *
+   * This is the only moment the two halves of the question "did the help work?" are in the same
+   * place. The hint was delivered over the WebSocket minutes ago; the answer is going out over
+   * REST now. Nothing on the server can join them unless the client carries the id across, so
+   * omitting it here silently reduces the assistance ledger to "help was offered" with no
+   * record of what happened next.
+   *
+   * Undefined for the great majority of answers, which follow no intervention at all.
+   */
+  assistanceId?: string;
 }
 
 /**
  * Records a quiz answer + its time-to-answer (frustration/deliberation probe). The backend
- * persists it and emits a `quiz_submitted` research event with the timing. Best-effort —
- * never surfaces errors to the learner.
+ * persists it as an append-only attempt, updates the per-block summary, resolves any assistance
+ * outcome, and emits a `quiz_submitted` research event. Best-effort — never surfaces errors to
+ * the learner.
  */
 export function useRecordQuizResponse() {
   return useMutation<unknown, Error, QuizResponsePayload>({

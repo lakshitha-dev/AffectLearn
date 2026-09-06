@@ -144,6 +144,7 @@ async def submit_attempt(
         user_id=current_user.id,
         assessment_id=assessment_id,
         answers=body.answers,
+        started_at=body.started_at,
     )
 
     # Story 6.5: best-effort `exercise_attempted` research event (research-safe fields only —

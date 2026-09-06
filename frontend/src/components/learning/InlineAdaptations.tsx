@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { AdaptiveHintCallout } from "@/components/learning/AdaptiveHintCallout";
 import { cn } from "@/lib/cn";
-import { useAdaptationStore } from "@/stores/adaptation-store";
+import { type Adaptation, useAdaptationStore } from "@/stores/adaptation-store";
 import type { AdaptationAction } from "@/types/ws-messages";
 
 /**
@@ -40,6 +40,27 @@ const INLINE_ACTIONS = new Set<AdaptationAction>([
   "show_encouragement",
 ]);
 
+/**
+ * The inline adaptation currently on screen, or null.
+ *
+ * Exported because a second caller needs the SAME answer: when a learner submits a quiz answer,
+ * the lesson page attaches the active hint's `adaptationId` so the server can record what
+ * happened after the help was shown. If that caller re-implemented "the latest inline item in
+ * the queue", the two could silently disagree — the page attributing an answer to a hint the
+ * learner was never looking at — and nothing would fail loudly.
+ *
+ * Pure and queue-order dependent: the LAST matching item wins, matching the single-active-callout
+ * policy this component renders under.
+ */
+export function activeInlineAdaptation(
+  queue: readonly Adaptation[],
+): Adaptation | null {
+  for (let i = queue.length - 1; i >= 0; i -= 1) {
+    if (INLINE_ACTIONS.has(queue[i].action)) return queue[i];
+  }
+  return null;
+}
+
 export function InlineAdaptations({
   onInteraction,
 }: {
@@ -55,16 +76,7 @@ export function InlineAdaptations({
 } = {}) {
   const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
 
-  // Latest inline (`show_*`) adaptation in the queue.
-  let active = null;
-  for (let i = adaptationQueue.length - 1; i >= 0; i -= 1) {
-    const candidate = adaptationQueue[i];
-    if (INLINE_ACTIONS.has(candidate.action)) {
-      active = candidate;
-      break;
-    }
-  }
-
+  const active = activeInlineAdaptation(adaptationQueue);
   if (!active) return null;
 
   return (
