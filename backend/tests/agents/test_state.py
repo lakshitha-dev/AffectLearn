@@ -11,9 +11,25 @@ from app.agents.state import (
 
 def test_locked_value_sets_match_architecture():
     assert AFFECT_STATES == ("bored", "confused", "engaged", "frustrated")
-    assert DETECTION_MODES == ("multimodal", "facial_only", "behavioral_only")
     assert PHASES == ("phase_a", "phase_b")
     assert GROUPS == ("adaptive", "control")
+
+
+def test_detection_modes_include_the_performance_channel():
+    """EXTENDED deliberately, and the addition is not a sensing modality.
+
+    `performance_only` means no model ran: the reading came from what the learner DID -- wrong
+    answers, revealing an answer, going back to re-read. It is listed as a detection mode so a
+    research event can be filtered to the channel that produced it, and so an analysis can
+    separate model-driven interventions from behaviour-driven ones without having to infer which
+    was which after the fact.
+
+    The three original modes keep their positions: anything persisted against them stays valid.
+    """
+    assert DETECTION_MODES == (
+        "multimodal", "facial_only", "behavioral_only", "performance_only",
+    )
+    assert DETECTION_MODES[:3] == ("multimodal", "facial_only", "behavioral_only")
 
 
 def test_make_initial_state_defaults_to_phase_a_control():
