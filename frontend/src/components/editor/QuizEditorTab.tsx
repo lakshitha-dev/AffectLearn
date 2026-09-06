@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Plus, Trash2, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { apiFetch } from "@/lib/api-client";
 import type { LessonDetail } from "@/types/course";
+import { upsertBlock } from "./upsert-block";
 
 interface QuizOption {
   id: string;
@@ -24,15 +24,43 @@ interface QuizEditorTabProps {
   lessonId: string;
 }
 
-export function QuizEditorTab({ lesson, lessonId }: QuizEditorTabProps) {
-  const [q, setQ] = useState<QuizQuestion>({
-    question: "",
-    options: [{ id: "1", text: "", isCorrect: false }, { id: "2", text: "", isCorrect: false }],
-    explanation: "",
-  });
-  const [saving, setSaving] = useState(false);
+const EMPTY_QUESTION: QuizQuestion = {
+  question: "",
+  options: [
+    { id: "1", text: "", isCorrect: false },
+    { id: "2", text: "", isCorrect: false },
+  ],
+  explanation: "",
+};
 
-  const quizBlock = lesson.sections?.[0]?.contentBlocks?.find((b) => b.blockType === "quiz");
+/** Read a stored quiz block back into editor state, tolerating a partially-formed block. */
+function questionFromBlock(content: unknown): QuizQuestion {
+  const stored = content as
+    | { question?: string; options?: QuizOption[]; explanation?: string }
+    | undefined;
+  if (!stored?.question && !stored?.options?.length) return EMPTY_QUESTION;
+  return {
+    question: stored.question ?? "",
+    options:
+      stored.options?.length && stored.options.length >= 2
+        ? stored.options.map((o, i) => ({
+            id: o.id ?? String(i + 1),
+            text: o.text ?? "",
+            isCorrect: Boolean(o.isCorrect),
+          }))
+        : EMPTY_QUESTION.options,
+    explanation: stored.explanation ?? "",
+  };
+}
+
+export function QuizEditorTab({ lesson, lessonId }: QuizEditorTabProps) {
+  const section = lesson.sections?.[0];
+  const quizBlock = section?.contentBlocks?.find((b) => b.blockType === "quiz");
+
+  // Seed from the stored block. Starting blank meant opening the tab on an existing quiz and
+  // saving silently replaced it with an empty question.
+  const [q, setQ] = useState<QuizQuestion>(() => questionFromBlock(quizBlock?.content));
+  const [saving, setSaving] = useState(false);
 
   function addOption() {
     setQ((prev) => ({ ...prev, options: [...prev.options, { id: Date.now().toString(), text: "", isCorrect: false }] }));
@@ -60,15 +88,10 @@ export function QuizEditorTab({ lesson, lessonId }: QuizEditorTabProps) {
         options: validOptions.map((o) => ({ id: o.id, text: o.text, isCorrect: o.isCorrect })),
         explanation: q.explanation,
       };
-      if (quizBlock) {
-        await apiFetch(`/courses/content-blocks/${quizBlock.id}`, {
-          method: "PUT",
-          body: JSON.stringify({ content, blockType: "quiz" }),
-        });
-      }
+      await upsertBlock({ section, blockType: "quiz", content });
       toast.success("Quiz saved");
-    } catch {
-      toast.error("Could not save quiz");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save quiz");
     } finally {
       setSaving(false);
     }

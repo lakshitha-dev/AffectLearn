@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { apiFetch } from "@/lib/api-client";
 import type { LessonDetail } from "@/types/course";
+import { upsertBlock } from "./upsert-block";
 
 interface ExerciseEditorTabProps {
   lesson: LessonDetail;
@@ -12,7 +12,8 @@ interface ExerciseEditorTabProps {
 }
 
 export function ExerciseEditorTab({ lesson, lessonId }: ExerciseEditorTabProps) {
-  const exerciseBlock = lesson.sections?.[0]?.contentBlocks?.find((b) => b.blockType === "exercise");
+  const section = lesson.sections?.[0];
+  const exerciseBlock = section?.contentBlocks?.find((b) => b.blockType === "exercise");
   const existing = exerciseBlock?.content as { prompt?: string; answer?: string; explanation?: string; type?: string } | undefined;
 
   const [prompt, setPrompt] = useState(existing?.prompt ?? "");
@@ -27,15 +28,10 @@ export function ExerciseEditorTab({ lesson, lessonId }: ExerciseEditorTabProps) 
     setSaving(true);
     try {
       const content = { prompt, answer, type, explanation };
-      if (exerciseBlock) {
-        await apiFetch(`/courses/content-blocks/${exerciseBlock.id}`, {
-          method: "PUT",
-          body: JSON.stringify({ content, blockType: "exercise" }),
-        });
-      }
+      await upsertBlock({ section, blockType: "exercise", content });
       toast.success("Exercise saved");
-    } catch {
-      toast.error("Could not save exercise");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save exercise");
     } finally {
       setSaving(false);
     }
