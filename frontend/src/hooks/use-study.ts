@@ -18,23 +18,29 @@ export const STUDY_KEY = "study";
 /** The two real conditions. Mirrors `GROUPS` in backend/app/agents/state.py. */
 export type StudyGroupName = "adaptive" | "control";
 
+/**
+ * Field names are camelCase because that is what the wire carries: every REST response model
+ * inherits `CamelModel`, whose `alias_generator=to_camel` renames fields on serialisation. Typing
+ * these in snake_case does not fail loudly — the fields simply read `undefined`, so a lock shows
+ * as unlocked and a transition shows as "never". Verified against the live API.
+ */
 export interface GroupAssignment {
-  user_id: string;
+  userId: string;
   group: StudyGroupName | string;
-  locked_at: string | null;
-  created_at?: string;
+  lockedAt: string | null;
+  createdAt?: string;
 }
 
 export interface GroupAssignmentPage {
   items: GroupAssignment[];
   total: number;
   page: number;
-  page_size: number;
+  pageSize: number;
 }
 
 export interface PhaseState {
   phase: string;
-  transitioned_at: string | null;
+  transitionedAt: string | null;
 }
 
 /** Every recorded assignment. Paginated server-side; the page size here covers a pilot cohort. */

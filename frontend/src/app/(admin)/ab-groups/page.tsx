@@ -45,7 +45,7 @@ export default function ABGroupsPage() {
     let locked = 0;
     for (const a of items) {
       byGroup[a.group] = (byGroup[a.group] ?? 0) + 1;
-      if (a.locked_at) locked += 1;
+      if (a.lockedAt) locked += 1;
     }
     return { byGroup, locked, total: items.length };
   }, [groupsQ.data]);
@@ -74,8 +74,8 @@ export default function ABGroupsPage() {
         ) : (
           <p className="text-sm text-muted-foreground">
             <span className="font-mono text-foreground">{phase}</span>
-            {phaseQ.data?.transitioned_at ? (
-              <> · changed {new Date(phaseQ.data.transitioned_at).toLocaleString()}</>
+            {phaseQ.data?.transitionedAt ? (
+              <> · changed {new Date(phaseQ.data.transitionedAt).toLocaleString()}</>
             ) : (
               <> · never transitioned</>
             )}
