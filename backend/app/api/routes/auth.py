@@ -3,6 +3,7 @@
 import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from jose import JWTError
 from sqlalchemy import func, select, update
@@ -21,8 +22,12 @@ from app.core.security import (
 )
 from app.models.email_token import EMAIL_VERIFICATION, PASSWORD_RESET, EmailToken
 from app.models.user import Role, User
+from app.schemas.base import camelise_keys
 from app.schemas.auth import (
+    ChangePasswordRequest,
     ConsentRequest,
+    DeleteAccountRequest,
+    ErasureReceipt,
     ForgotPasswordRequest,
     LoginRequest,
     MessageResponse,
@@ -35,12 +40,15 @@ from app.schemas.auth import (
     VerifyEmailRequest,
     WebcamModeRequest,
 )
+from app.services import data_rights_service
 from app.services.email_service import (
     send_password_changed_email,
     send_password_reset_email,
     send_verification_email,
     send_welcome_email,
 )
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -404,3 +412,103 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
     await send_password_changed_email(user.email_address)
 
     return MessageResponse(message="Your password has been reset. You can now sign in.")
+
+
+# ---------------------------------------------------------------------------
+# Data rights (Story: pilot readiness)
+#
+# The consent form and the privacy policy both commit to deletion on request and to letting a
+# participant see what is held about them. Until these endpoints existed, both commitments were
+# honoured by hand — workable for one researcher, not a control, and not something a participant
+# can exercise without asking a person for a favour.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/change-password", response_model=MessageResponse)
+async def change_password(
+    body: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change the signed-in account's password.
+
+    Requires the current password even though the caller holds a valid token: a token left behind
+    on a shared machine should not be enough to lock the real owner out of their own account.
+    """
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": {"code": "INVALID_CREDENTIALS",
+                              "message": "Current password is incorrect"}},
+        )
+
+    current_user.password_hash = hash_password(body.new_password)
+    # Any outstanding reset tokens are spent: a live reset link is a second door into an account
+    # whose owner has just deliberately changed the lock.
+    await db.execute(
+        update(EmailToken)
+        .where(
+            EmailToken.user_id == current_user.id,
+            EmailToken.purpose == PASSWORD_RESET,
+            EmailToken.used_at.is_(None),
+        )
+        .values(used_at=func.now())
+    )
+    await db.commit()
+
+    try:
+        await send_password_changed_email(current_user)
+    except Exception:  # noqa: BLE001 — the password IS changed; a mail failure must not undo it
+        logger.warning("password_changed_email_failed", user_id=str(current_user.id))
+
+    return MessageResponse(message="Password changed")
+
+
+@router.get("/me/export")
+async def export_my_data(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Everything held about the signed-in account, as JSON.
+
+    Deliberately exhaustive rather than curated — including the interaction telemetry and the
+    research event log. A subject-access response that quietly omitted those would be answering
+    an easier question than the one being asked.
+    """
+    # `camelise_keys` rather than a response model: the export has no fixed schema — it is a dump
+    # of whatever tables hold rows for this learner — so there is nothing for `CamelModel` to
+    # declare, and returning snake_case here alone would break the wire convention.
+    return camelise_keys(await data_rights_service.export_learner(db, current_user.id))
+
+
+@router.post("/me/delete", response_model=ErasureReceipt)
+async def delete_my_account(
+    body: DeleteAccountRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Erase this account and everything recorded about it. Irreversible.
+
+    Returns a per-table receipt rather than a bare 204, so a participant who exercises the right
+    gets something they can keep: "deleted" with no numbers is indistinguishable from a no-op.
+
+    Note that `research_events` has no foreign key to `users` and is therefore NOT removed by the
+    database cascade — `data_rights_service` deletes it explicitly. Relying on the cascade alone
+    would report success while leaving every affect reading for that participant in place.
+    """
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": {"code": "INVALID_CREDENTIALS", "message": "Password is incorrect"}},
+        )
+    if body.confirm != "DELETE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": {"code": "CONFIRMATION_REQUIRED",
+                              "message": 'Send confirm: "DELETE" to erase this account'}},
+        )
+
+    counts = await data_rights_service.erase_learner(db, current_user.id)
+    # The counts are a `dict[str, int]`, so `CamelModel` camelises the FIELD (`deleted`) but not
+    # the table names inside it.
+    return ErasureReceipt(deleted=camelise_keys(counts))

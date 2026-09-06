@@ -22,22 +22,33 @@ async def lifespan(app: FastAPI):
 
     # Start the research-event worker (Story 4.7) — best-effort; no-op if Redis is down.
     stop_event = asyncio.Event()
-    worker_task = None
+    background_tasks: list[asyncio.Task] = []
     try:
         from app.services.research_worker import run_worker
 
-        worker_task = asyncio.create_task(run_worker(stop_event))
+        background_tasks.append(asyncio.create_task(run_worker(stop_event)))
     except Exception:  # never block startup on the durability worker
-        worker_task = None
+        pass
+
+    # Enforce the research-data retention limit (the 90 days the participant-facing copy
+    # promises). This existed as a sentence and not as a job. Started the same way as the
+    # durability worker so there is ONE place background work lives; disabled when
+    # RESEARCH_RETENTION_DAYS is 0, which is how the test suite runs.
+    try:
+        from app.services.retention_worker import run_retention_worker
+
+        background_tasks.append(asyncio.create_task(run_retention_worker(stop_event)))
+    except Exception:  # never block startup on retention
+        pass
 
     yield
 
-    # Shutdown: stop the worker, close connections
+    # Shutdown: signal the workers, then cancel whatever has not stopped on its own.
     stop_event.set()
-    if worker_task is not None:
-        worker_task.cancel()
+    for task in background_tasks:
+        task.cancel()
         try:
-            await worker_task
+            await task
         except (asyncio.CancelledError, Exception):
             pass
 

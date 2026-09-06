@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     MONITOR_RING_SIZE: int = 500
 
     SEED_ON_STARTUP: bool = False
+    # Days a research event is kept before the retention sweep deletes it. The
+    # participant-facing copy promises 90; 0 disables the sweep entirely, which is what the
+    # test suite runs with so a test database is never mutated by a background task.
+    RESEARCH_RETENTION_DAYS: int = 90
     SEED_LEARNER_PASSWORD: str = "Learner123!"
     SEED_DESIGNER_PASSWORD: str = "Designer123!"
     SEED_ADMIN_PASSWORD: str = "Admin123!"

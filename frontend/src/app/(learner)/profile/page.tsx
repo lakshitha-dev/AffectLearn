@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { AccountDataControls } from "@/components/learning/AccountDataControls";
 import { useSessionStore } from "@/stores/session-store";
 import { useSetWebcamMode } from "@/hooks/use-onboarding";
 import { useWebcamStore } from "@/stores/webcam-store";
@@ -141,6 +142,12 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
+
+        {/*
+          Export and erasure. The privacy policy tells participants they can do both "from your
+          profile", so this is what makes that sentence true rather than aspirational.
+        */}
+        <AccountDataControls />
       </div>
     </div>
   );
