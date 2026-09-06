@@ -654,6 +654,87 @@ async def _record_assistance(
     )
 
 
+async def _handle_performance_window(
+    envelope: dict[str, Any],
+    user_id: str,
+    session_id: str,
+    db: AsyncSession | None = None,
+    phase: str = "phase_a",
+    group: str = "control",
+) -> None:
+    """Score the struggle counters the client accumulated for the section it is on.
+
+    A third detection channel, and the only one that is not a model. It exists because both
+    trained channels are weak on THIS interface and the code says so: `section_features` records
+    the behavioural model as "structurally blind on this UI" (two scroll events per window,
+    P(confused) = 0.008 under deliberate confusion), and Chapter 4 records the facial channel's
+    live scores compressing into a 0.127-wide band around its own threshold.
+
+    A gate that almost never opens makes the adaptive arm of a study indistinguishable, from the
+    learner's side, from the control condition. This gives it something that fires on evidence a
+    reader can check -- the learner went back twice, revealed an answer, got it wrong three times.
+
+    Runs the same graph, through the same gate, with the same sustain and cooldown discipline.
+    Nothing here bypasses the machinery the other channels earned.
+    """
+    data = envelope.get("data") or {}
+    cycle = int(data.get("cycle_number", 0) or 0)
+
+    content_context = await content_context_service.build(data.get("section_id"), db)
+    coords = _coords(content_context)
+
+    result_state = None
+    try:
+        initial_state = make_initial_state(
+            learner_id=user_id,
+            session_id=session_id,
+            cycle_number=cycle,
+            performance_payload=data,
+            db=db,
+            phase=phase,
+            group=group,
+            content_context=content_context,
+        )
+        result_state = await get_graph().ainvoke(initial_state)
+    except Exception:
+        logger.exception("performance_scoring_failed", user_id=user_id, cycle=cycle)
+        return
+
+    # Below the actionable floor the node returns nothing. Emitting a research event anyway would
+    # fill the record with near-zero readings and dilute the sustain check the other channels
+    # depend on, so a quiet cycle stays quiet.
+    if not result_state or not result_state.get("affect_state"):
+        return
+
+    await _safe_emit({
+        "event_type": "performance_signal_detected",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": cycle,
+        "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
+        **coords,
+        "payload": {
+            "affect_state": result_state.get("affect_state"),
+            "affect_confidence": result_state.get("affect_confidence"),
+            "affect_source": result_state.get("affect_source"),
+            "detection_mode": result_state.get("detection_mode"),
+            # The counts and their weighted contributions, both recorded. A bare score invites
+            # exactly the treatment this channel avoids -- an opaque number nobody can argue
+            # with -- and the breakdown is what lets an analyst recompute it under different
+            # weights from the stored record rather than re-running the pilot.
+            "breakdown": result_state.get("performance_breakdown"),
+            "counts": result_state.get("performance_counts"),
+            "heuristic": True,
+        },
+    })
+
+    await _deliver_adaptation(
+        result_state, user_id, session_id, cycle, phase, group, coords, db
+    )
+
+
 _VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
 
 
@@ -898,6 +979,14 @@ async def websocket_endpoint(
 
             if msg_type == "behavioral_window":
                 await _handle_behavioral_window(
+                    envelope, user_id, session_id, db, phase, group
+                )
+                continue
+
+            if msg_type == "performance_window":
+                # The behaviour-driven channel. Same graph, same gate, same cooldown as the
+                # models — it is the SIGNAL that differs, not the discipline applied to it.
+                await _handle_performance_window(
                     envelope, user_id, session_id, db, phase, group
                 )
                 continue

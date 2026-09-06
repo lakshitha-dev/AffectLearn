@@ -35,6 +35,7 @@ from app.agents.state import (
     AFFECT_SOURCE_CATEGORY,
     AFFECT_SOURCE_ENGAGEMENT,
     AFFECT_SOURCE_FACIAL_GEOMETRY,
+    AFFECT_SOURCE_PERFORMANCE,
     AFFECT_SOURCE_FUSION,
     AgentState,
 )
@@ -102,6 +103,12 @@ ADAPT_MIN_CONFIDENCE = _env_float("ADAPT_MIN_CONFIDENCE", 0.70)
 # it at 0.50 would give away 0.109 of precision on the geometry channel for no reason.
 _CHANNEL_MIN_CONFIDENCE: dict[str, float] = {
     AFFECT_SOURCE_FACIAL_GEOMETRY: _env_float("ADAPT_MIN_CONFIDENCE_GEOMETRY", 0.70),
+    # The performance channel's "confidence" is a weighted count of observed behaviours, not a
+    # calibrated probability, so it does not share an operating point with either model. 0.60 is
+    # CHOSEN, not calibrated: it sits where at least two independent indicators must be present,
+    # so no single measure triggers an intervention alone. The pilot can calibrate it from real
+    # cycles the way the other two were.
+    AFFECT_SOURCE_PERFORMANCE: _env_float("ADAPT_MIN_CONFIDENCE_PERFORMANCE", 0.60),
 }
 
 
@@ -201,7 +208,7 @@ DECISIVE_AFFECT_SOURCES: tuple[str, ...] = tuple(
 _KNOWN_AFFECT_SOURCES = frozenset({
     AFFECT_SOURCE_BEHAVIORAL, AFFECT_SOURCE_FUSION,
     AFFECT_SOURCE_CATEGORY, AFFECT_SOURCE_ENGAGEMENT,
-    AFFECT_SOURCE_FACIAL_GEOMETRY,
+    AFFECT_SOURCE_FACIAL_GEOMETRY, AFFECT_SOURCE_PERFORMANCE,
 })
 
 

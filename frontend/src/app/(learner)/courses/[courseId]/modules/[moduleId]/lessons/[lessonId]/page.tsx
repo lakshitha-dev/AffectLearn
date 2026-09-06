@@ -23,6 +23,7 @@ import { SectionView } from "@/components/learning/SectionView";
 import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-courses";
 import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useSectionSignals } from "@/hooks/use-section-signals";
+import { usePerformanceWindow } from "@/hooks/use-performance-window";
 import { useSectionVisits } from "@/hooks/use-section-visits";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
@@ -127,6 +128,14 @@ export default function LessonPage({ params }: PageProps) {
   // Every VISIT to a section, not only its completion — a section revisited and never
   // completed otherwise leaves no trace at all.
   const sectionVisits = useSectionVisits(currentSectionId);
+  // The third detection channel: the struggle counters, on the live path rather than only in the
+  // completion request. A learner who gets stuck and gives up never completes the section, so the
+  // counters describing the hardest case were the ones that never arrived.
+  usePerformanceWindow({
+    send,
+    sectionId: currentSectionId,
+    snapshot: sectionSignals.snapshot,
+  });
   useEffect(() => {
     sectionSignals.enterSection(currentSectionId);
   }, [currentSectionId, sectionSignals]);

@@ -24,7 +24,12 @@ from typing import Any, TypedDict
 
 # ── locked value sets (single source of truth for nodes + tests) ───────────────
 AFFECT_STATES: tuple[str, ...] = ("bored", "confused", "engaged", "frustrated")
-DETECTION_MODES: tuple[str, ...] = ("multimodal", "facial_only", "behavioral_only")
+#: `performance_only` is not a modality in the sensing sense — no model ran. It is listed here
+#: so a research event can be filtered to the channel that produced it, and so an analysis can
+#: separate model-driven interventions from behaviour-driven ones without inferring it.
+DETECTION_MODES: tuple[str, ...] = (
+    "multimodal", "facial_only", "behavioral_only", "performance_only",
+)
 PHASES: tuple[str, ...] = ("phase_a", "phase_b")
 GROUPS: tuple[str, ...] = ("adaptive", "control")
 
@@ -41,6 +46,16 @@ AFFECT_SOURCE_FUSION = "fusion"  # late-fused facial + behavioral (Story 4.4c)
 # (0.872 vs 0.500), and input (11 scalars per frame vs 96x96 pixels). Sharing one marker would
 # make it impossible to grant one channel decisive authority without granting it to both.
 AFFECT_SOURCE_FACIAL_GEOMETRY = "facial_geometry"
+
+#: A struggle reading taken from what the learner DID -- wrong answers, revealing an answer,
+#: going back to re-read, dwelling. Not a model: an openly-weighted count of observed behaviours.
+#:
+#: It exists because both trained channels are weak on THIS interface, and the code says so:
+#: `section_features` records the behavioural model as "structurally blind on this UI" (two
+#: scroll events per window, P(confused)=0.008 under deliberate confusion), and Chapter 4 records
+#: the facial channel's live scores compressing into a 0.127-wide band. A gate that almost never
+#: opens makes the adaptive arm of a study indistinguishable from the control.
+AFFECT_SOURCE_PERFORMANCE = "performance"
 
 
 class AgentState(TypedDict, total=False):
@@ -70,6 +85,13 @@ class AgentState(TypedDict, total=False):
     facial_inference: dict       # raw facial inference (engagement_level/label/confidence/probs/frames_used)
     behavioral_inference: dict   # raw behavioral inference (affect_index/label/confidence/probs/n_bins)
     empty_cycle: bool            # set when no face was detected the whole window
+    #: The performance channel's weighted contributions and the raw counts behind them. Declared
+    #: here because LangGraph merges only keys the state knows about — an undeclared key is
+    #: silently dropped, and the breakdown is what lets an analyst recompute the score under
+    #: different weights from the stored record rather than re-running the study.
+    performance_breakdown: dict
+    performance_counts: dict
+    heuristic: bool              # set when the reading came from counts, not a model
     # Agent 2 — Learner Profiler output
     learner_profile: dict
     # Agent 3 — Pedagogical Strategist output
@@ -88,6 +110,8 @@ class AgentState(TypedDict, total=False):
     # Transient per-cycle input (NOT persisted — see module docstring)
     facial_payload: dict
     behavioral_payload: dict
+    #: Per-section struggle counters accumulated by the client. Transient like the others.
+    performance_payload: dict
     # Late-fusion counterpart (Story 4.4c, decision path). The two modalities arrive on
     # SEPARATE WebSocket messages at independent cadences, so a cycle only ever carries one
     # payload. To fuse into the LIVE decision the handler passes the counterpart's already
@@ -108,6 +132,7 @@ def make_initial_state(
     cycle_number: int,
     facial_payload: dict[str, Any] | None = None,
     behavioral_payload: dict[str, Any] | None = None,
+    performance_payload: dict[str, Any] | None = None,
     counterpart_inference: dict[str, Any] | None = None,
     counterpart_modality: str = "",
     db: Any = None,
@@ -132,6 +157,7 @@ def make_initial_state(
         group=group,
         facial_payload=facial_payload or {},
         behavioral_payload=behavioral_payload or {},
+        performance_payload=performance_payload or {},
         counterpart_inference=counterpart_inference or {},
         counterpart_modality=counterpart_modality,
         db=db,
