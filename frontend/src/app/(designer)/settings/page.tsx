@@ -1,67 +1,38 @@
+"use client";
+
+import { ChangePasswordForm } from "@/components/shared/ChangePasswordForm";
+import { ProfileForm } from "@/components/shared/ProfileForm";
+
+/**
+ * Designer settings.
+ *
+ * This page used to be entirely invented: a hardcoded "Dr. Morgan / morgan@university.edu /
+ * Computer Science" behind four disabled inputs, three notification toggles that were `div`s
+ * rather than controls, and a Save button that was permanently disabled. Nothing on it read or
+ * wrote anything, and the name it displayed belonged to no account.
+ *
+ * It now shows the signed-in designer's real profile and lets them change their own password —
+ * `POST /auth/change-password` was implemented the whole time and no screen in any role called it.
+ *
+ * The notification toggles are GONE rather than wired up. There is no notification system behind
+ * them, no preferences table, and no requirement in the PRD asking for one; building a scheduler
+ * and an email digest to justify three checkboxes that were only ever decoration would be
+ * inventing scope. Removing them is the honest fix — the same call the admin pages made when
+ * their fabricated panels were replaced with real data.
+ */
 export default function DesignerSettingsPage() {
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground">Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage your designer profile and notification preferences
+          Your account details and password
         </p>
       </div>
 
-      <div className="space-y-6">
-        <section className="rounded-lg border border-border bg-surface p-6">
-          <h2 className="mb-4 font-semibold text-foreground">Profile</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[
-              { label: "First name", value: "Dr. Morgan" },
-              { label: "Last name", value: "" },
-              { label: "Email", value: "morgan@university.edu" },
-              { label: "Department", value: "Computer Science" },
-            ].map((field) => (
-              <div key={field.label}>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  {field.label}
-                </label>
-                <input
-                  type="text"
-                  defaultValue={field.value}
-                  disabled
-                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground opacity-70 cursor-not-allowed"
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-border bg-surface p-6">
-          <h2 className="mb-1 font-semibold text-foreground">Analytics Notifications</h2>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Choose when to receive email alerts about affect analytics
-          </p>
-          <div className="space-y-3">
-            {[
-              { label: "New confusion hotspot detected (> 40%)", defaultOn: true },
-              { label: "Weekly analytics summary", defaultOn: true },
-              { label: "Learner completes a module", defaultOn: false },
-            ].map((pref) => (
-              <div key={pref.label} className="flex items-center justify-between py-1">
-                <span className="text-sm text-foreground">{pref.label}</span>
-                <div
-                  className={`h-5 w-9 rounded-full ${pref.defaultOn ? "bg-primary" : "bg-border"} cursor-not-allowed opacity-70`}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <div className="flex justify-end">
-          <button
-            disabled
-            className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground opacity-50 cursor-not-allowed"
-          >
-            Save changes
-          </button>
-        </div>
+      <div className="max-w-3xl space-y-6">
+        <ProfileForm />
+        <ChangePasswordForm />
       </div>
     </div>
   );

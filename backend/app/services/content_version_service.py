@@ -26,8 +26,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from fastapi import HTTPException, status
+
 from app.models.content_version import ContentVersion
 from app.models.course import Course, Lesson, Module, Section
+from app.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -188,3 +191,43 @@ async def published_version_id(
     except Exception:  # noqa: BLE001
         logger.warning("published_version_lookup_failed", section_id=str(section_id))
         return None
+
+
+async def list_versions(
+    db: AsyncSession, course_id: uuid.UUID
+) -> list[tuple[ContentVersion, str | None]]:
+    """Published versions of a course, newest first, each with its publisher's name.
+
+    Snapshots are deliberately NOT loaded here. One snapshot is the whole content tree of a
+    course; a list of twenty would be megabytes to render a table of dates.
+
+    The publisher is resolved to a display name rather than returned as a user id, because "who
+    published this" is the question the history answers and a UUID does not answer it.
+    """
+    stmt = (
+        select(ContentVersion, User.first_name, User.last_name)
+        .outerjoin(User, User.id == ContentVersion.published_by)
+        .where(ContentVersion.course_id == course_id)
+        .order_by(ContentVersion.version_number.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        (
+            version,
+            f"{first} {last}".strip() if first or last else None,
+        )
+        for version, first, last in rows
+    ]
+
+
+async def get_version(db: AsyncSession, version_id: uuid.UUID) -> ContentVersion:
+    """One version WITH its snapshot."""
+    version = (
+        await db.execute(select(ContentVersion).where(ContentVersion.id == version_id))
+    ).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Version not found"}},
+        )
+    return version

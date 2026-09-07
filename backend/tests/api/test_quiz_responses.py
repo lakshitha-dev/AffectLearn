@@ -424,3 +424,86 @@ class TestRecordQuizResponseRBAC:
             },
         )
         assert resp.status_code in (401, 403)
+
+
+class TestEnrollmentIsRequired:
+    """Answering a quiz for a course you never joined used to be accepted.
+
+    `mark_section_complete` has always refused this; recording an ANSWER did not. Both
+    `quiz_responses` and `quiz_attempts` feed the "quizzes answered / correct" figures in
+    `progress_service` and the research export, so an unenrolled write moves reported accuracy
+    rather than sitting harmlessly in a table.
+    """
+
+    async def test_unenrolled_learner_is_refused(
+        self, client: AsyncClient, db: AsyncSession, auth_headers
+    ):
+        from app.models.course import Course, Lesson, Module, Section
+
+        # A course the learner is NOT enrolled in.
+        course = Course(title="Someone Else's Course", is_published=True)
+        db.add(course)
+        await db.flush()
+        module = Module(title="M", sort_order=0, course_id=course.id)
+        db.add(module)
+        await db.flush()
+        lesson = Lesson(title="L", sort_order=0, module_id=module.id)
+        db.add(lesson)
+        await db.flush()
+        section = Section(title="S", sort_order=0, lesson_id=lesson.id)
+        db.add(section)
+        await db.flush()
+        block = ContentBlock(
+            block_type=BlockType.quiz,
+            content={"question": "?", "options": []},
+            sort_order=0,
+            section_id=section.id,
+        )
+        db.add(block)
+        await db.commit()
+        await db.refresh(block)
+
+        resp = await client.post(
+            QUIZ_RESPONSES_URL,
+            json={
+                "contentBlockId": str(block.id),
+                "selectedAnswers": ["a"],
+                "isCorrect": True,
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error"]["code"] == "NOT_ENROLLED"
+
+    async def test_unknown_block_is_404(self, client: AsyncClient, auth_headers):
+        resp = await client.post(
+            QUIZ_RESPONSES_URL,
+            json={
+                "contentBlockId": str(uuid.uuid4()),
+                "selectedAnswers": ["a"],
+                "isCorrect": True,
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+    async def test_the_guard_cannot_be_skipped_by_omitting_section_id(
+        self, client: AsyncClient, db: AsyncSession, auth_headers, enrolled_course
+    ):
+        """`sectionId` is optional on the wire, so the check resolves from the BLOCK instead.
+
+        Resolving from a field the client may omit would be a guard the client can turn off.
+        """
+        section = enrolled_course["sections"][0]
+        block = await _create_content_block(db, section.id)
+
+        resp = await client.post(
+            QUIZ_RESPONSES_URL,
+            json={
+                "contentBlockId": str(block.id),
+                "selectedAnswers": ["a"],
+                "isCorrect": True,
+            },  # no sectionId
+            headers=auth_headers,
+        )
+        assert resp.status_code in (200, 201)

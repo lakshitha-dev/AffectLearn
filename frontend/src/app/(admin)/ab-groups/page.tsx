@@ -18,6 +18,9 @@
 import { useMemo } from "react";
 
 import { useStudyGroups, useStudyPhase } from "@/hooks/use-study";
+import { GroupAssignmentControl } from "@/components/admin/GroupAssignmentControl";
+import { PhaseControl } from "@/components/admin/PhaseControl";
+import { StudyAuditPanel } from "@/components/admin/StudyAuditPanel";
 
 const CONDITION_COLORS: Record<string, string> = {
   control: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
@@ -138,6 +141,17 @@ export default function ABGroupsPage() {
           </div>
         ) : null}
       </div>
+
+      {/*
+        The controls this page told administrators to come here for. `POST /admin/study/groups`,
+        `/groups/lock` and `/phase` all existed and none of them was ever called from anywhere,
+        while `admin-settings` pointed here to "Change them from A/B Groups".
+      */}
+      <GroupAssignmentControl />
+
+      <PhaseControl />
+
+      <StudyAuditPanel />
 
       <p className="mt-6 text-xs text-muted-foreground">
         Note: the randomisation in this study is at the <strong>intervention</strong> level, not

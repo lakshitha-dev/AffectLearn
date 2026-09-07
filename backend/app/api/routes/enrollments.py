@@ -88,3 +88,20 @@ async def get_enrollment_status(
         db, user_id=current_user.id, course_id=course_id
     )
     return enrollment
+
+
+@router.post("/{course_id}/drop", response_model=EnrollmentResponse)
+async def drop_enrollment(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.learner)),
+):
+    """Leave a course, keeping the progress already recorded.
+
+    POST rather than DELETE because nothing is deleted: see `drop_enrollment` for why removing
+    the row would take the learner's section progress and assessment scores with it. Re-enrolling
+    re-activates this same row, so leaving is reversible and costs nothing.
+    """
+    return await enrollment_service.drop_enrollment(
+        db, user_id=current_user.id, course_id=course_id
+    )

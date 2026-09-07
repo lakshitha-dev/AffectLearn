@@ -189,6 +189,60 @@ def _content_text(content: Any) -> str:
     return str(content or "")
 
 
+#: Which authored variant answers which pedagogical action (FR19 / FR21).
+#:
+#: `content_blocks.variant_key` has existed since migration 005 and nothing ever wrote anything
+#: but `"original"` into it, so every one of these actions fell through to generated prose. With
+#: a catalogue behind them, a designer's own alternative wording beats an LLM paraphrase of the
+#: section it is standing in for: it was written for this material, by someone who teaches it.
+#:
+#: `show_hint` and `show_encouragement` are deliberately absent — a hint is about the learner's
+#: current difficulty, not a substitute rendering of the content, and there is nothing to select.
+_ACTION_VARIANT: dict[str, str] = {
+    "show_alternative": "alternative",
+    "show_breakdown": "simpler",
+    "simplify": "simpler",
+    "increase_difficulty": "harder",
+    "skip_ahead": "harder",
+}
+
+
+async def _authored_variant(action_type: str, state: AgentState) -> str | None:
+    """The designer-authored alternative for this action, if one exists.
+
+    Returns None — not an error — when there is no catalogue entry, no section context, or no
+    database handle. Having no authored variant is the ordinary case and must degrade to the
+    existing generative path rather than costing the learner an intervention.
+
+    Never raises: this runs inside the loop, and NFR22 requires the node to always produce
+    usable content.
+    """
+    variant_key = _ACTION_VARIANT.get(action_type)
+    if variant_key is None:
+        return None
+
+    section_id = (state.get("content_context") or {}).get("section_id")
+    db = state.get("db")
+    if not section_id or db is None:
+        return None
+
+    try:
+        from app.services import course_service
+
+        block = await course_service.find_variant(
+            db, section_id=section_id, variant_key=variant_key
+        )
+    except Exception:  # noqa: BLE001 — a lookup failure must not cost an intervention
+        logger.warning("authored_variant_lookup_failed", exc_info=True)
+        return None
+
+    if block is None:
+        return None
+
+    text = (block.content or {}).get("text") if isinstance(block.content, dict) else None
+    return text.strip() if isinstance(text, str) and text.strip() else None
+
+
 async def _generate(
     action_type: str, profile: dict, content_context: dict
 ) -> dict[str, Any]:
@@ -257,12 +311,37 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
     if action_type is None or action_type == "no_action":
         return {}
 
+    # An authored variant outranks both paths: it is content a designer wrote for THIS material
+    # as the alternative to show, so paraphrasing the same section with an LLM instead would be
+    # choosing the weaker option. Absent one, everything below behaves exactly as before.
+    authored = await _authored_variant(action_type, state)
+
     if action_type in fallbacks.SELECTIVE_ACTIONS:
         content = fallbacks.rule_based_content(action_type, content_context)
         content["metadata"] = {
             **content["metadata"],
             "generated": False,
             "fallback": False,
+        }
+        if authored is not None:
+            # `skip_ahead` framing text stays; the descriptor now points at real content rather
+            # than at a catalogue that did not exist.
+            content["metadata"]["select"] = "authored_variant"
+            content["metadata"]["authored_variant"] = True
+            content["text"] = authored
+    elif authored is not None:
+        content = {
+            "text": authored,
+            "variant": action_type,
+            "metadata": {
+                "action_type": action_type,
+                "generated": False,
+                "fallback": False,
+                # Distinguishes "a human wrote this" from "the rule-based copy fired", which look
+                # identical on `generated=False` alone and mean very different things when reading
+                # the research record.
+                "authored_variant": True,
+            },
         }
     elif action_type in fallbacks.GENERATIVE_ACTIONS:
         content = await _generate(action_type, profile, content_context)
@@ -304,6 +383,10 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
             "generated": bool(md.get("generated")),
             "fallback": bool(md.get("fallback")),
             "fallback_reason": md.get("fallback_reason"),
+            # Whether the learner saw designer-authored content or machine-written prose. Without
+            # this the record cannot separate the two, and "did the adaptation help" is a
+            # different question for each.
+            "authored_variant": bool(md.get("authored_variant")),
             # WHAT THE LEARNER WAS SHOWN.
             #
             # This existed only in AgentState for the duration of one ainvoke and was then

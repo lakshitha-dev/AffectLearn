@@ -32,6 +32,17 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/hooks/use-analytics", () => ({
   useSectionDetail: vi.fn(),
+  // The page now also renders the per-question item-analysis panel, so its hook has to be
+  // mocked here too — a module mock replaces the WHOLE module and an unmocked export comes back
+  // undefined rather than falling through to the real one.
+  //
+  // Returns empty, not fixtures: these tests are about the three affect panels, and the item
+  // table's own behaviour belongs with the component.
+  useSectionQuestions: vi.fn(() => ({
+    data: { sectionId: "sec-1", questions: [] },
+    isPending: false,
+    isError: false,
+  })),
 }));
 
 import { useSectionDetail } from "@/hooks/use-analytics";

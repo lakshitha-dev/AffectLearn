@@ -492,11 +492,97 @@ async def test_learner_cannot_delete_course(client: AsyncClient, test_designer, 
 async def test_learner_can_read_modules(client: AsyncClient, test_designer, test_user):
     headers_d = designer_headers(test_designer)
     headers_l = learner_headers(test_user)
-    course = await _create_course(client, headers_d)
+    # PUBLISHED — this test previously created a draft and asserted a learner could read it,
+    # which documented the draft leak rather than the intended behaviour. Publishing states the
+    # thing actually being checked: released content is readable.
+    course = await _create_course(client, headers_d, isPublished=True)
     await _create_module(client, headers_d, course["id"])
 
     resp = await client.get(f"{BASE}/{course['id']}/modules", headers=headers_l)
     assert resp.status_code == 200
+
+
+# --- Learner read scoping: unpublished courses are not readable by learners ---
+#
+# `list_courses` has always filtered to published courses for learners, but the fetch-by-id chain
+# did not, so a learner holding a course UUID could pull the entire unreleased tree. These pin the
+# rule at every entry point, because guarding only the course endpoint would leave five open doors.
+#
+# 404 rather than 403 is deliberate: "forbidden" would confirm that a course with that id exists
+# and is being worked on.
+
+
+async def test_learner_cannot_read_unpublished_course(
+    client: AsyncClient, test_designer, test_user
+):
+    headers_d = designer_headers(test_designer)
+    headers_l = learner_headers(test_user)
+    course = await _create_course(client, headers_d)
+
+    resp = await client.get(f"{BASE}/{course['id']}", headers=headers_l)
+    assert resp.status_code == 404
+
+
+async def test_learner_cannot_read_unpublished_modules(
+    client: AsyncClient, test_designer, test_user
+):
+    headers_d = designer_headers(test_designer)
+    headers_l = learner_headers(test_user)
+    course = await _create_course(client, headers_d)
+    await _create_module(client, headers_d, course["id"])
+
+    resp = await client.get(f"{BASE}/{course['id']}/modules", headers=headers_l)
+    assert resp.status_code == 404
+
+
+async def test_learner_cannot_read_unpublished_lesson_detail(
+    client: AsyncClient, test_designer, test_user
+):
+    """The worst of the six: this returns every content block, quiz answers included."""
+    headers_d = designer_headers(test_designer)
+    headers_l = learner_headers(test_user)
+    course, module, lesson, section, block = await _build_hierarchy(client, headers_d)
+
+    resp = await client.get(f"{BASE}/lessons/{lesson['id']}/detail", headers=headers_l)
+    assert resp.status_code == 404
+
+
+async def test_learner_cannot_read_unpublished_lessons_sections_or_blocks(
+    client: AsyncClient, test_designer, test_user
+):
+    headers_d = designer_headers(test_designer)
+    headers_l = learner_headers(test_user)
+    course, module, lesson, section, block = await _build_hierarchy(client, headers_d)
+
+    assert (
+        await client.get(f"{BASE}/modules/{module['id']}/lessons", headers=headers_l)
+    ).status_code == 404
+    assert (
+        await client.get(f"{BASE}/lessons/{lesson['id']}/sections", headers=headers_l)
+    ).status_code == 404
+    assert (
+        await client.get(
+            f"{BASE}/sections/{section['id']}/content-blocks", headers=headers_l
+        )
+    ).status_code == 404
+
+
+async def test_designer_still_reads_unpublished_courses(
+    client: AsyncClient, test_designer, test_user
+):
+    """The narrowing applies to learners only.
+
+    Designers keep read access to drafts — including other designers' drafts, which the course
+    list already shows them with `canEdit: false`. Narrowing that too would be a separate policy
+    change, and would break the editor.
+    """
+    headers_d = designer_headers(test_designer)
+    course, module, lesson, section, block = await _build_hierarchy(client, headers_d)
+
+    assert (await client.get(f"{BASE}/{course['id']}", headers=headers_d)).status_code == 200
+    assert (
+        await client.get(f"{BASE}/lessons/{lesson['id']}/detail", headers=headers_d)
+    ).status_code == 200
 
 
 # --- Admin role write tests (M4: admin has same write access as designer) ---

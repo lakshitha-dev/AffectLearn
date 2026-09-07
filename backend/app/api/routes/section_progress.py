@@ -234,6 +234,63 @@ async def get_course_progress(
     )
 
 
+async def _assert_enrolled_for_block(
+    db: AsyncSession, user_id: uuid.UUID, content_block_id: uuid.UUID
+) -> None:
+    """Refuse a quiz answer for a course the learner is not enrolled in.
+
+    `mark_section_complete` has always enforced this; recording an ANSWER did not, so a learner
+    holding any block id could append rows to `quiz_responses` and `quiz_attempts` for a course
+    they never joined. Those two tables feed the "quizzes answered / correct" figures in
+    `progress_service` and the research export, so an unenrolled write does not just sit there —
+    it moves reported accuracy.
+
+    Resolved from the BLOCK rather than `body.section_id`, which is optional on the wire and
+    absent from older clients; a guard the client can skip by omitting a field is not a guard.
+
+    `section_visits` deliberately keeps its best-effort behaviour: a visit is an observation that
+    a page was opened, not a claim about performance, and its own docstring records that choice.
+    """
+    from app.models.course import ContentBlock, Lesson, Module, Section
+    from app.models.enrollment import Enrollment
+
+    course_id = (
+        await db.execute(
+            select(Module.course_id)
+            .join(Lesson, Lesson.module_id == Module.id)
+            .join(Section, Section.lesson_id == Lesson.id)
+            .join(ContentBlock, ContentBlock.section_id == Section.id)
+            .where(ContentBlock.id == content_block_id)
+        )
+    ).scalars().first()
+
+    if course_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Content block not found"}},
+        )
+
+    enrolled = (
+        await db.execute(
+            select(Enrollment.id).where(
+                Enrollment.user_id == user_id,
+                Enrollment.course_id == course_id,
+            )
+        )
+    ).scalars().first()
+
+    if enrolled is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "NOT_ENROLLED",
+                    "message": "You must enroll in this course before answering its quizzes",
+                }
+            },
+        )
+
+
 @router.post(
     "/quiz-responses",
     response_model=QuizResponseOut,
@@ -264,6 +321,8 @@ async def record_quiz_response(
     The attempt is written in the SAME transaction as the summary row, so the two can never
     disagree about whether the answer was saved.
     """
+    await _assert_enrolled_for_block(db, current_user.id, body.content_block_id)
+
     existing = (
         await db.execute(
             select(QuizBlockResponse).where(

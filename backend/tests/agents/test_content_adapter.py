@@ -384,3 +384,168 @@ def test_max_tokens_headroom_against_truncation():
     """A breakdown was cut off mid-sentence at 256 tokens (181 words ~ 280 tokens)."""
     from app.core.config import settings as _s
     assert _s.VLLM_MAX_TOKENS >= 400
+
+
+# ── Authored content variants (FR19 / FR21) ─────────────────────────────────
+#
+# `content_blocks.variant_key` existed from migration 005 and nothing ever wrote anything but
+# "original" into it, so `show_alternative` and `increase_difficulty` always fell through to
+# generated prose and `skip_ahead` pointed at a catalogue that did not exist. With a catalogue
+# behind them, a designer's own alternative wording for THIS material outranks an LLM paraphrase
+# of the section it stands in for.
+
+
+class _Block:
+    """Minimal stand-in for a `ContentBlock` row."""
+
+    def __init__(self, text):
+        self.content = {"text": text}
+
+
+def _with_variant(monkeypatch, text, *, expect_key=None):
+    """Patch the variant lookup, optionally asserting which key was requested."""
+    seen = {}
+
+    async def _find_variant(db, *, section_id, variant_key):
+        seen["section_id"] = section_id
+        seen["variant_key"] = variant_key
+        if expect_key is not None and variant_key != expect_key:
+            return None
+        return _Block(text) if text is not None else None
+
+    from app.services import course_service
+
+    monkeypatch.setattr(course_service, "find_variant", _find_variant)
+    return seen
+
+
+def _variant_state(action, **kw):
+    state = _state(action, **kw)
+    state["content_context"] = {"section_id": "sec-1", "section_title": "T"}
+    state["db"] = object()  # only ever handed to the patched lookup
+    return state
+
+
+async def test_authored_alternative_is_served_instead_of_calling_the_llm(monkeypatch, events):
+    _boom_client(monkeypatch)  # the LLM must not be reached when a variant exists
+    seen = _with_variant(monkeypatch, "Here is the same idea from another angle.")
+
+    out = await ca.content_adapter_node(_variant_state("show_alternative"))
+
+    content = out["adaptation_content"]
+    assert content["text"] == "Here is the same idea from another angle."
+    assert content["metadata"]["authored_variant"] is True
+    assert content["metadata"]["generated"] is False
+    assert content["metadata"]["fallback"] is False
+    assert seen["variant_key"] == "alternative"
+
+
+async def test_increase_difficulty_selects_the_harder_variant(monkeypatch, events):
+    _boom_client(monkeypatch)
+    seen = _with_variant(monkeypatch, "Now try this harder version.")
+
+    out = await ca.content_adapter_node(_variant_state("increase_difficulty"))
+
+    assert out["adaptation_content"]["text"] == "Now try this harder version."
+    assert seen["variant_key"] == "harder"
+
+
+async def test_breakdown_and_simplify_select_the_simpler_variant(monkeypatch, events):
+    _boom_client(monkeypatch)
+    seen = _with_variant(monkeypatch, "Step by step, in plainer words.")
+
+    await ca.content_adapter_node(_variant_state("show_breakdown"))
+    assert seen["variant_key"] == "simpler"
+
+    await ca.content_adapter_node(_variant_state("simplify"))
+    assert seen["variant_key"] == "simpler"
+
+
+async def test_skip_ahead_descriptor_points_at_real_content(monkeypatch, events):
+    """`skip_ahead` is selective: its descriptor used to name a catalogue that did not exist."""
+    seen = _with_variant(monkeypatch, "The challenge version.")
+
+    out = await ca.content_adapter_node(_variant_state("skip_ahead"))
+
+    md = out["adaptation_content"]["metadata"]
+    assert md["select"] == "authored_variant"
+    assert md["authored_variant"] is True
+    assert out["adaptation_content"]["text"] == "The challenge version."
+    assert seen["variant_key"] == "harder"
+
+
+async def test_falls_back_to_generation_when_no_variant_is_authored(monkeypatch, events):
+    """Having no authored variant is the ordinary case and must not cost an intervention."""
+    _use_client(monkeypatch, _FakeClient(content="Generated instead."))
+    _with_variant(monkeypatch, None)
+
+    out = await ca.content_adapter_node(_variant_state("show_alternative"))
+
+    content = out["adaptation_content"]
+    assert content["text"] == "Generated instead."
+    assert content["metadata"].get("authored_variant") is not True
+
+
+async def test_hints_never_select_a_variant(monkeypatch, events):
+    """A hint addresses the learner's difficulty; it is not a substitute rendering of content."""
+    _use_client(monkeypatch, _FakeClient(content="A hint."))
+
+    called = {"n": 0}
+
+    async def _find_variant(db, *, section_id, variant_key):
+        called["n"] += 1
+        return _Block("should not be used")
+
+    from app.services import course_service
+
+    monkeypatch.setattr(course_service, "find_variant", _find_variant)
+
+    out = await ca.content_adapter_node(_variant_state("show_hint"))
+
+    assert called["n"] == 0
+    assert out["adaptation_content"]["text"] == "A hint."
+
+
+async def test_a_lookup_failure_degrades_to_generation(monkeypatch, events):
+    """NFR22: the node never raises, and a broken lookup must not lose the intervention."""
+    _use_client(monkeypatch, _FakeClient(content="Generated after failure."))
+
+    async def _boom(db, *, section_id, variant_key):
+        raise RuntimeError("database went away")
+
+    from app.services import course_service
+
+    monkeypatch.setattr(course_service, "find_variant", _boom)
+
+    out = await ca.content_adapter_node(_variant_state("show_alternative"))
+
+    assert out["adaptation_content"]["text"] == "Generated after failure."
+
+
+async def test_no_section_context_means_no_variant_lookup(monkeypatch, events):
+    _use_client(monkeypatch, _FakeClient(content="Generated."))
+    called = {"n": 0}
+
+    async def _find_variant(db, *, section_id, variant_key):
+        called["n"] += 1
+        return None
+
+    from app.services import course_service
+
+    monkeypatch.setattr(course_service, "find_variant", _find_variant)
+
+    state = _state("show_alternative")  # no content_context, no db
+    out = await ca.content_adapter_node(state)
+
+    assert called["n"] == 0
+    assert out["adaptation_content"]["text"] == "Generated."
+
+
+async def test_research_event_records_whether_a_human_wrote_it(monkeypatch, events):
+    _boom_client(monkeypatch)
+    _with_variant(monkeypatch, "Designer's own wording.")
+
+    await ca.content_adapter_node(_variant_state("show_alternative"))
+
+    evt = [e for e in events if e["event_type"] == "adaptation_triggered"][-1]
+    assert evt["payload"]["authored_variant"] is True

@@ -184,3 +184,100 @@ class TestSubmitAttempt:
             headers=auth_headers,
         )
         assert r.status_code == 404
+
+class TestAssessmentAuthoringIsScopedToTheCourseOwner:
+    """Authoring an assessment is a content mutation on somebody's course.
+
+    `require_role(course_designer, admin)` answered "is this a designer?" and never "is this
+    their module?", so a designer could hang a pre-assessment off any other designer's course.
+    These use the same ownership rule the lesson/section/block mutations already use.
+    """
+
+    async def _module_of(self, db, enrolled_course):
+        from sqlalchemy import select
+
+        from app.models.course import Lesson
+
+        section = enrolled_course["sections"][0]
+        lesson = (
+            await db.execute(select(Lesson).where(Lesson.id == section.lesson_id))
+        ).scalar_one()
+        return str(lesson.module_id)
+
+    async def test_other_designer_cannot_create_assessment(
+        self, client, enrolled_course, db, test_admin
+    ):
+        """`enrolled_course` belongs to `test_designer`; author as somebody else."""
+        from app.core.security import create_access_token
+        from app.models.user import Role, User
+        from app.core.security import hash_password
+
+        intruder = User(
+            email_address="other-designer@test.com",
+            password_hash=hash_password("Password1!"),
+            first_name="Other",
+            last_name="Designer",
+            role=Role.course_designer,
+            email_verified=True,
+        )
+        db.add(intruder)
+        await db.commit()
+        await db.refresh(intruder)
+
+        module_id = await self._module_of(db, enrolled_course)
+        resp = await client.post(
+            "/api/v1/assessments",
+            json={"moduleId": module_id, "assessmentType": "pre", "title": "Sneaky"},
+            headers={"Authorization": f"Bearer {create_access_token(str(intruder.id))}"},
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error"]["code"] == "NOT_COURSE_OWNER"
+
+    async def test_owner_can_create_assessment(
+        self, client, enrolled_course, designer_headers, db
+    ):
+        module_id = await self._module_of(db, enrolled_course)
+        resp = await client.post(
+            "/api/v1/assessments",
+            json={"moduleId": module_id, "assessmentType": "pre", "title": "Mine"},
+            headers=designer_headers,
+        )
+        assert resp.status_code == 201
+
+    async def test_questions_are_scoped_too(
+        self, client, enrolled_course, designer_headers, db, test_admin
+    ):
+        """Guarding creation but not question-adding would leave the door open one level down."""
+        from app.core.security import create_access_token, hash_password
+        from app.models.user import Role, User
+
+        assessment_id, _ = await create_test_assessment(
+            client, enrolled_course, designer_headers, db
+        )
+
+        intruder = User(
+            email_address="another-designer@test.com",
+            password_hash=hash_password("Password1!"),
+            first_name="Another",
+            last_name="Designer",
+            role=Role.course_designer,
+            email_verified=True,
+        )
+        db.add(intruder)
+        await db.commit()
+        await db.refresh(intruder)
+
+        resp = await client.post(
+            f"/api/v1/assessments/{assessment_id}/questions",
+            json={
+                "text": "Injected question",
+                "sortOrder": 99,
+                "explanation": "",
+                "options": [
+                    {"text": "A", "isCorrect": True, "sortOrder": 0},
+                    {"text": "B", "isCorrect": False, "sortOrder": 1},
+                ],
+            },
+            headers={"Authorization": f"Bearer {create_access_token(str(intruder.id))}"},
+        )
+        assert resp.status_code == 403
