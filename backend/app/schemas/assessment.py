@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from app.schemas.base import CamelModel
 
@@ -114,3 +114,54 @@ class AttemptResponse(CamelModel):
     pre_score: int | None = None
     pre_max_score: int | None = None
     model_config = ConfigDict(from_attributes=False)
+
+
+# ---------------------------------------------------------------------------
+# Authoring (designer-facing)
+# ---------------------------------------------------------------------------
+#
+# Separate from the learner shapes above because they differ on exactly one thing that matters:
+# `AssessmentOptionResponse` deliberately omits `is_correct` so a learner taking a pre-assessment
+# cannot read the answers out of the payload. An author obviously needs them, so the authoring
+# views reuse `AssessmentOptionResult`, which carries the flag.
+
+
+class AssessmentUpdate(CamelModel):
+    title: str = Field(min_length=1, max_length=300)
+
+
+class AssessmentQuestionUpdate(CamelModel):
+    """Replace a question wholesale, options included.
+
+    Options are replaced rather than patched individually: an option only means anything relative
+    to its siblings (exactly one of them is correct), so editing them one at a time would allow a
+    question to sit in an invalid state between two requests.
+    """
+
+    text: str = Field(min_length=1)
+    sort_order: int = Field(ge=0)
+    explanation: str | None = None
+    options: list[AssessmentOptionCreate]
+
+    @model_validator(mode="after")
+    def validate_single_correct_option(self) -> "AssessmentQuestionUpdate":
+        if sum(1 for o in self.options if o.is_correct) != 1:
+            raise ValueError("Exactly one option must be marked as correct")
+        if len(self.options) < 2:
+            raise ValueError("A question needs at least two options")
+        return self
+
+
+class AssessmentAuthoringQuestion(CamelModel):
+    id: uuid.UUID
+    text: str
+    sort_order: int
+    explanation: str | None = None
+    options: list[AssessmentOptionResult]
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AssessmentAuthoringResponse(AssessmentResponse):
+    """An assessment as its author sees it — with the correct answers."""
+
+    questions: list[AssessmentAuthoringQuestion]

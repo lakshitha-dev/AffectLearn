@@ -19,6 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_db, require_role
 from app.models.user import Role, User
 from app.schemas.assessment import (
+    AssessmentAuthoringResponse,
+    AssessmentQuestionUpdate,
+    AssessmentUpdate,
     AssessmentCreate, AssessmentQuestionCreate, AssessmentQuestionDetailResponse,
     AssessmentResponse, AssessmentWithQuestionsResponse,
     AttemptCreate, AttemptResponse,
@@ -201,3 +204,80 @@ async def submit_attempt(
         },
     })
     return result
+
+# ---------------------------------------------------------------------------
+# Authoring (designer-facing)
+# ---------------------------------------------------------------------------
+#
+# `POST /assessments` and `POST /{id}/questions` were role-guarded, tested and never called by
+# anything — so FR9's pre/post assessments could only be brought into existence by hand-crafted
+# HTTP requests, and once created could not be listed, corrected or removed. These complete the
+# set an authoring screen needs.
+#
+# All of them read the correct answers back, which is why they are separate from the learner
+# routes above rather than a flag on them: `AssessmentOptionResponse` omits `is_correct` on
+# purpose, and the safest way to keep it omitted is for the learner path never to have a branch
+# that includes it.
+
+
+@router.get("/by-module/{module_id}", response_model=list[AssessmentAuthoringResponse])
+async def list_assessments_for_module(
+    module_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """Both assessments for a module, with answers — the authoring view."""
+    await course_ownership.assert_can_edit_module(db, current_user, module_id)
+    return await assessment_service.list_assessments_for_module(db, module_id)
+
+
+@router.put("/{assessment_id}", response_model=AssessmentResponse)
+async def update_assessment(
+    assessment_id: uuid.UUID,
+    body: AssessmentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    await _assert_can_edit_assessment(db, current_user, assessment_id)
+    return await assessment_service.update_assessment(db, assessment_id, title=body.title)
+
+
+@router.delete("/{assessment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_assessment(
+    assessment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    """Withdraw an assessment. Learner attempts against it go too — see the service."""
+    await _assert_can_edit_assessment(db, current_user, assessment_id)
+    await assessment_service.delete_assessment(db, assessment_id)
+
+
+@router.put("/questions/{question_id}", response_model=AssessmentQuestionDetailResponse)
+async def update_question(
+    question_id: uuid.UUID,
+    body: AssessmentQuestionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    question = await assessment_service.get_question_or_404(db, question_id)
+    await _assert_can_edit_assessment(db, current_user, question.assessment_id)
+    return await assessment_service.update_question(
+        db,
+        question_id,
+        text=body.text,
+        sort_order=body.sort_order,
+        explanation=body.explanation,
+        options=body.options,
+    )
+
+
+@router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_question(
+    question_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
+):
+    question = await assessment_service.get_question_or_404(db, question_id)
+    await _assert_can_edit_assessment(db, current_user, question.assessment_id)
+    await assessment_service.delete_question(db, question_id)
