@@ -23,19 +23,20 @@
 
 import { test, expect, type Page } from "@playwright/test";
 
-import { seedLearnerOnFirstLesson, seedSessionStorage } from "./helpers/auth";
+import { API_BASE, seedLearnerOnFirstLesson, seedSessionStorage } from "./helpers/auth";
 
 interface SuiteState {
   tokens: { accessToken: string; refreshToken: string; expiresIn: number };
   user: Record<string, unknown>;
   lessonUrl: string;
+  lessonId: string;
 }
 
 let shared: SuiteState;
 
 test.beforeAll(async ({ request }) => {
-  const { tokens, user, lessonUrl } = await seedLearnerOnFirstLesson(request, "adapt");
-  shared = { tokens, user, lessonUrl };
+  const { tokens, user, lessonUrl, lessonId } = await seedLearnerOnFirstLesson(request, "adapt");
+  shared = { tokens, user, lessonUrl, lessonId };
 });
 
 /**
@@ -213,6 +214,59 @@ test.describe("Adaptation delivery", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
+  });
+
+  test("the full loop delivers a hint over the live socket", async ({ page, request }) => {
+    // The one thing neither the other cases nor `scripts/drive_adaptations.py` covers: a real
+    // decision, pushed down the real WebSocket, appearing on a real screen. The others seed the
+    // store directly (no backend) or run the graph in process (no socket).
+    //
+    // `POST /dev/simulate-cycle` fabricates the affect reading and nothing else: the profiler, the
+    // gate, the strategist, the content adapter and the delivery are all the production path. It
+    // 404s in production, so this test is also the assertion that a development backend is what
+    // e2e runs against.
+    test.setTimeout(60_000);
+    await openLesson(page);
+
+    // Wait for the socket, or the server has nowhere to push to and reports `delivered: false`.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const w = window as unknown as {
+              __connectionStore?: { getState: () => { isConnected: boolean } };
+            };
+            return w.__connectionStore?.getState().isConnected ?? false;
+          }),
+        { timeout: 20_000, message: "WS never connected — the loop has nowhere to deliver" },
+      )
+      .toBe(true);
+
+    // The lesson opens on its first section, which is what the loop must be pointed at: the
+    // adapter grounds its text in the section the learner is actually reading.
+    const sectionsRes = await request.get(
+      `${API_BASE}/courses/lessons/${shared.lessonId}/sections`,
+      { headers: { Authorization: `Bearer ${shared.tokens.accessToken}` } },
+    );
+    const sectionId: string = (await sectionsRes.json())[0].id;
+
+    const result = await request
+      .post(`${API_BASE}/dev/simulate-cycle`, {
+        headers: { Authorization: `Bearer ${shared.tokens.accessToken}` },
+        // rung 1 on the confusion ladder, so the expected action is `show_breakdown` rather
+        // than the `show_hint` every other case in this file already covers.
+        data: { sectionId, affectState: "confused", rung: 1 },
+      })
+      .then((r) => r.json());
+
+    expect(result.gateReason, JSON.stringify(result.notes)).toBe("ok");
+    expect(result.actionType).toBe("show_breakdown");
+    expect(result.delivered, JSON.stringify(result.notes)).toBe(true);
+
+    // And it is on screen, from a decision the backend made.
+    const callout = page.getByRole("complementary", { name: "Learning hint" });
+    await expect(callout).toBeVisible();
+    await expect(callout.getByText("Let's break this down")).toBeVisible();
   });
 
   test("suggest_break renders the break card and can be declined", async ({ page }) => {

@@ -1,6 +1,7 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
-const API_BASE = "http://localhost:8000/api/v1";
+/** Exported so a spec can call an endpoint the helpers do not wrap. */
+export const API_BASE = "http://localhost:8000/api/v1";
 
 // ---------------------------------------------------------------------------
 // Types
