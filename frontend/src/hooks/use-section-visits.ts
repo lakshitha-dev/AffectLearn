@@ -25,7 +25,11 @@ import { apiFetch } from "@/lib/api-client";
  * rather than assuming it ran until the next one began.
  */
 
-export type SectionEntrySource = "next" | "back" | "resume" | "direct";
+//: `skip` is the system advancing the learner after they accepted a `skip_ahead`
+//: adaptation, as distinct from `next`, which is the learner choosing to move on. The two
+//: mean different things when reading the visit log — one is a decision the learner made
+//: and the other is one made for them — and they cannot be told apart after the fact.
+export type SectionEntrySource = "next" | "back" | "resume" | "direct" | "skip";
 
 interface OpenVisit {
   id: string;

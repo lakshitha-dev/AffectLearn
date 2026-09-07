@@ -24,7 +24,7 @@ import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-cou
 import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useSectionSignals } from "@/hooks/use-section-signals";
 import { usePerformanceWindow } from "@/hooks/use-performance-window";
-import { useSectionVisits } from "@/hooks/use-section-visits";
+import { useSectionVisits, type SectionEntrySource } from "@/hooks/use-section-visits";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -103,7 +103,6 @@ export default function LessonPage({ params }: PageProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [focusMode, toggleFocusMode]);
 
-
   const sections = (lessonQuery.data?.sections ?? []).slice().sort(
     (a, b) => a.sortOrder - b.sortOrder,
   ) as SectionDetail[];
@@ -152,34 +151,19 @@ export default function LessonPage({ params }: PageProps) {
     );
   }, [markComplete, sectionSignals]);
 
-  const handleSectionNav = (idx: number) => {
+  const handleSectionNav = (idx: number, source?: SectionEntrySource) => {
     if (idx < 0 || idx >= sections.length) return;
     // Backwards navigation is the paginated equivalent of scrolling back to re-read — one of the
     // clearest confusion signals this UI produces, and previously not recorded at all.
     if (idx < currentIndex) sectionSignals.recordBackNav(currentSectionId);
     // Tell the visit log HOW the learner got there before the section changes. Arriving by
     // "back" is a learner returning to material they had left; arriving by "next" is the normal
-    // path. The two mean different things and cannot be recovered from timestamps.
-    sectionVisits.setEntrySource(idx < currentIndex ? "back" : "next");
+    // path; arriving by "skip" is the system moving them after they accepted an adaptation. The
+    // three mean different things and cannot be recovered from timestamps.
+    sectionVisits.setEntrySource(source ?? (idx < currentIndex ? "back" : "next"));
     setCurrentIndex(idx);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
-  // Story 5.6: advance the content view to the NEXT section when the learner accepts a
-  // skip_ahead suggestion. Reuses the SAME scroll-based mechanism as the prev/next buttons
-  // (handleSectionNav → scrollIntoView + hash). Because the lesson page tracks no "current
-  // section" cursor, we derive the in-view section from the URL hash (set by handleSectionNav
-  // / the prev-next buttons) and advance to the one after it; falling back to the first
-  // un-completed section, then to section 0→1. "harder section / challenge exercise" degrades
-  // to "next section" until the content-variant catalog lands (Open Question #1, deferred from
-  // 5.2 — we do NOT fabricate a challenge exercise). Graceful no-op when already at the last
-  // section (handleSectionNav guards the out-of-range index).
-  const handleSkipAhead = useCallback(() => {
-    // Advance the paginated view to the next section (graceful no-op on the last one).
-    setCurrentIndex((i) => (i + 1 < sections.length ? i + 1 : i));
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections.length]);
 
   // Story 5.6 (FR22): log an adaptation accept/dismiss upstream so the backend emits a
   // research event for the Learner Profiler (4.5) to refine future decisions. Rides the
@@ -326,6 +310,36 @@ export default function LessonPage({ params }: PageProps) {
       router.push("/courses/" + courseId);
     }
   }, [course, courseId, moduleId, currentModuleIdx, currentLessonIdx, router]);
+
+  // Story 5.6: move the learner on when they accept a `skip_ahead` adaptation.
+  //
+  // This now does EXACTLY what the Next button does, which it previously did not, in two ways
+  // that both looked like a broken button:
+  //
+  //   1. On the last section it advanced `currentIndex` to itself and stopped — a documented
+  //      "graceful no-op". The learner clicked Skip ahead, the card disappeared, and nothing
+  //      moved. Next, on that same section, calls `handleLastSectionCta` and crosses into the
+  //      following lesson or module. A suggestion the system raised on its own initiative is the
+  //      worst place to have a control that silently does nothing.
+  //
+  //   2. It bypassed `handleSectionNav`, so `sectionVisits.setEntrySource` never ran and the
+  //      visit log recorded the arrival with whatever source was left over from the previous
+  //      navigation. Skips were therefore indistinguishable from the learner pressing Next —
+  //      in the one dataset that exists to tell learner choices from system decisions.
+  //
+  // The harder-content case is handled upstream now: with an authored `harder` variant the
+  // Content Adapter serves that instead, so this path is the fallback for when no variant has
+  // been written, not the only behaviour.
+  const handleSkipAhead = useCallback(() => {
+    const idx = Math.min(currentIndex, sections.length - 1);
+    if (idx >= sections.length - 1) {
+      // Out of sections: cross the lesson boundary exactly as Next does.
+      handleLastSectionCta();
+      return;
+    }
+    handleSectionNav(idx + 1, "skip");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, sections.length, handleLastSectionCta]);
 
   if (lessonQuery.isLoading || enrollmentQuery.isLoading) return <LessonSkeleton />;
 
