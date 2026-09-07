@@ -16,10 +16,27 @@ async def test_openapi_schema_available(client):
 
 
 async def test_all_route_modules_importable():
-    """Verify all 8 route modules import and expose a router."""
-    from app.api.routes import auth, courses, learners, assessments, analytics, admin, surveys, ws
+    """Every route module imports and exposes a router.
 
-    modules = [auth, courses, learners, assessments, analytics, admin, surveys, ws]
+    The list was written when there were eight modules and never grown; by the time it was
+    noticed there were seventeen, so nine of them — `enrollments`, `monitor`, `research`,
+    `reviews`, `section_progress`, `study`, `system_config`, `questionnaire` and
+    `learner_profiles` — were not covered by the check that exists to catch an import error at
+    startup. Derived from the aggregator now, so it cannot fall behind again.
+    """
+    import app.api.routes as routes_pkg
+    from app.api.routes import __init__ as _aggregator  # noqa: F401
+
+    import importlib
+    import pkgutil
+
+    modules = []
+    for info in pkgutil.iter_modules(routes_pkg.__path__):
+        if info.name.startswith("_"):
+            continue
+        modules.append(importlib.import_module(f"app.api.routes.{info.name}"))
+
+    assert len(modules) >= 17, f"expected every route module, found {len(modules)}"
     for mod in modules:
         assert hasattr(mod, "router"), f"{mod.__name__} missing 'router' attribute"
 
