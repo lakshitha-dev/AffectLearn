@@ -93,3 +93,27 @@ async def test_coordinates_survive_the_cache(db):
 
     assert first == second
     assert second["course_id"] == str(course.id)
+
+
+async def test_build_accepts_a_string_section_id(db):
+    """The id arrives as a STRING everywhere it matters, and never did in a test.
+
+    `ws.py` passes `data.get("section_id")` straight off the WebSocket wire, and the dev harness
+    passes it out of a JSON body. `Section.id` is `postgresql.UUID(as_uuid=True)`, which accepts a
+    string on Postgres and raises `'str' object has no attribute 'hex'` on any dialect storing it
+    as CHAR(32) -- including the test database. `build` catches everything and returns `{}`, so the
+    whole grounding path degraded to "unknown topic" with no coordinates, silently, and every
+    existing test passed a UUID object and never saw it.
+    """
+    course, module, lesson, section = await _seed_section(db)
+
+    context = await content_context_service.build(str(section.id), db)
+
+    assert context["topic"] == "Generics"
+    assert context["lesson"] == "Type Systems"
+    assert context["course_id"] == str(course.id)
+    assert "A generic type is..." in context["body"]
+
+
+async def test_build_degrades_on_a_malformed_section_id(db):
+    assert await content_context_service.build("not-a-uuid", db) == {}
