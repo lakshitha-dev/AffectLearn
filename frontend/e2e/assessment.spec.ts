@@ -4,10 +4,19 @@
  * Setup: one enrolled learner with a course that has a pre-assessment.
  * We discover the moduleId at runtime so the tests are not hardcoded to a seed.
  *
- * If no assessment exists for the module the tests are skipped gracefully.
+ * The suite AUTHORS its own pre-assessment when the seed has none, rather than skipping.
+ *
+ * Every test here was guarded by `test.skip(shared.assessment === null, ...)`, which reads as a
+ * graceful degradation and behaves as a silent hole: on a deployment whose seed carries no
+ * assessment, all eight pass by never running, and the pre/post flow FR9 describes goes untested
+ * indefinitely. Nothing surfaced that.
+ *
+ * There was no way to fix it before, because nothing could create an assessment — the authoring
+ * endpoints existed and no interface called them. Now that they are wired, the suite provisions
+ * what it needs and the skips are gone.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type APIRequestContext } from "@playwright/test";
 import {
   makeCredentials,
   apiRegister,
@@ -16,6 +25,8 @@ import {
   getFirstCourseId,
   getCourseDetail,
   seedSessionStorage,
+  apiLogin,
+  DESIGNER_CREDS,
 } from "./helpers/auth";
 
 const API_BASE = "http://localhost:8000/api/v1";
@@ -63,6 +74,51 @@ async function fetchAssessment(
   return null;
 }
 
+/**
+ * Create a two-question pre-assessment on `moduleId` as the seeded designer.
+ *
+ * The caller re-reads it through the LEARNER endpoint afterwards, so the tests exercise the
+ * payload a learner actually receives — notably one carrying no `isCorrect`.
+ */
+async function authorPreAssessment(
+  request: APIRequestContext,
+  moduleId: string,
+): Promise<void> {
+  const designer = await apiLogin(request, DESIGNER_CREDS);
+  const auth = { Authorization: `Bearer ${designer.accessToken}` };
+
+  const created = await request.post(`${API_BASE}/assessments`, {
+    headers: auth,
+    data: {
+      moduleId,
+      assessmentType: "pre",
+      title: "Pre-assessment",
+    },
+  });
+  if (!created.ok()) return;
+  const assessmentId = (await created.json()).id;
+
+  for (let i = 0; i < 2; i += 1) {
+    const added = await request.post(
+      `${API_BASE}/assessments/${assessmentId}/questions`,
+      {
+        headers: auth,
+        data: {
+          text: `Seeded question ${i + 1}`,
+          sortOrder: i,
+          explanation: "Authored by the e2e suite.",
+          options: [
+            { text: "Correct answer", isCorrect: true, sortOrder: 0 },
+            { text: "Wrong answer", isCorrect: false, sortOrder: 1 },
+          ],
+        },
+      },
+    );
+    if (!added.ok()) return;
+  }
+
+}
+
 // ---------------------------------------------------------------------------
 // Shared state
 // ---------------------------------------------------------------------------
@@ -91,12 +147,35 @@ test.beforeAll(async ({ request }) => {
 
   if (!firstModule) throw new Error("No modules in test course.");
 
-  const assessment = await fetchAssessment(
+  let assessment = await fetchAssessment(
     request,
     tokens.accessToken,
     firstModule.id,
     "pre",
   );
+
+  // Nothing seeded one, so author it. A test that provisions its own fixture runs everywhere;
+  // one that waits for a seed to contain the right thing runs only where it already passes.
+  if (assessment === null) {
+    await authorPreAssessment(request, firstModule.id);
+    assessment = await fetchAssessment(
+      request,
+      tokens.accessToken,
+      firstModule.id,
+      "pre",
+    );
+    if (assessment === null) {
+      throw new Error(
+        "Could not author a pre-assessment for the test module. The suite cannot run.",
+      );
+    }
+  }
+
+  // Asserted once here rather than guarded per test. A `test.skip` on "no questions" would put
+  // the suite back where it started: green because it did not run.
+  if ((assessment.questions?.length ?? 0) === 0) {
+    throw new Error("The pre-assessment has no questions. The suite cannot run.");
+  }
 
   const assessmentUrl = `/courses/${courseId}/modules/${firstModule.id}/assessment?type=pre`;
 
@@ -122,10 +201,6 @@ test.describe("Pre-assessment screen", () => {
   test("navigating to module pre-assessment shows correct heading", async ({
     page,
   }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
 
     await page.goto(shared.assessmentUrl);
 
@@ -139,10 +214,6 @@ test.describe("Pre-assessment screen", () => {
   test("submit button disabled until all questions answered", async ({
     page,
   }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
 
     await page.goto(shared.assessmentUrl);
     await page.waitForSelector("text=Let's see where you're starting from", {
@@ -156,10 +227,6 @@ test.describe("Pre-assessment screen", () => {
   });
 
   test("selecting all options enables submit button", async ({ page }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
 
     await page.goto(shared.assessmentUrl);
     await page.waitForSelector("text=Let's see where you're starting from", {
@@ -203,10 +270,6 @@ test.describe("Pre-assessment screen", () => {
   });
 
   test("submitting shows results with score", async ({ page }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
 
     await page.goto(shared.assessmentUrl);
     await page.waitForSelector("text=Let's see where you're starting from", {
@@ -241,10 +304,6 @@ test.describe("Pre-assessment screen", () => {
   test("results page shows correct answer highlighted green", async ({
     page,
   }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
 
     await page.goto(shared.assessmentUrl);
     await page.waitForSelector("text=Let's see where you're starting from", {
@@ -278,15 +337,6 @@ test.describe("Pre-assessment screen", () => {
   test("results page shows red tint for incorrect selected answer", async ({
     page,
   }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
-    test.skip(
-      (shared.assessment?.questions.length ?? 0) === 0,
-      "Assessment has no questions.",
-    );
-
     await page.goto(shared.assessmentUrl);
     await page.waitForSelector("text=Let's see where you're starting from", {
       timeout: 15_000,
@@ -327,10 +377,6 @@ test.describe("Pre-assessment screen", () => {
   test("'Continue to module' CTA is visible after pre-assessment", async ({
     page,
   }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
 
     await page.goto(shared.assessmentUrl);
     await page.waitForSelector("text=Let's see where you're starting from", {
@@ -364,10 +410,6 @@ test.describe("Pre-assessment screen", () => {
     page,
     request,
   }) => {
-    test.skip(
-      shared.assessment === null,
-      "No pre-assessment found for the first module — skipping.",
-    );
 
     // Submit the assessment via API to mark it as already taken
     const assessment = shared.assessment!;

@@ -212,7 +212,7 @@ export async function clearSession(page: Page): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** Credentials for the seeded designer account. */
-const DESIGNER_CREDS = {
+export const DESIGNER_CREDS = {
   email: "designer@affectlearn.io",
   password: "Designer123!",
 };
