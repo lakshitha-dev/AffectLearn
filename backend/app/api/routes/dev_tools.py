@@ -41,6 +41,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import edges
@@ -51,7 +52,12 @@ from app.api.routes.ws import _deliver_adaptation
 from app.core.config import settings
 from app.core.deps import get_db, require_role
 from app.models.user import Role, User
-from app.schemas.dev_tools import SimulateCycleRequest, SimulateCycleResponse
+from app.schemas.auth import MessageResponse
+from app.schemas.dev_tools import (
+    SimulateCycleRequest,
+    SimulateCycleResponse,
+    VerifyEmailRequest,
+)
 from app.services import (
     config_service,
     content_context_service,
@@ -201,12 +207,24 @@ def _reachability_notes(body: SimulateCycleRequest, config: Any) -> list[str]:
     """
     notes: list[str] = []
     if body.affect_state not in config.adapt_states:
-        notes.append(
+        note = (
             f"'{body.affect_state}' is not in ADAPT_STATES ({', '.join(config.adapt_states)}), so "
-            f"the gate will return 'state_not_actionable'. Its whole ladder -- for 'frustrated' "
-            f"that is show_encouragement, simplify and suggest_break -- cannot occur organically "
-            f"on this deployment at any confidence."
+            f"the gate returns 'state_not_actionable'."
         )
+        # Named only for the state actually asked about. `engaged` is absent BY DESIGN -- the
+        # system leaves an engaged learner alone and has no ladder for it -- so reporting it the
+        # same way as a disabled state would turn correct behaviour into a warning.
+        if body.affect_state == "engaged":
+            note += (
+                " That is by design: `engaged` has no ladder, and leaving a learner who is "
+                "working well undisturbed is the intended behaviour, not a gap."
+            )
+        elif body.affect_state == "frustrated":
+            note += (
+                " Its whole ladder -- show_encouragement, simplify, suggest_break -- therefore "
+                "cannot occur organically on this deployment at any confidence."
+            )
+        notes.append(note)
     if not edges.is_decisive(body.affect_source, config.decisive_sources):
         notes.append(
             f"'{body.affect_source}' is not a decisive channel "
@@ -419,3 +437,36 @@ async def _full_loop(
         notes=notes,
         gate_config=_gate_config_view(config),
     )
+
+
+@router.post("/verify-email", response_model=MessageResponse)
+async def verify_email(
+    body: VerifyEmailRequest, db: AsyncSession = Depends(get_db)
+) -> MessageResponse:
+    """Mark an account email-verified without the emailed link. Dev only.
+
+    WHY THIS IS NEEDED. `POST /auth/register` issues no tokens -- login is gated on verification --
+    and the verification token is stored only as a hash, so it cannot be recovered afterwards. With
+    email unconfigured (`EMAIL_ENABLED` off) it is never even logged. The consequence is that NO
+    automated test can create a working account: every Playwright spec's `beforeAll` registers a
+    learner and then tries to use tokens the response does not contain.
+
+    So this does exactly what clicking the emailed link does, minus the link. Unauthenticated,
+    because the caller has no token yet and cannot have one; harmless for the same reason it is
+    404 in production, where no part of this router exists.
+    """
+    _assert_dev()
+
+    user = (
+        await db.execute(select(User).where(User.email_address == body.email_address))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "No such account"}},
+        )
+
+    user.email_verified = True
+    await db.commit()
+    logger.info("dev_email_verified", email=body.email_address)
+    return MessageResponse(message="Verified.")

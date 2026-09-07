@@ -23,6 +23,12 @@ __pycache__/
 # Docker
 pgdata/
 
+# Local SQLite, for running the stack without Postgres (scripts and the dev harness
+# default to it). Never a real database, always disposable.
+*.sqlite
+*.sqlite3
+backend/*.db
+
 # OS
 .DS_Store
 Thumbs.db

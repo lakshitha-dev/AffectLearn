@@ -62,3 +62,9 @@ class SimulateCycleResponse(CamelModel):
     #: The gate settings this cycle was judged against, so a surprising verdict is explicable
     #: without opening the admin page.
     gate_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class VerifyEmailRequest(CamelModel):
+    """Which account to mark verified. Dev only — see the route."""
+
+    email_address: str

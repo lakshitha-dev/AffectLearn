@@ -65,7 +65,23 @@ export async function apiRegister(
     throw new Error(`Registration failed (${res.status()}): ${body}`);
   }
 
-  return res.json();
+  // Registration issues NO tokens: login is gated on email verification, the token is stored
+  // only as a hash, and with email unconfigured the link is never even logged. So this helper
+  // used to return `{message: "..."}` and every caller read `undefined` out of it, which meant
+  // the whole e2e suite failed in `beforeAll` with a 401 from the NEXT call.
+  //
+  // `/dev/verify-email` does what clicking the emailed link does, and 404s in production.
+  const verified = await request.post(`${API_BASE}/dev/verify-email`, {
+    data: { emailAddress: creds.email },
+  });
+  if (!verified.ok()) {
+    throw new Error(
+      `Could not verify ${creds.email} (${verified.status()}). ` +
+        "The dev router 404s when ENVIRONMENT=production — e2e needs a development backend.",
+    );
+  }
+
+  return apiLogin(request, creds);
 }
 
 /**

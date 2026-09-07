@@ -307,3 +307,16 @@ async def test_the_mark_does_not_leak_outside_the_run(monkeypatch):
     with research_logger.synthetic_run():
         assert research_logger.is_synthetic_run() is True
     assert research_logger.is_synthetic_run() is False
+
+
+async def test_engaged_is_reported_as_intended_not_as_a_gap(client, auth_headers, section_id):
+    # `engaged` is absent from ADAPT_STATES by design -- the system leaves a learner who is
+    # working well alone, and there is no ladder for it. Reporting that the same way as a
+    # DISABLED state turns correct behaviour into a warning.
+    resp = await client.post(
+        URL, headers=auth_headers, json={"sectionId": section_id, "affectState": "engaged"}
+    )
+    body = resp.json()
+    assert body["gateReason"] == edges.GATE_STATE_NOT_ACTIONABLE
+    assert any("by design" in note for note in body["notes"])
+    assert not any("show_encouragement" in note for note in body["notes"])
