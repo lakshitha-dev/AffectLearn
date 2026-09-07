@@ -15,6 +15,7 @@ import { AffectDebugOverlay } from "@/components/learning/AffectDebugOverlay";
 import { BehavioralDebugOverlay } from "@/components/learning/BehavioralDebugOverlay";
 import { BreakSuggestion } from "@/components/learning/BreakSuggestion";
 import { AdaptationProbe } from "@/components/learning/AdaptationProbe";
+import { AdaptationDevPanel } from "@/components/learning/AdaptationDevPanel";
 import { activeInlineAdaptation, InlineAdaptations } from "@/components/learning/InlineAdaptations";
 import { SkipAheadSuggestion, type SkipInteraction } from "@/components/learning/SkipAheadSuggestion";
 import { SelfReportBar, type SelfReport } from "@/components/learning/SelfReportBar";
@@ -491,6 +492,10 @@ export default function LessonPage({ params }: PageProps) {
       )}
       {AFFECT_DEBUG_ENABLED && <AffectDebugOverlay debugRef={affectDebug} />}
       {AFFECT_DEBUG_ENABLED && <BehavioralDebugOverlay debugRef={behavioralDebug} />}
+      {/* Trigger panel for the adaptation loop. Same flag as the two overlays above, so a
+          production build drops all three together. Five of the eight action types cannot be
+          reached by using the product at all; this is how anyone sees them. */}
+      {AFFECT_DEBUG_ENABLED && <AdaptationDevPanel sectionId={currentSectionId} />}
     </div>
   );
 }

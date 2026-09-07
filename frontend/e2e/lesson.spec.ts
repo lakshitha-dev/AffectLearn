@@ -8,14 +8,8 @@
 
 import { test, expect } from "@playwright/test";
 import {
-  makeCredentials,
-  apiRegister,
-  apiGetMe,
-  apiEnroll,
-  getFirstCourseId,
-  getCourseDetail,
+  seedLearnerOnFirstLesson,
   seedSessionStorage,
-  type TestCredentials,
 } from "./helpers/auth";
 
 // ---------------------------------------------------------------------------
@@ -34,33 +28,15 @@ interface LessonSuiteState {
 let shared: LessonSuiteState;
 
 test.beforeAll(async ({ request }) => {
-  const creds = makeCredentials("lesson");
-  const tokens = await apiRegister(request, creds);
-  const user = await apiGetMe(request, tokens.accessToken);
-  const courseId = await getFirstCourseId(request, tokens.accessToken);
-
-  await apiEnroll(request, tokens.accessToken, courseId);
-
-  const course = await getCourseDetail(request, tokens.accessToken, courseId);
-  const firstModule = course.modules[0];
-
-  if (!firstModule) {
-    throw new Error("Test course has no modules — seed the database first.");
-  }
-
-  const firstLesson = firstModule.lessons[0];
-  if (!firstLesson) {
-    throw new Error("First module has no lessons — seed the database first.");
-  }
-
-  const lessonUrl = `/courses/${courseId}/modules/${firstModule.id}/lessons/${firstLesson.id}`;
+  const seeded = await seedLearnerOnFirstLesson(request, "lesson");
+  const { tokens, user, courseId, lessonUrl } = seeded;
 
   shared = {
     tokens,
     user,
     courseId,
-    moduleId: firstModule.id,
-    lessonId: firstLesson.id,
+    moduleId: seeded.moduleId,
+    lessonId: seeded.lessonId,
     lessonUrl,
   };
 });

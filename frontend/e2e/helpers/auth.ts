@@ -392,3 +392,45 @@ export async function getCourseDetail(
 
   return res.json();
 }
+
+/**
+ * Register a learner, enrol them in the first published course, and resolve its first lesson.
+ *
+ * Extracted because `lesson`, `facial-feature-capture` and `behavioral-signal-collection` each
+ * carried a verbatim copy of it, down to the two "seed the database first" error strings. Four
+ * copies is where a change to the shape of `getCourseDetail` starts breaking specs one at a time.
+ */
+export async function seedLearnerOnFirstLesson(
+  request: APIRequestContext,
+  prefix: string,
+): Promise<{
+  creds: TestCredentials;
+  tokens: TokenResponse;
+  user: Record<string, unknown>;
+  courseId: string;
+  moduleId: string;
+  lessonId: string;
+  lessonUrl: string;
+}> {
+  const creds = makeCredentials(prefix);
+  const tokens = await apiRegister(request, creds);
+  const user = await apiGetMe(request, tokens.accessToken);
+  const courseId = await getFirstCourseId(request, tokens.accessToken);
+  await apiEnroll(request, tokens.accessToken, courseId);
+
+  const course = await getCourseDetail(request, tokens.accessToken, courseId);
+  const firstModule = course.modules[0];
+  if (!firstModule) throw new Error("Test course has no modules — seed the database first.");
+  const firstLesson = firstModule.lessons[0];
+  if (!firstLesson) throw new Error("First module has no lessons — seed the database first.");
+
+  return {
+    creds,
+    tokens,
+    user,
+    courseId,
+    moduleId: firstModule.id,
+    lessonId: firstLesson.id,
+    lessonUrl: `/courses/${courseId}/modules/${firstModule.id}/lessons/${firstLesson.id}`,
+  };
+}
