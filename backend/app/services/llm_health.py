@@ -67,10 +67,24 @@ async def probe(ttl_s: float = 10.0) -> dict[str, Any]:
 
             async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_S) as client:
                 resp = await client.get(f"{endpoint}/v1/models")
+            # `reachable` is about the HOST answering at all. Anything short of a 5xx means
+            # something is there and serving.
             result["reachable"] = resp.status_code < 500
             result["status"] = resp.status_code
-            result["adaptationsGenerated"] = result["reachable"]
-            if resp.status_code >= 400:
+
+            # `adaptationsGenerated` is a DIFFERENT question, and conflating the two was wrong
+            # for any provider that authenticates. `GET /v1/models` against OpenAI with a bad or
+            # absent key returns 401, which is `< 500`, so this field read True while every
+            # generation call failed auth and fell back to canned copy — the exact green-dashboard
+            # blindness this probe exists to remove. A 4xx means reachable but NOT usable.
+            result["adaptationsGenerated"] = resp.status_code < 400
+
+            if resp.status_code in (401, 403):
+                result["error"] = (
+                    f"HTTP {resp.status_code}: endpoint reachable but rejected the credentials. "
+                    "Adaptations are being served from the rule-based fallback."
+                )
+            elif resp.status_code >= 400:
                 result["error"] = f"HTTP {resp.status_code}"
         except Exception as exc:
             # Unresolvable hostname, refused connection, or timeout all land here and all mean
