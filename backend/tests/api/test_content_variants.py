@@ -239,3 +239,80 @@ class TestVariantAuthoringIsScoped:
             headers={"Authorization": f"Bearer {create_access_token(str(intruder.id))}"},
         )
         assert resp.status_code == 403
+
+
+class TestTheLoopCanActuallyFindAVariant:
+    """Exercises `find_variant` against the real column, not a mock.
+
+    This is the gap that let a real defect through. `tests/agents/test_content_adapter.py` patches
+    `find_variant` to test the action-to-key MAPPING, so the query itself was never run — and the
+    loop's only caller reads `section_id` out of `content_context`, which stores it as
+    `str(section_id)`. A string compared against a UUID column raises inside the driver, and the
+    adapter node swallows exceptions to satisfy NFR22, so the feature would have degraded to
+    "no variant was ever authored" instead of failing loudly. Silent, and invisible to a mocked
+    test.
+    """
+
+    async def test_finds_a_variant_when_given_a_string_id(
+        self, client: AsyncClient, designer_headers, db
+    ):
+        from app.services import course_service
+
+        section_id, block_id, _ = await _build_section(client, designer_headers)
+        await client.post(
+            f"{BASE}/content-blocks/{block_id}/variants",
+            json={"variantKey": "simpler", "content": {"text": "Put more simply"}},
+            headers=designer_headers,
+        )
+
+        # A STRING, exactly as `content_context` hands it to the adapter.
+        found = await course_service.find_variant(
+            db, section_id=str(section_id), variant_key="simpler"
+        )
+
+        assert found is not None
+        assert found.content["text"] == "Put more simply"
+
+    async def test_finds_a_variant_when_given_a_uuid(
+        self, client: AsyncClient, designer_headers, db
+    ):
+        import uuid as uuid_mod
+
+        from app.services import course_service
+
+        section_id, block_id, _ = await _build_section(client, designer_headers)
+        await client.post(
+            f"{BASE}/content-blocks/{block_id}/variants",
+            json={"variantKey": "harder", "content": {"text": "Now try this"}},
+            headers=designer_headers,
+        )
+
+        found = await course_service.find_variant(
+            db, section_id=uuid_mod.UUID(section_id), variant_key="harder"
+        )
+
+        assert found is not None
+
+    async def test_returns_none_for_an_unauthored_key(
+        self, client: AsyncClient, designer_headers, db
+    ):
+        """The ordinary case. It must be a None, not an exception."""
+        from app.services import course_service
+
+        section_id, _, _ = await _build_section(client, designer_headers)
+
+        found = await course_service.find_variant(
+            db, section_id=str(section_id), variant_key="alternative"
+        )
+
+        assert found is None
+
+    async def test_a_malformed_id_returns_none_rather_than_raising(self, db):
+        """Raising here would propagate into the agent loop, which must never fail a cycle."""
+        from app.services import course_service
+
+        found = await course_service.find_variant(
+            db, section_id="not-a-uuid", variant_key="simpler"
+        )
+
+        assert found is None
