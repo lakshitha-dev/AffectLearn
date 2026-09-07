@@ -225,3 +225,14 @@ def rule_based_content(action_type: Any, context: dict | None = None) -> dict[st
         "variant": "no_action",
         "metadata": {"action_type": "no_action"},
     }
+
+
+def ladder_actions(affect_state: Any) -> tuple[str, ...]:
+    """The escalation order for a state, as action names.
+
+    Exposed so the strategist's PROMPT can show the model the same ladder the deterministic
+    fallback walks. Restating it in the prompt text would let the two drift, and the drift would
+    be silent: the model would be told one escalation order while the fallback used another, and
+    the difference only shows up as an odd intervention six rungs into a session.
+    """
+    return tuple(action for action, _urgency in _RULE_LADDER.get(affect_state, ()))
