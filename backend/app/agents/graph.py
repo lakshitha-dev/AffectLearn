@@ -44,6 +44,41 @@ from app.services.trace import emit_trace
 # unchanged and a future stub can re-populate it.
 STUB_NODES: tuple[str, ...] = ()
 
+# ---------------------------------------------------------------------------
+# Declared topology — the single source of truth for the shape of the loop.
+# ---------------------------------------------------------------------------
+#
+# The observability dashboard draws this graph, and it used to do so from a SECOND hand-written
+# copy of it in `api/routes/monitor.py`. Two hand-maintained descriptions of one structure drift,
+# and the drift is invisible: the diagram keeps rendering, just not the graph that is running.
+#
+# `build_graph` below wires from these, and `tests/agents/test_graph_topology.py` asserts that the
+# compiled graph and the declared topology agree — so a node added to one without the other fails
+# a test rather than quietly mis-drawing the dashboard.
+
+#: Every node in execution order. Ids are the wire vocabulary the trace events already use.
+NODE_IDS: tuple[str, ...] = (
+    "affect_detection",
+    "learner_profiler",
+    "log_only",
+    "pedagogical",
+    "content_adapter",
+    "deliver",
+)
+
+#: Edges as `(from, to, kind, route)`. `START`/`END` are the LangGraph sentinels, spelled here as
+#: the strings the dashboard expects on the wire.
+EDGES: tuple[dict[str, str | None], ...] = (
+    {"from": "START", "to": "affect_detection", "kind": None, "route": None},
+    {"from": "affect_detection", "to": "learner_profiler", "kind": None, "route": None},
+    {"from": "learner_profiler", "to": "log_only", "kind": "conditional", "route": "log_only"},
+    {"from": "learner_profiler", "to": "pedagogical", "kind": "conditional", "route": "pedagogical"},
+    {"from": "pedagogical", "to": "content_adapter", "kind": None, "route": None},
+    {"from": "content_adapter", "to": "deliver", "kind": None, "route": None},
+    {"from": "deliver", "to": "END", "kind": None, "route": None},
+    {"from": "log_only", "to": "END", "kind": None, "route": None},
+)
+
 # State keys whose values are safe + useful to echo into a node_completed trace.
 _TRACE_OUTPUT_KEYS: tuple[str, ...] = (
     "affect_state",
