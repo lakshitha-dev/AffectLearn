@@ -7,6 +7,7 @@ from app.api.routes import (
     assessments,
     auth,
     courses,
+    dev_tools,
     enrollments,
     learner_profiles,
     learners,
@@ -42,3 +43,8 @@ api_router.include_router(section_progress.router)
 api_router.include_router(learner_profiles.router, tags=["learner-profiles"])
 api_router.include_router(ws.router, prefix="/ws", tags=["websocket"])
 api_router.include_router(monitor.router, prefix="/monitor", tags=["monitor"])
+# Mounted unconditionally, like every other router -- there is no conditional-include
+# precedent here, and a route that appears or vanishes with an environment variable is
+# harder to reason about than one that is always present and always 404s in production.
+# The guard is inside the route.
+api_router.include_router(dev_tools.router, prefix="/dev", tags=["dev-tools"])

@@ -12,6 +12,8 @@ background worker (`research_worker`) drains the stream into PostgreSQL. Emit NE
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 import structlog
@@ -42,6 +44,45 @@ def content_coords(content_context: dict[str, Any] | None) -> dict[str, Any]:
     if not content_context:
         return {}
     return {key: content_context[key] for key in _COORD_KEYS if content_context.get(key)}
+
+# ── synthetic-run marking ─────────────────────────────────────────────────────────────
+#
+# `purge_synthetic_events.py` exists because verification traffic injected over the WebSocket is
+# INDISTINGUISHABLE from genuine learner cycles in `research_events` -- the table has no origin
+# field -- so it entered the research record and showed on the Pipeline Monitor as a learner
+# sitting in front of a camera that was never opened. Cleaning it up needed a hand-kept list of
+# session ids, which only works if someone wrote the list down.
+#
+# A run that fabricates cycles marks itself here instead, and every event it produces carries the
+# mark. Set at the single emission point for the same reason `config_version` is: there are dozens
+# of call sites, and the one that forgot would leave exactly the row an analysis must exclude
+# looking exactly like a real one.
+#
+# The mark lands INSIDE `payload`, not beside it: `research_event_service._row` persists only the
+# declared columns and `payload`, so a top-level key would survive the log line and the monitor
+# bus and then vanish on the way to the table -- present everywhere it does not matter, absent
+# where it does.
+_synthetic: ContextVar[bool] = ContextVar("research_synthetic", default=False)
+
+
+@contextmanager
+def synthetic_run():
+    """Mark every research event emitted inside this block as fabricated.
+
+    Contextvar-scoped, so it follows the await chain through the whole agent graph without any
+    node knowing about it, and it cannot leak into a concurrent real cycle on the same worker.
+    """
+    token = _synthetic.set(True)
+    try:
+        yield
+    finally:
+        _synthetic.reset(token)
+
+
+def is_synthetic_run() -> bool:
+    """Whether the caller is inside a `synthetic_run()` block."""
+    return _synthetic.get()
+
 
 # Monotonic per-session sequence counters (in-process). One WS connection per learner on
 # one server makes this monotonic per session; multi-worker would use Redis INCR (forward).
@@ -83,8 +124,13 @@ async def emit(event: dict[str, Any]) -> None:
         except Exception:
             config_version = None
 
+        payload = event.get("payload")
+        if _synthetic.get():
+            payload = {**(payload if isinstance(payload, dict) else {}), "synthetic": True}
+
         event = {
             **event,
+            "payload": payload,
             "sequence_number": _next_sequence(event.get("session_id")),
             # An explicit value already on the event wins, so a replay or a backfill can state
             # the version the row ORIGINALLY ran under rather than today's.
