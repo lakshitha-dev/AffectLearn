@@ -18,13 +18,15 @@ from app.models.study_group import StudyGroup
 from app.models.user import Role, User
 from app.schemas.base import PaginatedResponse
 from app.schemas.study import (
+    AuditCheck,
     GroupAssignmentResponse,
     GroupAssignRequest,
     LockResponse,
     PhaseResponse,
     PhaseSetRequest,
+    PhaseTransitionEntry,
 )
-from app.services import study_service
+from app.services import study_audit_service, study_service
 
 router = APIRouter()
 
@@ -139,3 +141,33 @@ async def set_phase(
         "to": result["to"],
         "transitionedAt": transitioned_at.isoformat() if transitioned_at else None,
     }
+
+
+@router.get("/study/phase/history", response_model=list[PhaseTransitionEntry])
+async def phase_history(
+    current_user: User = Depends(require_role(Role.admin)),
+    db: AsyncSession = Depends(get_db),
+):
+    """When each phase began, and who began it (Story 8.4).
+
+    The phase toggle had no log a coordinator could read. `study_phase` holds only the current
+    value, so the answer to "when did we move to Phase B" lived solely in the research event
+    stream, which the admin console does not query.
+    """
+    return [
+        PhaseTransitionEntry(**entry)
+        for entry in await study_audit_service.phase_history(db)
+    ]
+
+
+@router.get("/study/audit", response_model=list[AuditCheck])
+async def study_audit(
+    current_user: User = Depends(require_role(Role.admin)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Research-integrity checks over the A/B assignment (FR50).
+
+    Reports pass/fail per check rather than a single verdict: "the study is fine" is not
+    actionable, and the checks fail for different reasons needing different responses.
+    """
+    return [AuditCheck(**check) for check in await study_audit_service.audit(db)]

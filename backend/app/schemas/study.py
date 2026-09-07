@@ -46,3 +46,32 @@ class PhaseSetRequest(CamelModel):
 # PhaseTransitionResponse is returned as a plain dict `{from, to, transitionedAt}` from the
 # route: `from`/`to` are Python keywords that can't be model field names, and the keys are
 # the research-event contract (`from`/`to`), so the route serializes them directly.
+
+
+class PhaseTransitionEntry(CamelModel):
+    """One recorded move between study phases.
+
+    Reconstructed from the `phase_transition` research events rather than a history table:
+    `study_phase` is a singleton holding only the CURRENT phase, so it cannot say when each phase
+    began or who began it, while the event log has recorded exactly that all along.
+    """
+
+    from_phase: str | None = None
+    to_phase: str | None = None
+    transitioned_at: str | None = None
+    timestamp: int
+    actor_id: str | None = None
+    #: Resolved for display. None when the account has since been deleted — the transition still
+    #: happened, so the row is kept.
+    actor_name: str | None = None
+
+
+class AuditCheck(CamelModel):
+    """One research-integrity check (FR50)."""
+
+    id: str
+    label: str
+    passed: bool
+    #: Number of offending rows, so a failure says how bad and not only that it happened.
+    count: int
+    detail: str
