@@ -419,6 +419,7 @@ export async function getCourseDetail(
 export async function seedLearnerOnFirstLesson(
   request: APIRequestContext,
   prefix: string,
+  webcamEnabled = false,
 ): Promise<{
   creds: TestCredentials;
   tokens: TokenResponse;
@@ -430,6 +431,16 @@ export async function seedLearnerOnFirstLesson(
 }> {
   const creds = makeCredentials(prefix);
   const tokens = await apiRegister(request, creds);
+
+  // Onboarding, not just registration. Without consent the app redirects every lesson URL to
+  // /onboarding, so a spec that navigates straight to a lesson lands on "Let's set up your
+  // learning experience" and every assertion fails looking for content that was never rendered.
+  // Defaults to behavioural mode (no webcam), which is what the signal-collection specs assume.
+  await apiGiveConsent(request, tokens.accessToken);
+  await apiSetWebcamMode(request, tokens.accessToken, webcamEnabled);
+
+  // Re-fetched AFTER consent so the user object seeded into storage carries `consentGivenAt`;
+  // the client checks that field, not the server, before letting a lesson render.
   const user = await apiGetMe(request, tokens.accessToken);
   const courseId = await getFirstCourseId(request, tokens.accessToken);
   await apiEnroll(request, tokens.accessToken, courseId);
