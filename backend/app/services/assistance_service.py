@@ -222,3 +222,34 @@ async def _safe_rollback(db: AsyncSession) -> None:
         await db.rollback()
     except Exception:  # noqa: BLE001
         logger.warning("assistance_ledger_rollback_failed", exc_info=True)
+
+
+async def texts_shown_in_section(
+    db: AsyncSession, *, learner_id: Any, section_id: Any, limit: int = 3
+) -> list[str]:
+    """What this learner has already been SHOWN in this section, newest first.
+
+    The read behind "do not say the same thing twice". The escalation ladder stops the system
+    repeating an ACTION, but nothing stopped it repeating a FRAMING: with the ladder enforced,
+    `show_alternative` was observed returning the same "think of it like a friendly greeting"
+    analogy the `show_hint` two rungs earlier had already used. The action escalated; the learner
+    got the same explanation reworded.
+
+    Scoped to one section because that is the unit the ladder is scoped to, and because a hint
+    given about a different section is not a repetition — it is unrelated material.
+
+    Empty text is filtered out rather than returned: a blank line in the prompt would spend tokens
+    telling the model nothing.
+    """
+    stmt = (
+        select(AssistanceEvent.hint_text)
+        .where(
+            AssistanceEvent.learner_id == _uuid_or_none(learner_id),
+            AssistanceEvent.section_id == _uuid_or_none(section_id),
+            AssistanceEvent.hint_text.isnot(None),
+        )
+        .order_by(AssistanceEvent.created_at.desc())
+        .limit(max(1, min(int(limit), 10)))
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [t.strip() for t in rows if t and t.strip()]

@@ -549,3 +549,78 @@ async def test_research_event_records_whether_a_human_wrote_it(monkeypatch, even
 
     evt = [e for e in events if e["event_type"] == "adaptation_triggered"][-1]
     assert evt["payload"]["authored_variant"] is True
+
+
+# ── Not saying the same thing twice ─────────────────────────────────────────
+#
+# The escalation ladder stops the system repeating an ACTION. Nothing stopped it repeating a
+# FRAMING: with the ladder enforced, `show_alternative` was measured returning the same "think of
+# it like a friendly greeting" analogy the `show_hint` two rungs earlier had already used. The
+# action escalated and the learner got the same explanation reworded, which is the outcome the
+# ladder exists to prevent.
+
+
+class TestPriorMessagesReachThePrompt:
+    def test_prompt_lists_what_was_already_shown(self):
+        from app.agents.nodes.content_adapter import _build_human_prompt
+
+        prompt = _build_human_prompt(
+            "show_alternative",
+            {"skill_level": "intermediate"},
+            {"topic": "TCP", "body": "The client sends SYN."},
+            ["Think of it like a friendly greeting."],
+        )
+
+        assert "ALREADY shown this learner" in prompt
+        assert "Think of it like a friendly greeting." in prompt
+
+    def test_prompt_asks_for_something_genuinely_different(self):
+        from app.agents.nodes.content_adapter import _build_human_prompt
+
+        prompt = _build_human_prompt(
+            "show_alternative", {}, {"topic": "TCP"}, ["A previous hint."]
+        )
+
+        assert "GENUINELY different" in prompt
+        assert "Do not restate" in prompt
+
+    def test_a_first_intervention_carries_no_such_block(self):
+        """Nothing has been shown yet, so the instruction would be noise and cost tokens."""
+        from app.agents.nodes.content_adapter import _build_human_prompt
+
+        prompt = _build_human_prompt("show_hint", {}, {"topic": "TCP"}, [])
+
+        assert "ALREADY shown" not in prompt
+        assert "GENUINELY different" not in prompt
+
+
+class TestThePriorMessageLookupIsSafe:
+    async def test_returns_empty_without_a_section(self):
+        from app.agents.nodes.content_adapter import _previously_shown
+
+        state = _state("show_alternative")
+        state["db"] = object()
+        assert await _previously_shown(state) == []
+
+    async def test_returns_empty_without_a_db(self):
+        from app.agents.nodes.content_adapter import _previously_shown
+
+        state = _state("show_alternative")
+        state["content_context"] = {"section_id": "sec-1"}
+        assert await _previously_shown(state) == []
+
+    async def test_a_lookup_failure_costs_variety_not_the_intervention(self, monkeypatch):
+        """NFR22: the node must always produce usable content."""
+        from app.agents.nodes.content_adapter import _previously_shown
+        from app.services import assistance_service
+
+        async def boom(db, *, learner_id, section_id, limit):
+            raise RuntimeError("database went away")
+
+        monkeypatch.setattr(assistance_service, "texts_shown_in_section", boom)
+
+        state = _state("show_alternative")
+        state["content_context"] = {"section_id": "sec-1"}
+        state["db"] = object()
+
+        assert await _previously_shown(state) == []
