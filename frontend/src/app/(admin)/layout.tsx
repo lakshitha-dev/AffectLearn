@@ -12,6 +12,8 @@ const NAV_ITEMS = [
   { label: "Pipeline Monitor", href: "/monitor" },
   { label: "System Health", href: "/system-health" },
   { label: "Data Export", href: "/data-export" },
+  // Whether the ground-truth labels the study rests on are worth resting on (Story 8.6).
+  { label: "Label Quality", href: "/quality" },
   { label: "Settings", href: "/admin-settings" },
   // The admin's own profile/password, distinct from the system-wide gate configuration above.
   { label: "Account", href: "/account" },
