@@ -142,7 +142,14 @@ async def emit(event: dict[str, Any]) -> None:
         await redis_service.stream_add(_STREAM, event)  # best-effort durable path
         logger.info("research_event", **event)
     except Exception:
-        logger.exception("research_event_emit_failed", event_type=event.get("event_type"))
+        # Same shape as `trace.emit_trace`: the handler must not be able to raise either, or the
+        # "never raises (NFR22)" in the docstring above is not true. A console encoding that
+        # cannot represent a character in the event makes `logger.exception` throw exactly where
+        # it is being used to swallow a throw.
+        try:
+            logger.exception("research_event_emit_failed", event_type=event.get("event_type"))
+        except Exception:
+            pass
 
 
 def _reset_sequences() -> None:

@@ -109,3 +109,48 @@ async def test_emit_preserves_content_coordinates_at_top_level(monkeypatch):
 
     assert published[0]["course_id"] == "c1"
     assert published[0]["section_id"] == "sec1"
+
+
+class TestEmittersAreTotal:
+    """Both emitters promise in their docstrings that they never raise. They could.
+
+    Each wrapped its body in `except Exception: logger.exception(...)` -- and the handler uses the
+    same logger that just failed. On a console whose encoding cannot represent a character in the
+    event (a Windows cp1252 stdout and the "→" the router puts in its reason string), the handler
+    hit the identical UnicodeEncodeError and it propagated: out of `emit_trace`, out of the
+    instrumented graph node, and out of the request as a 500. Observability took the cycle down,
+    which is the one thing NFR22 says it must not do.
+    """
+
+    def test_emit_trace_survives_a_logger_that_always_raises(self, monkeypatch):
+        from app.services import trace
+
+        class ExplodingLogger:
+            def debug(self, *a, **kw):
+                raise UnicodeEncodeError("charmap", "x", 0, 1, "no")
+
+            def exception(self, *a, **kw):
+                raise UnicodeEncodeError("charmap", "x", 0, 1, "no")
+
+        monkeypatch.setattr(trace, "logger", ExplodingLogger())
+        monkeypatch.setattr(trace.settings, "MONITOR_ENABLED", True)
+
+        trace.emit_trace("node_completed", node="learner_profiler", reason="a → b")
+
+    async def test_emit_survives_a_logger_that_always_raises(self, monkeypatch):
+        from app.services import research_logger
+
+        class ExplodingLogger:
+            def info(self, *a, **kw):
+                raise UnicodeEncodeError("charmap", "x", 0, 1, "no")
+
+            def exception(self, *a, **kw):
+                raise UnicodeEncodeError("charmap", "x", 0, 1, "no")
+
+        monkeypatch.setattr(research_logger, "logger", ExplodingLogger())
+
+        await research_logger.emit({
+            "event_type": "learner_profile_updated",
+            "session_id": "s",
+            "payload": {"reason": "a → b"},
+        })

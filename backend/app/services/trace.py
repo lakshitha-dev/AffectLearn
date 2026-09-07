@@ -38,4 +38,13 @@ def emit_trace(event_type: str, **fields: Any) -> None:
         monitor_bus.publish(event)
         logger.debug("trace_event", **event)
     except Exception:
-        logger.exception("emit_trace_failed", event_type=event_type)
+        # The handler must not be able to raise either. It did: on a console whose encoding
+        # cannot represent a character in the event (a Windows cp1252 stdout and the "→" in the
+        # router's reason string), `logger.exception` hit the same UnicodeEncodeError as the
+        # `logger.debug` above, and it propagated out of `emit_trace`, out of the instrumented
+        # node, and killed the cycle with a 500. The module docstring promises tracing cannot
+        # affect the agent loop; without this, it could.
+        try:
+            logger.exception("emit_trace_failed", event_type=event_type)
+        except Exception:
+            pass
