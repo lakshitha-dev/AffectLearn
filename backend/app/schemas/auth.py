@@ -138,6 +138,17 @@ class AdminUserItem(CamelModel):
     created_at: str | None = None
 
 
+class AdminUserUpdate(CamelModel):
+    """Administrative changes to somebody else's account.
+
+    Only the two fields an administrator legitimately controls. Name and email are the account
+    holder's to change from their own profile; a password is nobody else's to set.
+    """
+
+    role: Literal["learner", "course_designer", "admin"] | None = None
+    is_active: bool | None = None
+
+
 class ChangePasswordRequest(CamelModel):
     """Change the password of the signed-in account.
 
