@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { AccountDataControls } from "@/components/learning/AccountDataControls";
+import { ChangePasswordForm } from "@/components/shared/ChangePasswordForm";
+import { ProfileForm } from "@/components/shared/ProfileForm";
 import { useSessionStore } from "@/stores/session-store";
 import { useSetWebcamMode } from "@/hooks/use-onboarding";
 import { useWebcamStore } from "@/stores/webcam-store";
@@ -81,20 +83,17 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[
-              { label: "First name", value: user.firstName },
-              { label: "Last name", value: user.lastName },
-              { label: "Email address", value: user.emailAddress },
-              { label: "Adaptive mode", value: enabled ? "Webcam + Behavioral" : "Behavioral only" },
-            ].map((field) => (
-              <div key={field.label}>
-                <p className="text-xs font-medium text-muted-foreground mb-1">{field.label}</p>
-                <p className="text-sm text-foreground">{field.value}</p>
-              </div>
-            ))}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-1">Adaptive mode</p>
+            <p className="text-sm text-foreground">
+              {enabled ? "Webcam + Behavioral" : "Behavioral only"}
+            </p>
           </div>
         </div>
+
+        <ProfileForm />
+
+        <ChangePasswordForm />
 
         <div className="rounded-lg border border-border bg-surface p-6">
           <h2 className="mb-1 font-semibold text-foreground">Privacy &amp; Webcam</h2>

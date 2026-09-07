@@ -13,7 +13,21 @@ from app.schemas.base import CamelModel, PaginatedResponse
 # ContentBlock schemas
 # ---------------------------------------------------------------------------
 
-_BlockTypeLiteral = Literal["text", "code", "image", "callout", "exercise", "quiz"]
+#: `table` is in `BlockType` and in the renderer, and was missing from this literal — so a table
+#: block could be READ and drawn for learners but never created or updated through the API, which
+#: is why no editor tab could own the type. The column is a plain varchar with no CHECK
+#: constraint, so admitting it here needs no migration.
+_BlockTypeLiteral = Literal[
+    "text", "code", "image", "callout", "exercise", "quiz", "table"
+]
+
+
+#: The alternatives a designer may author for a block, and the only keys the adaptation loop
+#: looks for. `simpler` backs `show_alternative` when a learner is confused; `harder` backs
+#: `increase_difficulty` and `skip_ahead` when they are bored. Kept to a closed set so an
+#: authored variant is one the loop can actually reach — a free-text key would let a designer
+#: write content nothing ever selects.
+_VariantKeyLiteral = Literal["simpler", "harder", "alternative"]
 
 
 class ContentBlockCreate(CamelModel):
@@ -22,6 +36,17 @@ class ContentBlockCreate(CamelModel):
     sort_order: int = Field(ge=0)
     variant_key: str = Field(default="original", max_length=50)
     variant_group: uuid.UUID | None = None
+
+
+class ContentBlockVariantCreate(CamelModel):
+    """Author an alternative rendering of an existing block.
+
+    `variant_key` names WHICH alternative this is. The adaptation loop looks a variant up by that
+    key, so the vocabulary is shared with the pedagogical actions rather than free text.
+    """
+
+    variant_key: _VariantKeyLiteral
+    content: dict
 
 
 class ContentBlockUpdate(CamelModel):
@@ -185,3 +210,28 @@ class CourseDetailResponse(CourseResponse):
 
 class CourseListResponse(PaginatedResponse):
     items: list[CourseResponse]
+
+
+# ---------------------------------------------------------------------------
+# Published content versions
+# ---------------------------------------------------------------------------
+#
+# `content_versions` has been written on every publish since migration 025 and had no read
+# endpoint at all — snapshots accumulated that nobody could look at. These are that read.
+
+
+class ContentVersionSummary(CamelModel):
+    """One row of the history table. No snapshot: see `list_versions`."""
+
+    id: uuid.UUID
+    version_number: int
+    published_at: datetime
+    #: Display name of whoever published it, or None if that account has since been deleted
+    #: (`published_by` is SET NULL precisely so the record survives the person).
+    published_by_name: str | None = None
+
+
+class ContentVersionDetail(ContentVersionSummary):
+    """One version WITH the full content tree captured at publish time."""
+
+    snapshot: dict

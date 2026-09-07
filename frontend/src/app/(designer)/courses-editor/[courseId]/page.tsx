@@ -18,6 +18,9 @@ import {
   useUpdateModule,
   useUpdateSection,
 } from "@/hooks/use-authoring";
+import { AssessmentEditor } from "@/components/editor/AssessmentEditor";
+import { CourseRoster } from "@/components/designer/CourseRoster";
+import { VersionHistory } from "@/components/designer/VersionHistory";
 import { SectionBlocks } from "@/components/editor/SectionBlocks";
 import type { Lesson, Module, Section } from "@/types/course";
 
@@ -148,6 +151,20 @@ export default function CourseStructurePage({
           )}
         </div>
       )}
+
+      {/*
+        Every publish has snapshotted the whole course into `content_versions` since migration
+        025 and nothing could read one back. Shown only to those who can edit, matching the rest
+        of this page — a designer with no Edit action has no use for the authoring history.
+      */}
+      {/*
+        Who is actually on the course. Visible to anyone who can see the analytics for it (own
+        courses plus shared/system content), which is a wider rule than editing — reading a
+        roster is not authoring.
+      */}
+      <CourseRoster courseId={courseId} />
+
+      {editable && <VersionHistory courseId={courseId} />}
     </div>
   );
 }
@@ -274,6 +291,14 @@ function ModuleCard({
               )}
             </div>
           )}
+
+          {/*
+            The module's pre/post assessments. FR9's learner side has been built and tested for a
+            long time — taking one, scoring it, gating the post on module completion — while
+            nothing anywhere could CREATE one. Nested under the module because that is the unit
+            the learner routes fetch by (`?module_id=&type=`).
+          */}
+          {editable && <AssessmentEditor moduleId={module.id} />}
         </div>
       )}
     </div>

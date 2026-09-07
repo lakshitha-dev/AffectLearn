@@ -217,3 +217,98 @@ async def test_section_detail_unknown_section_404(client, designer_headers):
         f"{BASE}/sections/{uuid.uuid4()}/detail", headers=designer_headers
     )
     assert resp.status_code == 404
+
+
+# --- Course scoping (cross-designer leak) ---
+#
+# `/analytics/*` was role-guarded but not course-scoped, so any designer could read any other
+# designer's learner affect data, struggle leaderboards and per-paragraph confusion.
+#
+# The rule deliberately differs from the EDIT rule. Seeded courses carry `created_by = NULL` and
+# the edit rule treats those as admin-only system content; reusing it here would have locked every
+# designer out of the pilot course's analytics, which is the whole point of the screen. So system
+# content stays shared and only a course with a NAMED owner is restricted to that owner.
+
+
+async def _seed_owned_course(db, owner_id):
+    """A course with a real owner — the case the cross-designer rule restricts."""
+    course = Course(title="Owned Course", is_published=True, created_by=owner_id)
+    db.add(course)
+    await db.flush()
+    module = Module(title="M", sort_order=0, course_id=course.id)
+    db.add(module)
+    await db.flush()
+    lesson = Lesson(title="L", sort_order=0, module_id=module.id)
+    db.add(lesson)
+    await db.flush()
+    section = Section(title="S", sort_order=0, lesson_id=lesson.id)
+    db.add(section)
+    await db.commit()
+    return course, section
+
+
+async def test_analytics_forbidden_for_another_designers_course(
+    client, db, test_designer, test_admin, designer_headers
+):
+    # Owned by the ADMIN account here purely as "some other user id" — the rule is about the
+    # owner not being the caller, not about which role owns it.
+    course, _ = await _seed_owned_course(db, test_admin.id)
+
+    resp = await client.get(f"{BASE}/courses/{course.id}/overview", headers=designer_headers)
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error"]["code"] == "NOT_COURSE_OWNER"
+
+
+async def test_analytics_allowed_for_own_course(client, db, test_designer, designer_headers):
+    course, _ = await _seed_owned_course(db, test_designer.id)
+
+    resp = await client.get(f"{BASE}/courses/{course.id}/overview", headers=designer_headers)
+    assert resp.status_code == 200
+
+
+async def test_analytics_allowed_for_system_course(client, db, test_user, designer_headers):
+    """Regression guard for the pilot.
+
+    Seeded courses have no creator. If this ever returns 403 the designer analytics screen is
+    dead for the one course the study actually runs on.
+    """
+    course, _ = await _seed_course(db, test_user)
+    assert course.created_by is None
+
+    resp = await client.get(f"{BASE}/courses/{course.id}/overview", headers=designer_headers)
+    assert resp.status_code == 200
+
+
+async def test_admin_sees_another_designers_course_analytics(
+    client, db, test_designer, admin_headers
+):
+    course, _ = await _seed_owned_course(db, test_designer.id)
+
+    resp = await client.get(f"{BASE}/courses/{course.id}/overview", headers=admin_headers)
+    assert resp.status_code == 200
+
+
+async def test_section_scoped_analytics_follow_the_same_rule(
+    client, db, test_admin, designer_headers
+):
+    """Section endpoints resolve up to the course; guarding only the course routes would leave
+    the section ones open to exactly the same read."""
+    _, section = await _seed_owned_course(db, test_admin.id)
+
+    assert (
+        await client.get(f"{BASE}/sections/{section.id}/detail", headers=designer_headers)
+    ).status_code == 403
+    assert (
+        await client.get(f"{BASE}/sections/{section.id}/questions", headers=designer_headers)
+    ).status_code == 403
+
+
+async def test_effectiveness_and_struggle_are_scoped(client, db, test_admin, designer_headers):
+    course, _ = await _seed_owned_course(db, test_admin.id)
+
+    assert (
+        await client.get(f"{BASE}/courses/{course.id}/effectiveness", headers=designer_headers)
+    ).status_code == 403
+    assert (
+        await client.get(f"{BASE}/courses/{course.id}/struggle", headers=designer_headers)
+    ).status_code == 403

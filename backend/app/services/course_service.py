@@ -234,15 +234,31 @@ async def delete_lesson(db: AsyncSession, lesson_id: uuid.UUID) -> None:
     await db.commit()
 
 
-async def get_lesson_detail(db: AsyncSession, lesson_id: uuid.UUID) -> Lesson:
-    """Return a lesson with all sections and content blocks eagerly loaded."""
-    stmt = (
-        select(Lesson)
-        .where(Lesson.id == lesson_id)
-        .options(
-            selectinload(Lesson.sections).selectinload(Section.content_blocks)
+#: The variant every learner sees unless the adaptation loop swaps one in. A block created
+#: without an explicit key gets this, so pre-variant content keeps working untouched.
+ORIGINAL_VARIANT = "original"
+
+
+async def get_lesson_detail(
+    db: AsyncSession, lesson_id: uuid.UUID, *, originals_only: bool = False
+) -> Lesson:
+    """Return a lesson with its sections and content blocks eagerly loaded.
+
+    `originals_only` filters to `variant_key == "original"` and is what the LEARNER reader passes.
+    Without it every authored alternative — the simpler explanation, the harder variant — would
+    render inline alongside the block it is an alternative TO, so a section with two variants
+    would read as the same idea explained twice in a row.
+
+    Designers get the unfiltered tree, because they are the ones authoring the alternatives and
+    need to see that they exist.
+    """
+    blocks = selectinload(Lesson.sections).selectinload(Section.content_blocks)
+    if originals_only:
+        blocks = selectinload(Lesson.sections).selectinload(
+            Section.content_blocks.and_(ContentBlock.variant_key == ORIGINAL_VARIANT)
         )
-    )
+
+    stmt = select(Lesson).where(Lesson.id == lesson_id).options(blocks)
     lesson = (await db.execute(stmt)).scalar_one_or_none()
     if lesson is None:
         raise HTTPException(
@@ -324,11 +340,99 @@ async def create_content_block(db: AsyncSession, section_id: uuid.UUID, *, block
     return block
 
 
-async def list_content_blocks(db: AsyncSession, section_id: uuid.UUID) -> list[ContentBlock]:
+async def list_content_blocks(
+    db: AsyncSession, section_id: uuid.UUID, *, originals_only: bool = False
+) -> list[ContentBlock]:
     await _get_or_404(db, Section, section_id, "Section not found")
-    stmt = select(ContentBlock).where(ContentBlock.section_id == section_id).order_by(ContentBlock.sort_order)
-    result = await db.execute(stmt)
+    stmt = select(ContentBlock).where(ContentBlock.section_id == section_id)
+    if originals_only:
+        stmt = stmt.where(ContentBlock.variant_key == ORIGINAL_VARIANT)
+    result = await db.execute(stmt.order_by(ContentBlock.sort_order))
     return list(result.scalars().all())
+
+
+async def list_block_variants(
+    db: AsyncSession, block_id: uuid.UUID
+) -> list[ContentBlock]:
+    """Every block sharing this one's `variant_group`, the original first.
+
+    Variants live in the same section as the block they alternate for and are distinguished by
+    `variant_key`; the group id is what ties a family together.
+    """
+    block = await _get_or_404(db, ContentBlock, block_id, "Content block not found")
+    stmt = (
+        select(ContentBlock)
+        .where(ContentBlock.variant_group == block.variant_group)
+        .order_by(ContentBlock.variant_key != ORIGINAL_VARIANT, ContentBlock.variant_key)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def upsert_block_variant(
+    db: AsyncSession,
+    block_id: uuid.UUID,
+    *,
+    variant_key: str,
+    content: dict,
+) -> ContentBlock:
+    """Create or replace one alternative of `block_id`.
+
+    Idempotent on `(variant_group, variant_key)`. The loop selects a variant BY KEY, so allowing
+    two blocks to answer to the same key would make which one a learner receives arbitrary — and
+    a designer editing "the simpler version" twice plainly means to edit it, not to fork it.
+
+    The variant inherits the original's section, block type and sort order: it is a substitute for
+    that block in that position, not a new piece of content elsewhere in the lesson.
+    """
+    original = await _get_or_404(db, ContentBlock, block_id, "Content block not found")
+
+    existing = (
+        await db.execute(
+            select(ContentBlock).where(
+                ContentBlock.variant_group == original.variant_group,
+                ContentBlock.variant_key == variant_key,
+            )
+        )
+    ).scalars().first()
+
+    if existing is not None:
+        existing.content = content
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    variant = ContentBlock(
+        block_type=original.block_type,
+        content=content,
+        sort_order=original.sort_order,
+        variant_key=variant_key,
+        section_id=original.section_id,
+    )
+    variant.variant_group = original.variant_group
+    db.add(variant)
+    await db.commit()
+    await db.refresh(variant)
+    return variant
+
+
+async def find_variant(
+    db: AsyncSession, *, section_id: uuid.UUID, variant_key: str
+) -> ContentBlock | None:
+    """The authored `variant_key` alternative in this section, if one exists.
+
+    This is the read the adaptation loop makes before falling back to generated text. It returns
+    None rather than raising: no authored variant is the ordinary case, not an error.
+    """
+    stmt = (
+        select(ContentBlock)
+        .where(
+            ContentBlock.section_id == section_id,
+            ContentBlock.variant_key == variant_key,
+        )
+        .order_by(ContentBlock.sort_order)
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalars().first()
 
 
 async def update_content_block(db: AsyncSession, block_id: uuid.UUID, **fields) -> ContentBlock:

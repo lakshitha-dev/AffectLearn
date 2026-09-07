@@ -235,3 +235,25 @@ class TestGet:
         assert r_other.json()["responses"]["Q1"] == "5"
         assert r_first.json()["userId"] == str(test_user.id)
         assert r_other.json()["userId"] == str(other.id)
+
+
+class TestOnlyLearnersContributeSurveyRows:
+    """Same rule as the onboarding questionnaire, for the same reason: this is research data."""
+
+    async def test_designer_cannot_submit(self, client, designer_headers):
+        resp = await client.post(
+            POST_URL, json={"responses": _valid_responses()}, headers=designer_headers
+        )
+        assert resp.status_code == 403
+
+    async def test_admin_cannot_submit(self, client, admin_headers):
+        resp = await client.post(
+            POST_URL, json={"responses": _valid_responses()}, headers=admin_headers
+        )
+        assert resp.status_code == 403
+
+    async def test_learner_still_can(self, client, auth_headers):
+        resp = await client.post(
+            POST_URL, json={"responses": _valid_responses()}, headers=auth_headers
+        )
+        assert resp.status_code in (200, 201)

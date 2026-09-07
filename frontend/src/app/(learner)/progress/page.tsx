@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { AssistanceHistory } from "@/components/learning/AssistanceHistory";
 import { useLearnerProgress } from "@/hooks/use-progress";
 import { useSessionStore } from "@/stores/session-store";
 
@@ -121,6 +122,15 @@ export default function ProgressPage() {
           </div>
         </>
       )}
+
+      {/*
+        Every hint delivered was recorded and nothing ever showed it back to the person who
+        received it. Placed on Progress rather than a route of its own: "what help did I get" is
+        the same question as "how am I doing", and a nav item per read is how menus get long.
+      */}
+      <div className="mt-8">
+        <AssistanceHistory />
+      </div>
     </div>
   );
 }

@@ -140,7 +140,18 @@ class Section(BaseModel):
 class ContentBlock(BaseModel):
     __tablename__ = "content_blocks"
     __table_args__ = (
-        UniqueConstraint("section_id", "sort_order", name="uq_content_blocks_section_sort"),
+        # Position is unique WITHIN A VARIANT TRACK, not within the section.
+        #
+        # A variant is a substitute for the block it alternates for, standing in the same place
+        # in the same section — so it legitimately carries the same `sort_order`. The original
+        # two-column constraint made that impossible and would have forced authored variants to
+        # be parked at meaningless positions past the end of the section.
+        UniqueConstraint(
+            "section_id",
+            "variant_key",
+            "sort_order",
+            name="uq_content_blocks_section_variant_sort",
+        ),
     )
 
     block_type = Column(Enum(BlockType, native_enum=False), nullable=False)

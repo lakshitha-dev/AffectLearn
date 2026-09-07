@@ -33,6 +33,21 @@ async def create_enrollment(
             detail={"error": {"code": "NOT_FOUND", "message": "Course not found"}},
         )
 
+    # A learner who left and came back re-activates the row they already have, rather than being
+    # told they are still enrolled in a course they just left. Their progress is still attached
+    # to it, so rejoining resumes where they stopped — which is the point of leaving softly.
+    existing = await get_enrollment(db, user_id=user_id, course_id=course_id)
+    if existing is not None:
+        if existing.status == "dropped":
+            existing.status = "active"
+            await db.commit()
+            await db.refresh(existing)
+            return existing
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": {"code": "ALREADY_ENROLLED", "message": "Already enrolled in this course"}},
+        )
+
     enrollment = Enrollment(user_id=user_id, course_id=course_id)
     db.add(enrollment)
     try:
@@ -43,6 +58,33 @@ async def create_enrollment(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": {"code": "ALREADY_ENROLLED", "message": "Already enrolled in this course"}},
         )
+    await db.refresh(enrollment)
+    return enrollment
+
+
+async def drop_enrollment(
+    db: AsyncSession, *, user_id: uuid.UUID, course_id: uuid.UUID
+) -> Enrollment:
+    """Leave a course WITHOUT destroying anything.
+
+    Deliberately a status change and not a DELETE. `Enrollment.section_progress` cascades
+    delete-orphan and `assessment_attempts.enrollment_id` is ON DELETE CASCADE, so removing the
+    row would take every section the learner completed and every pre/post assessment score with
+    it. During a pilot those scores ARE the study, and a "leave course" button that silently
+    erases them is not a feature anyone asked for.
+
+    `dropped` is already in the status vocabulary the client types against, so nothing new is
+    invented here — the value simply had no way to be set by the person it describes.
+    """
+    enrollment = await get_enrollment(db, user_id=user_id, course_id=course_id)
+    if enrollment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Not enrolled in this course"}},
+        )
+
+    enrollment.status = "dropped"
+    await db.commit()
     await db.refresh(enrollment)
     return enrollment
 

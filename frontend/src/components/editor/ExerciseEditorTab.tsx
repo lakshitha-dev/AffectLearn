@@ -3,16 +3,20 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { apiFetch } from "@/lib/api-client";
-import type { LessonDetail } from "@/types/course";
+import { useQueryClient } from "@tanstack/react-query";
+
+import type { SectionDetail } from "@/types/course";
+import { upsertBlock } from "./upsert-block";
 
 interface ExerciseEditorTabProps {
-  lesson: LessonDetail;
+  /** The section chosen in the editor shell. Undefined only when the lesson has none. */
+  section: SectionDetail | undefined;
   lessonId: string;
 }
 
-export function ExerciseEditorTab({ lesson, lessonId }: ExerciseEditorTabProps) {
-  const exerciseBlock = lesson.sections?.[0]?.contentBlocks?.find((b) => b.blockType === "exercise");
+export function ExerciseEditorTab({ section, lessonId }: ExerciseEditorTabProps) {
+  const queryClient = useQueryClient();
+  const exerciseBlock = section?.contentBlocks?.find((b) => b.blockType === "exercise");
   const existing = exerciseBlock?.content as { prompt?: string; answer?: string; explanation?: string; type?: string } | undefined;
 
   const [prompt, setPrompt] = useState(existing?.prompt ?? "");
@@ -21,21 +25,28 @@ export function ExerciseEditorTab({ lesson, lessonId }: ExerciseEditorTabProps) 
   const [type, setType] = useState<"text" | "number">(existing?.type === "number" ? "number" : "text");
   const [saving, setSaving] = useState(false);
 
+  // Re-seed when the editor switches section. Without this the previous section's exercise stays
+  // in the form and the next Save writes it into the newly-selected section.
+  const [seededFor, setSeededFor] = useState<string | undefined>(section?.id);
+  if (seededFor !== section?.id) {
+    setSeededFor(section?.id);
+    setPrompt(existing?.prompt ?? "");
+    setAnswer(existing?.answer ?? "");
+    setExplanation(existing?.explanation ?? "");
+    setType(existing?.type === "number" ? "number" : "text");
+  }
+
   async function handleSave() {
     if (!prompt.trim()) { toast.error("Prompt is required"); return; }
     if (!answer.trim()) { toast.error("Answer is required"); return; }
     setSaving(true);
     try {
       const content = { prompt, answer, type, explanation };
-      if (exerciseBlock) {
-        await apiFetch(`/courses/content-blocks/${exerciseBlock.id}`, {
-          method: "PUT",
-          body: JSON.stringify({ content, blockType: "exercise" }),
-        });
-      }
+      await upsertBlock({ section, blockType: "exercise", content });
+      await queryClient.invalidateQueries({ queryKey: ["lessonDetail", lessonId] });
       toast.success("Exercise saved");
-    } catch {
-      toast.error("Could not save exercise");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save exercise");
     } finally {
       setSaving(false);
     }

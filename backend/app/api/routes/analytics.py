@@ -43,7 +43,7 @@ from app.schemas.analytics import (
     StruggleLeaderboardResponse,
     TemporalBin,
 )
-from app.services import analytics_service, content_effectiveness_service
+from app.services import analytics_service, content_effectiveness_service, course_ownership
 
 router = APIRouter()
 
@@ -52,9 +52,10 @@ router = APIRouter()
 async def get_course_overview(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ) -> CourseOverviewResponse:
     """Aggregated course overview stats with sample-size + confidence indicators (AC1)."""
+    await course_ownership.assert_can_view_course_analytics(db, current_user, course_id)
     data = await analytics_service.course_overview(db, course_id)
     return CourseOverviewResponse(**data)
 
@@ -63,9 +64,10 @@ async def get_course_overview(
 async def get_affect_heatmap(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ) -> AffectHeatmapResponse:
     """Per-section affect distribution in course order, each row carrying confidence (AC2)."""
+    await course_ownership.assert_can_view_course_analytics(db, current_user, course_id)
     data = await analytics_service.affect_heatmap(db, course_id)
     return AffectHeatmapResponse(
         course_id=data["course_id"],
@@ -77,9 +79,10 @@ async def get_affect_heatmap(
 async def get_section_detail(
     section_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ) -> SectionDetailResponse:
     """Section affect distribution, temporal bins, key insights, and annotated content (AC3)."""
+    await course_ownership.assert_can_view_section_analytics(db, current_user, section_id)
     data = await analytics_service.section_detail(db, section_id)
     return SectionDetailResponse(
         section_id=data["section_id"],
@@ -116,7 +119,7 @@ async def get_section_detail(
 async def get_course_effectiveness(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
     """Per-section behavioural evidence: dwell, revisits, answer reveals, wrong answers, and the
     help offered around them.
@@ -124,6 +127,7 @@ async def get_course_effectiveness(
     Every rate can be null, and null is not zero. A section where no help was offered and one
     where help was offered but never followed by an attempt are different facts.
     """
+    await course_ownership.assert_can_view_course_analytics(db, current_user, course_id)
     return await content_effectiveness_service.course_effectiveness(db, course_id)
 
 
@@ -132,7 +136,7 @@ async def get_struggle_leaderboard(
     course_id: uuid.UUID,
     limit: int = 5,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
     """The sections learners struggle with most, worst first.
 
@@ -140,6 +144,7 @@ async def get_struggle_leaderboard(
     twice can top any leaderboard by accident, and a designer acting on that would rewrite the
     wrong material.
     """
+    await course_ownership.assert_can_view_course_analytics(db, current_user, course_id)
     sections = await content_effectiveness_service.struggle_leaderboard(
         db, course_id, limit=max(1, min(limit, 50))
     )
@@ -150,7 +155,7 @@ async def get_struggle_leaderboard(
 async def get_section_questions(
     section_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(Role.course_designer, Role.admin)),
+    current_user: User = Depends(require_role(Role.course_designer, Role.admin)),
 ):
     """Item analysis for a section's quiz blocks.
 
@@ -158,4 +163,5 @@ async def get_section_questions(
     only, which is the fairer measure of whether the material taught it — later attempts are
     contaminated by the feedback earlier ones gave.
     """
+    await course_ownership.assert_can_view_section_analytics(db, current_user, section_id)
     return await content_effectiveness_service.section_questions(db, section_id)

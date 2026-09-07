@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 
 import { AffectDistributionBars } from "@/components/designer/AffectDistributionBars";
 import { ContentHotspotPreview } from "@/components/designer/ContentHotspotPreview";
+import { QuestionAnalysis } from "@/components/designer/QuestionAnalysis";
 import { SectionDetailSkeleton } from "@/components/designer/SectionDetailSkeleton";
 import { useSectionDetail } from "@/hooks/use-analytics";
 import type { SectionInsights } from "@/types/analytics";
@@ -174,6 +175,13 @@ export default function SectionDetailPage() {
               insufficientData={data.insufficientData}
             />
           </div>
+
+          {/*
+            Panel 4: per-question item analysis. The endpoint and its typed hook already existed
+            and nothing rendered them, so a designer could see that a SECTION caused confusion
+            without seeing which question inside it did.
+          */}
+          <QuestionAnalysis sectionId={sectionId} />
         </div>
       ) : null}
     </div>

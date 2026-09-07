@@ -13,6 +13,7 @@
 import { useState } from "react";
 
 import { exportMonitorCsv } from "@/hooks/use-monitor";
+import { GateReplayPanel } from "@/components/admin/GateReplayPanel";
 
 const WINDOWS = [
   { hours: 24, label: "Last 24 hours" },
@@ -105,6 +106,13 @@ export default function DataExportPage() {
         </p>
       </div>
 
+      {/*
+        Was listed here in prose as something "queried through the admin research API", which in
+        practice meant curl. It is the tool the deployment observations argue for, so it belongs
+        on the screen rather than in a sentence about the screen.
+      */}
+      <GateReplayPanel />
+
       <div className="rounded-lg border border-border bg-surface p-5">
         <h2 className="font-semibold text-foreground">Other datasets</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -116,9 +124,8 @@ export default function DataExportPage() {
           <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
             /phase-a-dataset
           </code>{" "}
-          (behavioural windows with self-report labels) and{" "}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">/gate-replay</code>{" "}
-          (re-run the adaptation gate at different thresholds over recorded cycles).
+          (behavioural windows with self-report labels). Gate replay now has its own panel
+          above.
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
           There is no pre/post assessment export. Assessment attempts are module-scoped and live in

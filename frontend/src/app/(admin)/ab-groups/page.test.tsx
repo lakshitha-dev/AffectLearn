@@ -21,6 +21,25 @@ const useStudyPhase = vi.fn();
 vi.mock("@/hooks/use-study", () => ({
   useStudyGroups: () => useStudyGroups(),
   useStudyPhase: () => useStudyPhase(),
+  // The page now also renders the allocation, phase and audit panels the console used to point
+  // at but not provide. A module mock replaces the WHOLE module, so every export those panels
+  // reach for has to be present here — an unmocked one comes back undefined and the component
+  // throws while rendering, which is what these three lines are for.
+  useAssignGroup: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useLockAssignments: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSetPhase: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  usePhaseHistory: () => ({ data: [], isPending: false, isError: false }),
+  useStudyAudit: () => ({ data: [], isPending: false, isError: false }),
+}));
+
+// The allocation table lists learner accounts to assign. These tests are about the allocation
+// SUMMARY the page has always shown, so the roster read returns empty rather than fixtures.
+vi.mock("@/hooks/use-admin-users", () => ({
+  useAdminUsers: () => ({
+    data: { items: [], total: 0, page: 1, pageSize: 100 },
+    isPending: false,
+    isError: false,
+  }),
 }));
 
 import ABGroupsPage from "./page";
@@ -109,7 +128,10 @@ describe("A/B groups page", () => {
 
   it("states that assignment is manual rather than a randomisation algorithm", () => {
     render(<ABGroupsPage />);
-    expect(screen.getByText(/manual/)).toBeInTheDocument();
+    // Said in more than one place now that the allocation controls are on the page: the summary
+    // explains it and the control that performs it repeats it. `getAllByText` because a single
+    // match is no longer the property being asserted — the absence of the false claim below is.
+    expect(screen.getAllByText(/manual/).length).toBeGreaterThan(0);
     expect(
       screen.queryByText(/balanced randomization algorithm/i),
     ).not.toBeInTheDocument();

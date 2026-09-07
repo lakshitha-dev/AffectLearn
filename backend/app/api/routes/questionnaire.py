@@ -20,9 +20,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_db, require_role
 from app.models.questionnaire_response import QuestionnaireResponse
-from app.models.user import User
+from app.models.user import Role, User
 from app.schemas.questionnaire import (
     QuestionnaireResponseSchema,
     QuestionnaireSubmitRequest,
@@ -30,6 +30,13 @@ from app.schemas.questionnaire import (
 from app.services.research_logger import emit as emit_research_event
 
 logger = structlog.get_logger(__name__)
+
+# WHY THESE ARE LEARNER-ONLY
+#
+# These rows ARE the research dataset. On `get_current_user` any authenticated account — designer
+# or admin — could submit one, and the resulting row is indistinguishable from a participant's
+# after the fact, so a stray click while testing silently contaminates the study. The learner
+# guard is the cheapest way to keep the dataset meaning what it claims to mean.
 
 router = APIRouter()
 
@@ -56,7 +63,7 @@ async def _safe_emit(event: dict) -> None:
 async def submit_questionnaire(
     payload: QuestionnaireSubmitRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(Role.learner)),
 ) -> QuestionnaireResponse:
     """Persist (idempotent upsert) the caller's pre-study questionnaire answers.
 
@@ -107,7 +114,7 @@ async def submit_questionnaire(
 )
 async def get_questionnaire(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(Role.learner)),
 ) -> QuestionnaireResponse:
     """Return the caller's own questionnaire submission, or 404 if none exists."""
     result = await db.execute(

@@ -190,3 +190,96 @@ def test_second_tab_supersedes_first(sync_client: TestClient, test_user: User):
             with pytest.raises(WebSocketDisconnect) as exc:
                 ws_a.receive_json()
             assert exc.value.code == WS_CLOSE_SUPERSEDED
+
+
+# --- Session restore on reconnect ---
+#
+# `_load_session_state` returned a hardcoded None for every learner, so the `session_restored`
+# branch was unreachable and the message documented in `routes/README.md` was one the server could
+# never send — while the client half was complete and waiting for it (a wire type, a type guard,
+# a store action, and tests for all three). Every reconnect looked like a brand-new session.
+
+
+def test_session_state_omits_the_affect_inference(monkeypatch):
+    """The payload goes straight to the browser, so it must not carry detected affect.
+
+    `architecture.md` lists showing a learner their affect state as an anti-pattern. The message
+    contract has an optional `last_affect_state` field; leaving it unset is what keeps the rule
+    enforced here rather than relying on the client to ignore what it is sent.
+    """
+    import asyncio
+
+    from app.api.routes import ws as ws_module
+
+    written: dict = {}
+
+    async def fake_set_json(key, value, ttl_seconds=None):
+        written["key"] = key
+        written["value"] = value
+        written["ttl"] = ttl_seconds
+
+    monkeypatch.setattr(ws_module.redis_service, "set_json", fake_set_json)
+
+    asyncio.run(
+        ws_module._save_session_state(
+            "learner-1", section_id="sec-9", phase="phase_b", group="adaptive"
+        )
+    )
+
+    assert written["key"] == "session:learner:learner-1"
+    assert written["value"] == {
+        "current_section_id": "sec-9",
+        "phase": "phase_b",
+        "group": "adaptive",
+    }
+    assert "last_affect_state" not in written["value"]
+    assert written["ttl"] == ws_module._SESSION_STATE_TTL_SECONDS
+
+
+def test_no_section_means_nothing_is_remembered(monkeypatch):
+    """A message with no position tells us nothing about where the learner is."""
+    import asyncio
+
+    from app.api.routes import ws as ws_module
+
+    calls = {"n": 0}
+
+    async def fake_set_json(key, value, ttl_seconds=None):
+        calls["n"] += 1
+
+    monkeypatch.setattr(ws_module.redis_service, "set_json", fake_set_json)
+
+    asyncio.run(
+        ws_module._save_session_state("learner-1", section_id=None, phase="phase_a", group="control")
+    )
+
+    assert calls["n"] == 0
+
+
+def test_a_cache_outage_costs_the_banner_and_nothing_else(monkeypatch):
+    """Redis being down must not break the handshake — it just means no restore."""
+    import asyncio
+
+    from app.api.routes import ws as ws_module
+
+    async def boom(key):
+        raise RuntimeError("redis is gone")
+
+    monkeypatch.setattr(ws_module.redis_service, "get_json", boom)
+
+    assert asyncio.run(ws_module._load_session_state("learner-1")) is None
+
+
+def test_stored_state_is_returned_for_restoration(monkeypatch):
+    import asyncio
+
+    from app.api.routes import ws as ws_module
+
+    async def fake_get_json(key):
+        assert key == "session:learner:learner-1"
+        return {"current_section_id": "sec-9", "phase": "phase_b", "group": "adaptive"}
+
+    monkeypatch.setattr(ws_module.redis_service, "get_json", fake_get_json)
+
+    state = asyncio.run(ws_module._load_session_state("learner-1"))
+    assert state["current_section_id"] == "sec-9"

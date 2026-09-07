@@ -26,7 +26,12 @@ from app.schemas.research_export import (
     ResearchEventPage,
     SequenceGapsOut,
 )
-from app.services import gate_replay_service, research_export_service
+from app.schemas.base import camelise_keys
+from app.services import (
+    gate_replay_service,
+    research_export_service,
+    self_report_quality_service,
+)
 
 router = APIRouter()
 
@@ -211,3 +216,22 @@ async def gate_replay(
         phase=phase,
         group=group,
     )
+
+
+@router.get("/research/self-report-quality", tags=["research"])
+async def self_report_quality(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role(Role.admin)),
+):
+    """Are the ground-truth labels any good? (Story 8.6 / FR48)
+
+    Every self-report prompt and response has been recorded since Story 6.2 and nothing read them
+    back. The behavioural result rests on these labels, so a participant who answered "engaged" to
+    every prompt produces a clean-looking dataset that measures nothing — and the distribution is
+    the only place that shows.
+
+    Returns counts and rates, plus a per-session low-variance flag. The flag is a heuristic and is
+    returned alongside the criteria that produced it; nothing here excludes a session from
+    anything, because deciding what to drop belongs in the analysis where it can be defended.
+    """
+    return camelise_keys(await self_report_quality_service.summary(db))

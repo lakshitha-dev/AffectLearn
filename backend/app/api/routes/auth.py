@@ -31,6 +31,7 @@ from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
     MessageResponse,
+    ProfileUpdateRequest,
     RefreshRequest,
     RegisterRequest,
     ResendVerificationRequest,
@@ -225,14 +226,45 @@ async def me(current_user: User = Depends(get_current_user)):
     return _build_user_response(current_user)
 
 
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    body: ProfileUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the signed-in account's own profile.
+
+    Every role reaches this: it is what makes the designer settings page real, and it is the only
+    way a learner can correct a name or degree programme they mistyped at registration.
+
+    Only the fields PRESENT in the request are written, so a form that submits one section cannot
+    blank the fields it does not render. `exclude_unset` is what distinguishes "not sent" from
+    "sent as null" — without it, a partial update would erase `age_range` and `degree_program` for
+    every caller that omitted them.
+    """
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(current_user, field, value)
+
+    if changes:
+        await db.commit()
+        await db.refresh(current_user)
+
+    return _build_user_response(current_user)
+
+
 @router.get("/dev-credentials")
 async def dev_credentials():
     """Return the seeded role-based accounts for the login page in dev mode.
 
-    Gated by `EXPOSE_DEV_CREDENTIALS`. Returns 404 in production so the route
-    is invisible to clients.
+    Returns 404 unless BOTH conditions hold: the environment is not production, and
+    `EXPOSE_DEV_CREDENTIALS` is set. The route is unauthenticated and its body is the plaintext
+    password of the seeded ADMIN account, so a single mis-copied environment file was the whole
+    distance between a normal deployment and handing out admin credentials to anyone who knew the
+    path. One flag is not enough separation for that payload; the environment check cannot be
+    switched on by accident when copying a working `.env` from a developer machine.
     """
-    if not settings.EXPOSE_DEV_CREDENTIALS:
+    if settings.ENVIRONMENT.lower() == "production" or not settings.EXPOSE_DEV_CREDENTIALS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": {"code": "NOT_FOUND", "message": "Not found"}},
@@ -457,7 +489,7 @@ async def change_password(
     await db.commit()
 
     try:
-        await send_password_changed_email(current_user)
+        await send_password_changed_email(current_user.email_address)
     except Exception:  # noqa: BLE001 — the password IS changed; a mail failure must not undo it
         logger.warning("password_changed_email_failed", user_id=str(current_user.id))
 

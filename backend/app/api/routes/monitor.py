@@ -37,41 +37,76 @@ from app.services import (
 from app.services.model_report import model_report
 from app.services.monitor_bus import monitor_bus
 
+from app.agents.graph import EDGES, NODE_IDS, STUB_NODES
+
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-# Static graph topology — the single source of truth for the dashboard flow diagram.
-# `kind: "stub"` marks pass-through nodes (Story 5.x) so the UI never implies real work.
-_GRAPH_TOPOLOGY: dict = {
-    "nodes": [
-        {"id": "affect_detection", "label": "Affect Detection", "kind": "active",
-         "desc": "Facial geometry GBDT → engaged vs disengaged (bored) / behavioural GBDT → "
-                 "engaged vs confused. The two channels are COMPLEMENTARY, not fused: each is "
-                 "authoritative for the one state it can observe. Fusion still runs in the WS "
-                 "handler before the graph, but does not drive the decision"},
-        {"id": "learner_profiler", "label": "Learner Profiler", "kind": "active",
-         "desc": "Fold affect into profile (Redis hot + Postgres cold)"},
-        {"id": "log_only", "label": "Log Only", "kind": "active",
-         "desc": "Phase A / control terminal — no adaptation"},
-        {"id": "pedagogical", "label": "Pedagogical Strategist", "kind": "active",
-         "desc": "vLLM strategy decision → rule-based fallback (Story 5.1)"},
-        {"id": "content_adapter", "label": "Content Adapter", "kind": "active",
-         "desc": "vLLM content generation → rule-based fallback (Story 5.2)"},
-        {"id": "deliver", "label": "Deliver", "kind": "active",
-         "desc": "Build adaptation wire payload → WS handler pushes to client (Story 5.3)"},
-    ],
-    "edges": [
-        {"from": "START", "to": "affect_detection"},
-        {"from": "affect_detection", "to": "learner_profiler"},
-        {"from": "learner_profiler", "to": "log_only", "kind": "conditional", "route": "log_only"},
-        {"from": "learner_profiler", "to": "pedagogical", "kind": "conditional", "route": "pedagogical"},
-        {"from": "pedagogical", "to": "content_adapter"},
-        {"from": "content_adapter", "to": "deliver"},
-        {"from": "deliver", "to": "END"},
-        {"from": "log_only", "to": "END"},
-    ],
+# Flow-diagram topology, DERIVED from the running graph.
+#
+# This was a second hand-written copy of `build_graph`: the same six nodes and eight edges,
+# maintained separately, with a comment describing a `kind: "stub"` marking that no node carried.
+# Two descriptions of one structure drift, and the drift is silent — the dashboard keeps drawing a
+# diagram, just not of the graph that is executing.
+#
+# Ids and edges now come from `app.agents.graph`. What stays here is presentation: the human
+# labels and the one-line descriptions, which are a property of the dashboard rather than of the
+# graph. `tests/agents/test_graph_topology.py` fails if a node exists without a label.
+_NODE_PRESENTATION: dict[str, dict[str, str]] = {
+    "affect_detection": {
+        "label": "Affect Detection",
+        "desc": (
+            "Facial geometry GBDT → engaged vs disengaged (bored) / behavioural GBDT → "
+            "engaged vs confused. The two channels are COMPLEMENTARY, not fused: each is "
+            "authoritative for the one state it can observe. Fusion still runs in the WS "
+            "handler before the graph, but does not drive the decision"
+        ),
+    },
+    "learner_profiler": {
+        "label": "Learner Profiler",
+        "desc": "Fold affect into profile (Redis hot + Postgres cold)",
+    },
+    "log_only": {
+        "label": "Log Only",
+        "desc": "Phase A / control terminal — no adaptation",
+    },
+    "pedagogical": {
+        "label": "Pedagogical Strategist",
+        "desc": "vLLM strategy decision → rule-based fallback (Story 5.1)",
+    },
+    "content_adapter": {
+        "label": "Content Adapter",
+        "desc": "vLLM content generation → rule-based fallback (Story 5.2)",
+    },
+    "deliver": {
+        "label": "Deliver",
+        "desc": "Build adaptation wire payload → WS handler pushes to client (Story 5.3)",
+    },
 }
+
+
+def _graph_topology() -> dict:
+    """Build the dashboard payload from the declared graph.
+
+    `kind` is `"stub"` for any node listed in `STUB_NODES` — currently empty — so the diagram
+    marks pass-through nodes rather than implying real work. That marking now follows the graph's
+    own declaration instead of a literal that could disagree with it.
+    """
+    return {
+        "nodes": [
+            {
+                "id": node_id,
+                "label": _NODE_PRESENTATION.get(node_id, {}).get("label", node_id),
+                "kind": "stub" if node_id in STUB_NODES else "active",
+                "desc": _NODE_PRESENTATION.get(node_id, {}).get("desc", ""),
+            }
+            for node_id in NODE_IDS
+        ],
+        "edges": [
+            {k: v for k, v in edge.items() if v is not None} for edge in EDGES
+        ],
+    }
 
 
 def _unauthorized() -> HTTPException:
@@ -176,7 +211,7 @@ async def sessions(_: User = Depends(require_role(Role.admin))):
 @router.get("/graph")
 async def graph(_: User = Depends(require_role(Role.admin))):
     """Static agent-graph topology for the flow diagram (active vs stub nodes)."""
-    return _GRAPH_TOPOLOGY
+    return _graph_topology()
 
 
 @router.get("/aggregates")

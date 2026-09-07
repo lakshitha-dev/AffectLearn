@@ -48,7 +48,10 @@ export function EnrollButton({
     );
   }
 
-  if (enrollment) {
+  // A `dropped` enrollment is a row that still exists — that is the whole point, it holds the
+  // learner's progress — but it is not active membership. Treating it as enrolled would offer
+  // "Continue Learning" to someone who has left, with no way back in.
+  if (enrollment && enrollment.status !== "dropped") {
     const progress = enrollment.progressPercentage;
     const isCourseComplete = resumeQuery.data?.isCourseComplete ?? false;
     const noContent = resumeQuery.isFetched && resumeQuery.data === null

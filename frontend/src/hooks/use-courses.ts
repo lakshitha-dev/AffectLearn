@@ -105,3 +105,26 @@ export function useEnrollMutation() {
     },
   });
 }
+
+/**
+ * Leave a course, keeping everything already recorded.
+ *
+ * POST `/drop` rather than DELETE: removing the enrollment row would cascade away the learner's
+ * section progress and every pre/post assessment attempt attached to it. Re-enrolling reactivates
+ * the same row, so this is reversible.
+ */
+export function useDropEnrollment() {
+  const queryClient = useQueryClient();
+  return useMutation<Enrollment, Error, { courseId: string }>({
+    mutationFn: ({ courseId }) =>
+      apiFetch<Enrollment>(`/enrollments/${courseId}/drop`, { method: "POST" }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [ENROLLMENTS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [COURSES_KEY] });
+      queryClient.setQueryData<CourseDetail | undefined>(
+        [COURSES_KEY, variables.courseId],
+        (prev) => (prev ? { ...prev, isEnrolled: false } : prev),
+      );
+    },
+  });
+}

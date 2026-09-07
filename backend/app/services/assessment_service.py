@@ -327,3 +327,116 @@ async def submit_attempt(
                 pre_max = pre_attempt.max_score
 
     return await build_attempt_response(db, attempt, assessment, pre_score=pre_score, pre_max_score=pre_max)
+
+# ---------------------------------------------------------------------------
+# Authoring
+# ---------------------------------------------------------------------------
+#
+# `create_assessment` and `add_question` existed and no interface called either, so the pre/post
+# assessments FR9 depends on could only be created by POSTing JSON by hand. These are the reads
+# and edits an authoring screen needs on top of them: you cannot maintain a question bank you
+# cannot list, and a typo in a question was permanent.
+
+
+async def list_assessments_for_module(
+    db: AsyncSession, module_id: uuid.UUID
+) -> list[Assessment]:
+    """Both assessments (pre and post) for a module, with questions and options loaded."""
+    stmt = (
+        select(Assessment)
+        .where(Assessment.module_id == module_id)
+        .options(
+            selectinload(Assessment.questions).selectinload(AssessmentQuestion.options)
+        )
+        .order_by(Assessment.assessment_type)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def update_assessment(
+    db: AsyncSession, assessment_id: uuid.UUID, *, title: str
+) -> Assessment:
+    assessment = await _get_assessment_or_404(db, assessment_id)
+    assessment.title = title
+    await db.commit()
+    await db.refresh(assessment)
+    return assessment
+
+
+async def delete_assessment(db: AsyncSession, assessment_id: uuid.UUID) -> None:
+    """Remove an assessment and everything under it.
+
+    `Assessment.attempts` cascades, so this also discards learners' recorded scores. That is the
+    right behaviour for an assessment being withdrawn — a score against a question that no longer
+    exists describes nothing — but it is why the UI asks before calling it.
+    """
+    assessment = await _get_assessment_or_404(db, assessment_id)
+    await db.delete(assessment)
+    await db.commit()
+
+
+async def get_question_or_404(
+    db: AsyncSession, question_id: uuid.UUID
+) -> AssessmentQuestion:
+    question = (
+        await db.execute(
+            select(AssessmentQuestion)
+            .where(AssessmentQuestion.id == question_id)
+            .options(selectinload(AssessmentQuestion.options))
+        )
+    ).scalar_one_or_none()
+    if question is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Question not found"}},
+        )
+    return question
+
+
+async def update_question(
+    db: AsyncSession,
+    question_id: uuid.UUID,
+    *,
+    text: str,
+    sort_order: int,
+    explanation: str | None,
+    options: list[Any],
+) -> AssessmentQuestion:
+    """Replace a question and its options.
+
+    Options are replaced wholesale rather than patched one at a time: "exactly one option is
+    correct" is a property of the SET, so an incremental edit would let a question pass through a
+    state with zero or two correct answers between requests.
+
+    Existing `question_responses` reference option rows by id; replacing the options therefore
+    invalidates prior attempt detail for this question, which is the honest consequence of
+    rewriting it and the reason the UI warns before saving over a question learners have answered.
+    """
+    question = await get_question_or_404(db, question_id)
+
+    question.text = text
+    question.sort_order = sort_order
+    question.explanation = explanation
+
+    for existing in list(question.options):
+        await db.delete(existing)
+    await db.flush()
+
+    for option in options:
+        db.add(
+            AssessmentOption(
+                question_id=question.id,
+                text=option.text,
+                is_correct=option.is_correct,
+                sort_order=option.sort_order,
+            )
+        )
+
+    await db.commit()
+    return await get_question_or_404(db, question_id)
+
+
+async def delete_question(db: AsyncSession, question_id: uuid.UUID) -> None:
+    question = await get_question_or_404(db, question_id)
+    await db.delete(question)
+    await db.commit()

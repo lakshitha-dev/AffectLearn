@@ -128,13 +128,16 @@ describe("WebcamIndicator", () => {
       expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     });
 
-    it("Settings link points to /onboarding?step=webcam", () => {
+    it("Settings link points at the page that can actually change the setting", () => {
+      // Was asserted as `/onboarding?step=webcam`, which pinned a dead link: the wizard reads no
+      // `step` param and bounces already-consented learners to `/courses`, so the control this
+      // link promised was never reachable. The webcam toggle lives on `/profile`.
       render(<WebcamIndicator />);
       const container = screen.getByText("Adaptive mode active").closest(".fixed");
       fireEvent.mouseEnter(container!);
       expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
         "href",
-        "/onboarding?step=webcam"
+        "/profile"
       );
     });
 
