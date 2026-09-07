@@ -135,6 +135,61 @@ describe("AdaptiveHintCallout", () => {
       );
       expect(screen.getByText("Nice work on that section.")).toBeInTheDocument();
     });
+
+    it("labels simplify as a simplification, not as a hint", () => {
+      render(
+        <AdaptiveHintCallout
+          adaptation={makeAdaptation("simplify", "One step at a time: first the SYN.")}
+          onDismiss={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("Put more simply")).toBeInTheDocument();
+      expect(
+        screen.queryByText("Here's another way to think about this…"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("labels increase_difficulty as a challenge, not as a hint", () => {
+      // The worst case of the missing map entry. A learner is offered a HARDER question because
+      // they were bored, and it arrived introduced as "Here's another way to think about this…"
+      // — the framing used when someone is stuck, told to someone who is not.
+      render(
+        <AdaptiveHintCallout
+          adaptation={makeAdaptation("increase_difficulty", "What breaks if the ACK is lost?")}
+          onDismiss={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("Ready for a harder one?")).toBeInTheDocument();
+      expect(
+        screen.queryByText("Here's another way to think about this…"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("gives every action it renders a label of its own", () => {
+      // Guards the class of bug rather than the two instances of it: any action routed to this
+      // callout without a `VARIANT_BY_ACTION` entry silently inherits the hint label.
+      const labels = new Set<string>();
+      for (const action of [
+        "show_hint",
+        "show_alternative",
+        "show_breakdown",
+        "simplify",
+        "increase_difficulty",
+      ] as const) {
+        const { unmount } = render(
+          <AdaptiveHintCallout adaptation={makeAdaptation(action, "body")} onDismiss={vi.fn()} />,
+        );
+        const region = screen.getByRole("complementary", { name: "Learning hint" });
+        // Breakdown puts its label on the expand toggle; the others put it in the leading <p>.
+        // (Not `querySelector("button")` — the dismiss button is icon-only and comes first.)
+        const toggle = region.querySelector("button[aria-expanded]");
+        const label = (toggle ?? region.querySelector("p"))?.textContent;
+        expect(label, `${action} has no label`).toBeTruthy();
+        labels.add(label!);
+        unmount();
+      }
+      expect(labels.size).toBe(5);
+    });
   });
 
   describe("dismiss + re-access", () => {

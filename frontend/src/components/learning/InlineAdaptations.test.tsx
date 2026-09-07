@@ -111,6 +111,28 @@ describe("actions that previously reached no learner", () => {
     render(<InlineAdaptations />);
     expect(screen.getByText("Why would this break for an empty list?")).toBeInTheDocument();
   });
+
+  it("renders nothing for an adaptation that arrived with no text", () => {
+    // It used to draw the whole shell — border, label, dismiss button — around an empty body,
+    // which reads as a rendering fault. The fault is upstream: an adaptation with no content.
+    seed("show_breakdown", "   ");
+    const { container } = render(<InlineAdaptations />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Let's break this down")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the last item that does have text", () => {
+    seed("show_hint", "The hint that arrived.");
+    seed("show_alternative", undefined);
+    render(<InlineAdaptations />);
+    expect(screen.getByText("The hint that arrived.")).toBeInTheDocument();
+  });
+
+  it("still renders an empty encouragement, which carries its own fallback copy", () => {
+    seed("show_encouragement", undefined);
+    render(<InlineAdaptations />);
+    expect(screen.getByText("Nice work on that section.")).toBeInTheDocument();
+  });
 });
 
 describe("assistance attribution is narrower than what is rendered", () => {
@@ -135,6 +157,14 @@ describe("assistance attribution is narrower than what is rendered", () => {
     seed("show_hint", "Try relating it to something you know.");
     const active = activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue);
     expect(active?.action).toBe("show_hint");
+  });
+
+  it("does not attribute a quiz answer to a hint the learner never saw", async () => {
+    // Selection and rendering must agree: an adaptation dropped for having no text was never
+    // shown, so it is not the help a subsequent answer should be credited to.
+    const { activeInlineAdaptation } = await import("./InlineAdaptations");
+    seed("show_hint", "");
+    expect(activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue)).toBeNull();
   });
 
   it("counts simplify as assistance, because it genuinely is help", async () => {

@@ -236,15 +236,23 @@ export interface HeartbeatAckMessage extends WSMessage {
  * `adaptation` message on the wire, so it is not a valid delivered action. Keep this
  * union in lockstep with the backend vocabulary (do not invent action strings).
  */
-export type AdaptationAction =
-  | "show_hint"
-  | "show_alternative"
-  | "show_breakdown"
-  | "show_encouragement"
-  | "simplify"
-  | "suggest_break"
-  | "skip_ahead"
-  | "increase_difficulty";
+export const ADAPTATION_ACTIONS = [
+  "show_hint",
+  "show_alternative",
+  "show_breakdown",
+  "show_encouragement",
+  "simplify",
+  "suggest_break",
+  "skip_ahead",
+  "increase_difficulty",
+] as const;
+
+/**
+ * Derived from the runtime list above rather than declared alongside it, so the value the
+ * `isAdaptation` guard checks against and the type the components are written against cannot
+ * drift apart. An action the guard accepts is always one the union names.
+ */
+export type AdaptationAction = (typeof ADAPTATION_ACTIONS)[number];
 
 /**
  * Delivered adaptation (Story 5.3). The backend WS handler pushes one of these after a

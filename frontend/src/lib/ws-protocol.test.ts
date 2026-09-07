@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { ADAPTATION_ACTIONS } from "@/types/ws-messages";
 import {
   isAdaptation,
   isHeartbeatAck,
@@ -114,6 +115,29 @@ describe("type guards", () => {
     expect(isAdaptation({ type: "adaptation", ts: 1, content: {} } as never)).toBe(false);
     // wrong type
     expect(isAdaptation({ type: "system", action: "error", ts: 1 } as never)).toBe(false);
+  });
+
+  it("isAdaptation accepts every action in the vocabulary", () => {
+    // Pins the guard to the exported list rather than to a copy of it, so an action added to the
+    // backend and to `ADAPTATION_ACTIONS` cannot be left unaccepted here.
+    for (const action of ADAPTATION_ACTIONS) {
+      expect(
+        isAdaptation({ type: "adaptation", action, ts: 1, content: { text: "x" } } as never),
+      ).toBe(true);
+    }
+  });
+
+  it("isAdaptation drops an action outside the vocabulary, loudly", () => {
+    // Previously any string passed. An unrecognised action entered the queue, matched no
+    // component, rendered nothing and logged nothing — the backend recorded a delivery the
+    // learner never saw, with no trace on either side.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(
+      isAdaptation({ type: "adaptation", action: "show_hnit", ts: 1, content: { text: "x" } } as never),
+    ).toBe(false);
+    expect(isAdaptation({ type: "adaptation", action: "no_action", ts: 1 } as never)).toBe(false);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("isNotification matches notification only", () => {
