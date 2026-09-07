@@ -416,13 +416,28 @@ async def upsert_block_variant(
 
 
 async def find_variant(
-    db: AsyncSession, *, section_id: uuid.UUID, variant_key: str
+    db: AsyncSession, *, section_id: uuid.UUID | str, variant_key: str
 ) -> ContentBlock | None:
     """The authored `variant_key` alternative in this section, if one exists.
 
     This is the read the adaptation loop makes before falling back to generated text. It returns
     None rather than raising: no authored variant is the ordinary case, not an error.
+
+    ACCEPTS A STRING ID ON PURPOSE. The only caller in the loop reads `section_id` out of
+    `content_context`, which stores it as `str(section_id)` — so the value arriving here is a
+    string, while `content_blocks.section_id` is a UUID column. Comparing the two raises inside
+    the driver, and because the calling node swallows exceptions to satisfy NFR22, the failure
+    would have surfaced as "no variant was ever authored" rather than as an error: the feature
+    silently never selecting anything. Coercing here fixes it for every caller at once.
     """
+    if isinstance(section_id, str):
+        try:
+            section_id = uuid.UUID(section_id)
+        except ValueError:
+            # A malformed id matches nothing. Returning None keeps the caller on its existing
+            # fallback path rather than raising inside the agent loop.
+            return None
+
     stmt = (
         select(ContentBlock)
         .where(
