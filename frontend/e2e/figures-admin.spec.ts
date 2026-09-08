@@ -80,13 +80,21 @@ async function asAdmin(page: Page, request: import("@playwright/test").APIReques
   }, state);
 }
 
-/** Full-page capture, refusing if the page shows an identifier a thesis must not print. */
+/** Full-page capture, refusing to write a page that is blank or carries an identifier.
+ *
+ * The blank check is not defensive padding. An earlier version of this helper wrote a
+ * loading spinner over a good committed asset and reported success, because it only
+ * looked for email addresses. A capture that cannot see content must fail: a missing
+ * figure is caught by `check_submission.py`, a blank one is not.
+ */
 async function shotPage(page: Page, name: string) {
-  const body = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+  const body = (await page.locator("body").innerText()).replace(/\s+/g, " ").trim();
+  expect(body.length, `${name} is blank or still loading (${body.length} chars of text)`)
+    .toBeGreaterThan(200);
   const hit = body.match(EMAIL_RE);
   expect(hit, `an email address is visible on ${name}: ${hit?.[0] ?? ""}`).toBeNull();
   await page.screenshot({ path: path.join(FIGURES, name), fullPage: true });
-  console.log(`  wrote ${name}`);
+  console.log(`  wrote ${name} (${body.length} chars of text)`);
 }
 
 /** Navigate without waiting on `load`, which the admin shell never settles. */
@@ -149,3 +157,20 @@ test("course-designer affect view", async ({ page, request }) => {
   await expect(page.getByRole("grid")).toBeVisible({ timeout: 45_000 });
   await shotPage(page, "figshot-heatmap.png");
 });
+
+// ---------------------------------------------------------------------------
+// The onboarding screens are deliberately NOT captured here.
+//
+// The consent copy changed when the geometric channel replaced the pixel one,
+// from "frames are never stored" to "no image is transmitted", so the capture in
+// the thesis promises something weaker than the platform now does and should be
+// redone. It cannot be automated against a deployed instance: `POST /auth/register`
+// issues no tokens because login is gated on email verification, and the consent
+// step is only reachable by an account that has not yet consented. Verifying an
+// address needs the emailed link, and engineering around that on production is not
+// something a figure is worth.
+//
+// So it needs a person: register, verify, and capture the consent and webcam steps
+// before agreeing. `figures.spec.ts` does it unattended against a local instance,
+// where the seed data provides a verified account.
+// ---------------------------------------------------------------------------

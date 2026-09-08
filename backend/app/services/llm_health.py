@@ -1,9 +1,12 @@
 """Is the vLLM endpoint that the pedagogical agents depend on actually reachable?
 
-Nothing checked this before, and the answer in production is NO: `VLLM_ENDPOINT` defaults to
-`http://vllm:8080`, a docker-compose service name that does not resolve on App Service, and no
-vLLM/GPU resource exists in the resource group. So every strategy and content call times out
-after `VLLM_TIMEOUT_SECONDS` and falls back to `fallbacks.rule_based_content`.
+Nothing checked this before. When it was written the answer in production was NO: `VLLM_ENDPOINT`
+defaulted to `http://vllm:8080`, a docker-compose service name that does not resolve on App
+Service, so every strategy and content call timed out and fell back to
+`fallbacks.rule_based_content`. Production now points at a hosted provider and generation
+succeeds, which is why the probe has to authenticate: a keyless request to a provider that
+authenticates returns 401 regardless of the key the application holds, and reporting that as a
+credential failure is worse than not probing at all.
 
 That degradation is deliberate and safe (a learner gets a canned hint rather than nothing), and
 it IS recorded per-adaptation as `metadata.fallback=True`. But it was invisible at a glance:
@@ -65,8 +68,16 @@ async def probe(ttl_s: float = 10.0) -> dict[str, Any]:
         try:
             import httpx
 
+            # Send the credential the agents send. Without it a provider that
+            # authenticates answers 401 to the probe whatever key the application
+            # holds, so the probe reported a credential failure that did not exist
+            # and the operator chased a working key. The header is harmless against
+            # a local vLLM, which ignores it.
+            headers = {}
+            if settings.VLLM_API_KEY:
+                headers["Authorization"] = f"Bearer {settings.VLLM_API_KEY}"
             async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_S) as client:
-                resp = await client.get(f"{endpoint}/v1/models")
+                resp = await client.get(f"{endpoint}/v1/models", headers=headers)
             # `reachable` is about the HOST answering at all. Anything short of a 5xx means
             # something is there and serving.
             result["reachable"] = resp.status_code < 500
