@@ -49,3 +49,9 @@ backend/models/*.onnx.data
 deploy/azure/.deploy-secrets
 deploy/azure/.deploy-names
 deploy/azure/DEPLOYMENT_STATUS.md
+
+# Playwright output. Both are regenerated on every run and neither belongs in
+# history; `figures.spec.ts` writes its captures into docs/thesis/figures instead,
+# which is where the thesis reads them from.
+frontend/playwright-report/
+frontend/test-results/
