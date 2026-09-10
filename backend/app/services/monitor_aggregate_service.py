@@ -40,6 +40,7 @@ from app.agents.edges import (
     GATE_NO_AFFECT,
     GATE_NOT_ELIGIBLE,
     GATE_NOT_SUSTAINED,
+    GATE_OK,
     GATE_SESSION_CAP,
     GATE_STATE_NOT_ACTIONABLE,
     GATE_WITHHELD_RANDOM,
@@ -122,6 +123,11 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
     cycles: set[tuple[str, int]] = set()
     gate_counts: dict[str, int] = {r: 0 for r in GATE_REASONS}
     gate_other: dict[str, int] = {}
+    # `ok` is the gate PASSING, not a reason for withholding, so it belongs in neither
+    # of the two above. Filed as unknown it made the dashboard accuse itself of being
+    # out of date with the backend, which is the warning that exists to catch a real
+    # missing reason -- and a warning that cries wolf is worse than no warning.
+    gate_passed = 0
     affect_counts: dict[str, int] = {}
     delivered = 0
     fallback = 0
@@ -149,7 +155,9 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
         if r.event_type == _PROFILE_EVENT:
             reason = pl.get("adaptation_gate")
             if isinstance(reason, str):
-                if reason in gate_counts:
+                if reason == GATE_OK:
+                    gate_passed += 1
+                elif reason in gate_counts:
                     gate_counts[reason] += 1
                 else:
                     # A reason the UI does not know about yet -- surface it rather than drop it.
@@ -268,6 +276,7 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
         },
         "gateReasons": gate_counts,
         "gateReasonsUnknown": gate_other,
+        "gatePassed": gate_passed,
         "gatedCycles": gated_cycles,
         "affectCounts": affect_counts,
         "modalityStats": modality_stats,

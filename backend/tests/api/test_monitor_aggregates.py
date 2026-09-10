@@ -42,6 +42,9 @@ async def _seed(db):
         _ev("learner_profile_updated", cycle=21, adaptation_gate="cooldown"),
         # an unrecognised reason must be surfaced, not silently dropped
         _ev("learner_profile_updated", cycle=22, adaptation_gate="some_future_reason"),
+        # The gate PASSING. Not a withholding reason, so it belongs in neither bucket.
+        _ev("learner_profile_updated", cycle=23, adaptation_gate="ok"),
+        _ev("learner_profile_updated", cycle=24, adaptation_gate="ok"),
         # affect detections across both modalities
         _ev("behavioral_affect_detected", cycle=1, affect_state="engaged"),
         _ev("behavioral_affect_detected", cycle=2, affect_state="confused"),
@@ -117,6 +120,22 @@ async def test_empty_window_is_zeroes_not_an_error(client, admin_headers):
     assert set(body["gateReasons"]) == set(GATE_REASONS)
     assert "channel_advisory" in body["gateReasons"]
     assert all(v == 0 for v in body["gateReasons"].values())
+
+
+async def test_gate_ok_is_counted_but_never_called_unknown(client, db, admin_headers):
+    """`ok` is the gate passing, and it is neither a bar nor an unknown reason.
+
+    Filed as unknown it made the dashboard print "this list is out of date with the
+    backend" on a healthy instance. That warning exists to catch a reason the UI cannot
+    render, and a warning that fires on the success case trains the reader to ignore it,
+    which is exactly how `channel_advisory` went unnoticed for weeks.
+    """
+    await _seed(db)
+    body = (await client.get(f"{BASE}?hours=24", headers=admin_headers)).json()
+
+    assert body["gatePassed"] == 2
+    assert "ok" not in body["gateReasonsUnknown"]
+    assert "ok" not in body["gateReasons"]
 
 
 async def test_hours_is_validated(client, admin_headers):
