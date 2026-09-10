@@ -596,7 +596,7 @@ export default function LandingPage() {
             </div>
             <div className="hero-trust reveal in d4">
               <span className="t">
-                <Shield /> No video is ever stored
+                <Shield /> No image ever leaves your device
               </span>
               <span className="t">
                 <Lock /> Private by design
