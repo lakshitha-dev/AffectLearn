@@ -171,6 +171,10 @@ export interface MonitorAggregates {
   /** The live gate threshold the stats above were compared against. */
   adaptMinConfidence: number | null;
   gateReasonsUnknown: Record<string, number>;
+  /** Cycles that PASSED the gate. Not a withholding reason, so not a bar.
+   *  Optional because the two App Services deploy in parallel and this client can
+   *  briefly be newer than the API it is talking to. */
+  gatePassed?: number;
   gatedCycles: number;
   affectCounts: Record<string, number>;
   confidence: "low" | "medium" | "high";
