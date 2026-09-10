@@ -31,18 +31,32 @@ import {
 } from "@/components/ui/select";
 import { exportMonitorCsv, useMonitorAggregates, useMonitorHealth } from "@/hooks/use-monitor";
 
+// 720 is the API's own cap (`hours: int = Query(24, ge=1, le=720)`) and is what the
+// data-export page already offers. Without it the deployment record cannot be read
+// at the window it is reported over, and a 24-hour view of an instance nobody used
+// yesterday is an empty chart rather than a quiet one.
 const WINDOWS = [
   { value: "1", label: "Last hour" },
   { value: "24", label: "Last 24 hours" },
   { value: "168", label: "Last 7 days" },
+  { value: "720", label: "Last 30 days" },
 ];
 
 // Why each reason fires, so the chart is readable without opening the source.
+// Every reason in `monitor_aggregate_service.GATE_REASONS` needs an entry, or the chart
+// draws a labelled bar the reader cannot interpret. The four that were missing here
+// are not rare: no_affect and not_eligible are the second and third most frequent
+// reasons on the deployed instance.
 const REASON_HELP: Record<string, string> = {
   state_not_actionable: "detected state is not in the configured ADAPT_STATES",
   low_confidence: "confidence below ADAPT_MIN_CONFIDENCE",
   not_sustained: "state not held for ADAPT_MIN_CONSECUTIVE cycles",
   cooldown: "an intervention fired too recently",
+  no_affect: "the cycle produced no affect reading to act on",
+  not_eligible: "the learner is not in the adaptive arm, or the phase does not adapt",
+  channel_advisory: "the channel is inferred and logged but not authorised to intervene alone",
+  session_cap: "the learner has had this session's full allowance of interventions",
+  withheld_random: "cleared every condition, then withheld by the trial draw: the control arm",
 };
 
 const REASON_COLOR: Record<string, string> = {
@@ -50,6 +64,11 @@ const REASON_COLOR: Record<string, string> = {
   low_confidence: "#f59e0b", // amber — consider the threshold
   not_sustained: "#6366f1", // indigo
   cooldown: "#22c55e", // green — the system working as designed
+  no_affect: "#94a3b8", // lighter slate — nothing to act on, not a decision
+  not_eligible: "#94a3b8",
+  channel_advisory: "#f59e0b", // amber — a reliability decision, like the floor
+  session_cap: "#22c55e", // green — designed restraint
+  withheld_random: "#22c55e",
 };
 
 function Tile({
