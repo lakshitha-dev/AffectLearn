@@ -145,7 +145,9 @@ test("monitor aggregate view", async ({ page, request }) => {
   // Thirty days, because that is the window the deployment record is reported over.
   // The 24-hour default shows an empty chart on an instance nobody used yesterday,
   // which evidences nothing and reads as a broken page.
-  const window = page.getByRole("combobox").first();
+  // By its aria-label, not by position: the first combobox on the page is the session
+  // picker, and selecting a window from that one silently picks a session instead.
+  const window = page.getByRole("combobox", { name: /aggregation window/i });
   if (await window.isVisible().catch(() => false)) {
     await window.click();
     const thirty = page.getByRole("option", { name: /30 days/i });

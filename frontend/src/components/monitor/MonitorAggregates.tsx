@@ -254,6 +254,14 @@ export function MonitorAggregates({ sessionId }: { sessionId?: string | null }) 
         <p className="mt-1 text-xs text-muted-foreground">
           Every completed cycle records a gate reason. A healthy pilot is dominated by{" "}
           <code>state_not_actionable</code> — most of the time the learner is simply not confused.
+          {typeof data.gatePassed === "number" ? (
+            <>
+              {" "}
+              A further <strong>{data.gatePassed.toLocaleString()}</strong> cycle
+              {data.gatePassed === 1 ? "" : "s"} passed the gate and are not charted here,
+              because this chart is about withholding.
+            </>
+          ) : null}
         </p>
         {bars.length === 0 || bars.every((b) => b.count === 0) ? (
           <p className="mt-4 text-sm text-muted-foreground">No gated cycles in this window yet.</p>
