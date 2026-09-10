@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 
+import { ADAPTATION_ACTIONS } from "@/types/ws-messages";
 import type { DownstreamMessage, WSMessage } from "@/types/ws-messages";
 
 const RAW_LOG_MAX = 200;
@@ -94,13 +95,28 @@ export function isSystemReconnected(
   return isSystemMessage(msg) && msg.action === "reconnected";
 }
 
+const KNOWN_ADAPTATION_ACTIONS: ReadonlySet<string> = new Set(ADAPTATION_ACTIONS);
+
 // Story 5.3: `adaptation` requires a string `action` (a malformed one missing `action`
 // is dropped here without breaking the connection — AC #4). The visual rendering of the
 // queued adaptation is Stories 5.4–5.7; this guard only feeds the routing seam.
+//
+// The action must also be one the client knows. Accepting any string let an unrecognised
+// action — a backend vocabulary change, a typo in a hand-sent payload — into the queue, where
+// it matched no component, rendered nothing, and logged nothing: an intervention the backend
+// records as delivered that the learner never saw, with no trace on either side. Dropping it
+// here is the same treatment a malformed envelope gets, and it says so out loud.
 export function isAdaptation(
   msg: WSMessage,
 ): msg is Extract<DownstreamMessage, { type: "adaptation" }> {
-  return msg.type === "adaptation" && typeof (msg as { action?: unknown }).action === "string";
+  if (msg.type !== "adaptation") return false;
+  const action = (msg as { action?: unknown }).action;
+  if (typeof action !== "string") return false;
+  if (!KNOWN_ADAPTATION_ACTIONS.has(action)) {
+    console.warn("[ws] dropped adaptation with unknown action", action.slice(0, RAW_LOG_MAX));
+    return false;
+  }
+  return true;
 }
 
 export function isNotification(

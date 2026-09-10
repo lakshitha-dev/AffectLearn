@@ -130,6 +130,25 @@ async def persist_cold(db: AsyncSession, user_id: Any, profile: dict[str, Any]) 
     await db.commit()
 
 
+async def delete_cold(db: AsyncSession, user_id: Any) -> None:
+    """Remove the durable profile row, if there is one.
+
+    The counterpart to `persist_cold`, and the reason it exists: a caller that writes a profile
+    temporarily has to be able to leave no trace when the learner had none to begin with.
+    Restoring an absent row by writing a default one would give a learner who has never been seen
+    a profile that says they have.
+    """
+    uid = _as_uuid(user_id)
+    if uid is None:
+        return
+    row = (
+        await db.execute(select(LearnerProfile).where(LearnerProfile.user_id == uid))
+    ).scalar_one_or_none()
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
+
+
 async def init_from_preassessment(db: AsyncSession, user_id: Any) -> dict[str, Any]:
     """Default profile with `skill_level` inferred from the learner's pre-assessments."""
     prof = default_profile()

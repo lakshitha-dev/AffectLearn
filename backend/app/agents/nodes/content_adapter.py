@@ -117,7 +117,12 @@ _ACTION_INSTRUCTION: dict[str, str] = {
 }
 
 
-def _build_human_prompt(action_type: str, profile: dict, content_context: dict) -> str:
+def _build_human_prompt(
+    action_type: str,
+    profile: dict,
+    content_context: dict,
+    already_shown: list[str] | None = None,
+) -> str:
     """Compact, token-efficient context block + the per-action instruction.
 
     Includes the section's actual text (`content_context["body"]`, built by
@@ -143,7 +148,28 @@ def _build_human_prompt(action_type: str, profile: dict, content_context: dict) 
     if body:
         # Fenced so the model treats it as material to reason about, not as instructions to it.
         lines.append(f"\nThe learner is currently reading this section:\n---\n{body}\n---")
+    # WHAT THE LEARNER HAS ALREADY BEEN TOLD.
+    #
+    # The escalation ladder stops the system repeating an ACTION; nothing stopped it
+    # repeating a FRAMING. With the ladder enforced, `show_alternative` was observed
+    # returning the same "think of it like a friendly greeting" analogy the `show_hint` two
+    # rungs earlier had already used -- the action escalated and the learner got the same
+    # explanation reworded, which is exactly what the ladder exists to prevent.
+    if already_shown:
+        prior = "\n".join(f"- {t}" for t in already_shown)
+        lines.append(
+            "\nYou have ALREADY shown this learner the following in this section:\n"
+            f"{prior}"
+        )
+
     lines.append(f"\nTask: {instruction}")
+
+    if already_shown:
+        lines.append(
+            "That did not land. Say something GENUINELY different: a different analogy, a "
+            "different starting point, or a different aspect of the idea. Do not restate "
+            "the messages above in other words."
+        )
     if body:
         lines.append(
             "Ground your message in the section above — refer to its actual concepts and "
@@ -243,8 +269,38 @@ async def _authored_variant(action_type: str, state: AgentState) -> str | None:
     return text.strip() if isinstance(text, str) and text.strip() else None
 
 
+async def _previously_shown(state: AgentState) -> list[str]:
+    """Adaptation text this learner has already seen in this section, newest first.
+
+    Never raises and returns an empty list on any missing piece: a prompt without this context
+    still produces a usable adaptation, so a lookup failure must cost variety rather than the
+    intervention itself (NFR22).
+
+    Capped at three. The model needs enough to know what NOT to say again; the whole history
+    would crowd out the section body, which is the context that makes the message specific.
+    """
+    section_id = (state.get("content_context") or {}).get("section_id")
+    learner_id = state.get("learner_id")
+    db = state.get("db")
+    if not section_id or not learner_id or db is None:
+        return []
+
+    try:
+        from app.services import assistance_service
+
+        return await assistance_service.texts_shown_in_section(
+            db, learner_id=learner_id, section_id=section_id, limit=3
+        )
+    except Exception:  # noqa: BLE001 -- variety is worth less than the intervention
+        logger.warning("previously_shown_lookup_failed", exc_info=True)
+        return []
+
+
 async def _generate(
-    action_type: str, profile: dict, content_context: dict
+    action_type: str,
+    profile: dict,
+    content_context: dict,
+    already_shown: list[str] | None = None,
 ) -> dict[str, Any]:
     """Produce generative `adaptation_content` for one action. Never raises.
 
@@ -271,7 +327,11 @@ async def _generate(
         client = get_chat_client()
         messages = [
             SystemMessage(content=_SYSTEM_PROMPT),
-            HumanMessage(content=_build_human_prompt(action_type, profile, content_context)),
+            HumanMessage(
+                content=_build_human_prompt(
+                    action_type, profile, content_context, already_shown
+                )
+            ),
         ]
         resp = await asyncio.wait_for(
             client.ainvoke(messages), timeout=settings.VLLM_TIMEOUT_SECONDS
@@ -344,7 +404,9 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
             },
         }
     elif action_type in fallbacks.GENERATIVE_ACTIONS:
-        content = await _generate(action_type, profile, content_context)
+        content = await _generate(
+            action_type, profile, content_context, await _previously_shown(state)
+        )
     else:
         # Out-of-partition action_type (should not happen — vocabulary is locked).
         logger.warning("content_adapter_unknown_action", action_type=action_type)

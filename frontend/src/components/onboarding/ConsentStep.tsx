@@ -39,7 +39,7 @@ export function ConsentStep({ onAgree, onBack, isSubmitting, currentStep, totalS
         <section>
           <h2 className="font-semibold">Mouse &amp; Keyboard Behavioural Tracking</h2>
           <p className="mt-1 text-muted-foreground">
-            The system collects mouse movement, scroll, and keyboard activity patterns at 10-second intervals to
+            The system collects mouse movement, scroll, and keyboard activity patterns in 30-second windows to
             supplement affect detection. Raw keystrokes are never recorded — only aggregate features (entropy, frequency).
           </p>
         </section>

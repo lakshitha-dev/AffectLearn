@@ -34,13 +34,25 @@ import type { Adaptation } from "@/stores/adaptation-store";
 
 const FADE_OUT_MS = 200;
 
-type CalloutVariant = "hint" | "alternative" | "breakdown" | "encouragement";
+type CalloutVariant =
+  | "hint"
+  | "alternative"
+  | "breakdown"
+  | "encouragement"
+  | "simpler"
+  | "challenge";
 
+// Must cover every action `InlineAdaptations` routes here. `simplify` and `increase_difficulty`
+// were renderable but missing from this map, so both fell through the `?? "hint"` below and were
+// introduced as "Here's another way to think about this…" — wrong for a simplification, and
+// badly wrong for a challenge offered to a learner who was bored rather than stuck.
 const VARIANT_BY_ACTION: Record<string, CalloutVariant> = {
   show_hint: "hint",
   show_alternative: "alternative",
   show_breakdown: "breakdown",
   show_encouragement: "encouragement",
+  simplify: "simpler",
+  increase_difficulty: "challenge",
 };
 
 const VARIANT_LABEL: Record<CalloutVariant, string> = {
@@ -48,6 +60,9 @@ const VARIANT_LABEL: Record<CalloutVariant, string> = {
   alternative: "Another way to look at this",
   breakdown: "Let's break this down",
   encouragement: "",
+  simpler: "Put more simply",
+  // An invitation, not help: a bored learner is under-challenged, not struggling.
+  challenge: "Ready for a harder one?",
 };
 
 interface AdaptiveHintCalloutProps {
