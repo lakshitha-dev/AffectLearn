@@ -28,6 +28,7 @@ path returns a usable dict, degrading to `{}` rather than propagating.
 
 from __future__ import annotations
 
+import uuid as uuid_mod
 from typing import Any
 
 import structlog
@@ -158,6 +159,22 @@ async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
     cached = _cache.get(key)
     if cached is not None:
         return cached
+
+    # Section ids arrive as STRINGS -- off the WebSocket wire, out of a JSON request body -- and
+    # `Section.id` is `postgresql.UUID(as_uuid=True)`. That type accepts a string on Postgres and
+    # raises `'str' object has no attribute 'hex'` on any dialect that stores the value as
+    # CHAR(32), which is what the test database is. The `except` below then swallows it and this
+    # returns `{}`, so grounding degrades to "unknown topic" and the research event loses its
+    # content coordinates -- silently, and only where the failure cannot be seen.
+    #
+    # The same coercion is in `course_service.find_variant`, for the same reason and after the
+    # same symptom.
+    if isinstance(section_id, str):
+        try:
+            section_id = uuid_mod.UUID(section_id)
+        except ValueError:
+            logger.warning("content_context_bad_section_id", section_id=key)
+            return {}
 
     try:
         result = await db.execute(

@@ -19,7 +19,7 @@ const jetbrainsMono = JetBrains_Mono({
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://affectlearn.tech";
 const SITE_NAME = "AffectLearn";
 const SITE_DESCRIPTION =
-  "AffectLearn is an adaptive e-learning platform that senses when you're engaged, confused, bored, or frustrated — using your webcam and reading behavior — and reshapes each lesson in real time with hints, challenges, and breaks. No video is ever stored.";
+  "AffectLearn is an adaptive e-learning platform that senses when you're engaged, confused, bored, or frustrated — using your webcam and reading behavior — and reshapes each lesson in real time with hints, challenges, and breaks. No image ever leaves your device.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

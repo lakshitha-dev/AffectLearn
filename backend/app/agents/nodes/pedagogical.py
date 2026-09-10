@@ -41,15 +41,32 @@ _SYSTEM_PROMPT = (
     '{"action_type": <action>, "reason": <short string>, "urgency": "low"|"medium"|"high"}.\n'
     f"action_type MUST be one of: {', '.join(fallbacks.ACTION_TYPES)}.\n\n"
     "Guidance:\n"
-    "- confused: show_hint (first/mild), show_alternative (sustained), or show_breakdown "
-    "(deep confusion on conceptual content).\n"
+    "- confused: show_hint (first/mild), then show_breakdown, then show_alternative as "
+    "confusion persists.\n"
     "- frustrated: show_encouragement or simplify (moderate); suggest_break "
     "(high/extended, especially late sessions).\n"
-    "- bored: skip_ahead or increase_difficulty to re-engage.\n"
+    "- bored: increase_difficulty FIRST to re-engage. Only use skip_ahead once a harder "
+    "version has already been tried and the learner is still bored.\n"
     "- engaged: no_action, or increase_difficulty only if engagement is sustained.\n"
+    "\n"
+    "ESCALATION: `interventions_already_delivered` says how many times you have ALREADY "
+    "helped this learner, in this section, for this state. When it is above 0, do NOT "
+    "repeat an intervention that has already been given - move to the next, more "
+    "substantial rung of the ladder shown. Re-sending something the learner has already "
+    "seen and not benefited from wastes the interruption.\n\n"
     "Use the learner profile (skill level, mastery, recent affect history) and content "
     "difficulty to choose. Prefer no_action over an unhelpful interruption."
 )
+
+
+def _ladder_hint(affect_state: str) -> str:
+    """The escalation order for this state, as a readable arrow chain.
+
+    Read from `fallbacks._RULE_LADDER` rather than restated here, so the guidance the model
+    is given and the deterministic fallback can never describe different ladders.
+    """
+    rungs = fallbacks.ladder_actions(affect_state)
+    return " -> ".join(rungs) if rungs else "no escalation defined"
 
 
 def _build_human_prompt(
@@ -81,7 +98,14 @@ def _build_human_prompt(
         f"recent_affect_history: {recent}\n"
         f"{lesson_line}"
         f"content_topic: {topic}\n"
-        f"content_difficulty: {difficulty}"
+        f"content_difficulty: {difficulty}\n"
+        # THE ESCALATION INPUTS. `rung` was a parameter of this function and was never
+        # written into the prompt, so the model had no idea what had already been tried and
+        # re-sent an identical breakdown to a learner who had just failed to understand that
+        # breakdown. The ladder is included alongside it because a count alone does not say
+        # what the next rung IS.
+        f"interventions_already_delivered: {rung}\n"
+        f"escalation_ladder: {_ladder_hint(affect_state)}"
     )
 
 
@@ -170,6 +194,64 @@ async def _decide(
     return {**parsed, "fallback": False}
 
 
+def _enforce_escalation(
+    strategy: dict[str, Any], affect_state: Any, rung: int
+) -> dict[str, Any]:
+    """Refuse an intervention this learner has already been given here, and advance instead.
+
+    WHY THIS IS CODE AND NOT A PROMPT INSTRUCTION
+
+    The prompt tells the model how many interventions have already been delivered and shows it
+    the ladder. Measured against gpt-4o-mini that is not enough: asked four times in a row about
+    a learner who was still confused after a hint AND a breakdown, it returned `show_breakdown`
+    every time — re-sending the learner the exact explanation they had just failed to understand.
+    Small models follow a positive instruction ("prefer X") far more reliably than a negative one
+    ("do not repeat Y"), and no amount of rewording made it dependable.
+
+    The no-repeat property is the whole reason the ladder exists, so it is enforced rather than
+    requested. The model keeps its judgement everywhere it is not repeating itself: an override
+    only fires when the chosen action is one the ladder has already spent for this state.
+
+    AUDITABILITY
+
+    An override is recorded on the strategy as `escalation_enforced`, and the model's original
+    choice is kept in `model_action_type`. Decision fidelity is a measured quantity in this
+    project (Section 4.4), so a decision the system changed must not be indistinguishable in the
+    record from one the model made.
+    """
+    if rung <= 0:
+        return strategy
+
+    ladder = fallbacks.ladder_actions(affect_state)
+    if not ladder:
+        return strategy
+
+    chosen = strategy.get("action_type")
+    already_spent = ladder[:rung]
+    if chosen not in already_spent:
+        return strategy
+
+    # Clamped: past the last rung there is nothing deeper to offer, and repeating the deepest
+    # intervention is the least-bad option left — the same rule `fallbacks.ladder_for` applies.
+    next_action = ladder[min(rung, len(ladder) - 1)]
+    if next_action == chosen:
+        return strategy
+
+    logger.info(
+        "escalation_enforced",
+        affect_state=affect_state,
+        rung=rung,
+        model_action_type=chosen,
+        enforced_action_type=next_action,
+    )
+    return {
+        **strategy,
+        "action_type": next_action,
+        "escalation_enforced": True,
+        "model_action_type": chosen,
+    }
+
+
 async def pedagogical_node(state: AgentState) -> dict[str, Any]:
     """LangGraph node: decide and write the intervention `strategy`. Never raises (NFR22)."""
     affect_state = state.get("affect_state")
@@ -177,16 +259,19 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
     profile = state.get("learner_profile") or {}
     content_context = state.get("content_context") or {}
 
+    # Computed by the profiler, which is the only node holding the fresh profile. It is how
+    # many interventions were delivered to this learner, in this section, for this state
+    # BEFORE this cycle -- so rung 0 really is the first one.
+    rung = int(state.get("ladder_rung", 0) or 0)
+
     strategy = await _decide(
         affect_state,
         state.get("affect_confidence"),
         profile,
         content_context,
-        # Computed by the profiler, which is the only node holding the fresh profile. It is how
-        # many interventions were delivered to this learner, in this section, for this state
-        # BEFORE this cycle -- so rung 0 really is the first one.
-        int(state.get("ladder_rung", 0) or 0),
+        rung,
     )
+    strategy = _enforce_escalation(strategy, affect_state, rung)
 
     logger.info(
         "strategy_decided",

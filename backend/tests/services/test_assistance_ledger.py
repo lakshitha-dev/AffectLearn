@@ -206,3 +206,93 @@ class TestReads:
 
         rows = await assistance_service.for_section(db, section_id=section)
         assert [r.adaptation_id for r in rows] == ["in-section"]
+
+
+class TestTextsShownInSection:
+    """The read behind "do not say the same thing twice"."""
+
+    async def _record(self, db, *, learner_id, section_id, text):
+        import uuid as uuid_mod
+
+        from app.models.assistance_event import AssistanceEvent
+
+        db.add(
+            AssistanceEvent(
+                adaptation_id=str(uuid_mod.uuid4()),
+                learner_id=learner_id,
+                section_id=section_id,
+                action_type="show_hint",
+                hint_text=text,
+                affect_state="confused",
+                affect_confidence=0.9,
+            )
+        )
+        await db.commit()
+
+    async def test_returns_only_this_learners_messages(self, db, test_user, test_designer):
+        import uuid as uuid_mod
+
+        from app.services import assistance_service
+
+        section = uuid_mod.uuid4()
+        await self._record(db, learner_id=test_designer.id, section_id=section, text="Theirs")
+        await self._record(db, learner_id=test_user.id, section_id=section, text="Mine")
+
+        found = await assistance_service.texts_shown_in_section(
+            db, learner_id=test_user.id, section_id=section
+        )
+        assert found == ["Mine"]
+
+    async def test_returns_only_this_sections_messages(self, db, test_user):
+        """A hint about other material is not a repetition — it is unrelated."""
+        import uuid as uuid_mod
+
+        from app.services import assistance_service
+
+        here, elsewhere = uuid_mod.uuid4(), uuid_mod.uuid4()
+        await self._record(db, learner_id=test_user.id, section_id=here, text="Here")
+        await self._record(db, learner_id=test_user.id, section_id=elsewhere, text="Elsewhere")
+
+        found = await assistance_service.texts_shown_in_section(
+            db, learner_id=test_user.id, section_id=here
+        )
+        assert found == ["Here"]
+
+    async def test_drops_empty_text(self, db, test_user):
+        """A blank line in the prompt spends tokens telling the model nothing."""
+        import uuid as uuid_mod
+
+        from app.services import assistance_service
+
+        section = uuid_mod.uuid4()
+        await self._record(db, learner_id=test_user.id, section_id=section, text="   ")
+        await self._record(db, learner_id=test_user.id, section_id=section, text="Real")
+
+        found = await assistance_service.texts_shown_in_section(
+            db, learner_id=test_user.id, section_id=section
+        )
+        assert found == ["Real"]
+
+    async def test_respects_the_cap(self, db, test_user):
+        import uuid as uuid_mod
+
+        from app.services import assistance_service
+
+        section = uuid_mod.uuid4()
+        for i in range(6):
+            await self._record(db, learner_id=test_user.id, section_id=section, text=f"m{i}")
+
+        found = await assistance_service.texts_shown_in_section(
+            db, learner_id=test_user.id, section_id=section, limit=3
+        )
+        assert len(found) == 3
+
+    async def test_empty_when_nothing_was_shown(self, db, test_user):
+        import uuid as uuid_mod
+
+        from app.services import assistance_service
+
+        found = await assistance_service.texts_shown_in_section(
+            db, learner_id=test_user.id, section_id=uuid_mod.uuid4()
+        )
+        assert found == []

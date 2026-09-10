@@ -233,6 +233,12 @@ export function useWebSocket(
     ) {
       (window as unknown as { __connectionStore?: typeof useConnectionStore }).__connectionStore =
         useConnectionStore;
+      // The adaptation queue, on the same terms and behind the same guard. An e2e test can see
+      // that the socket connected but not what arrived on it, so "the hint did not appear" and
+      // "the hint arrived and did not render" were the same observation from outside.
+      (
+        window as unknown as { __adaptationStore?: typeof useAdaptationStore }
+      ).__adaptationStore = useAdaptationStore;
     }
 
     // URL provider runs on every (re)connect attempt — refreshes the JWT first so

@@ -38,7 +38,11 @@ services:
       # documented zero-intervention failure -- so the decision is taken per channel instead.
       - AFFECT_MODEL_KIND=geometry
       - GEOMETRY_MODEL_PATH=models/engagenet_lean_gbdt.onnx
-      - BEHAVIORAL_MODEL_PATH=models/behavioral_bilstm.onnx
+      # The DUX gradient-boosted tree, which is the reportable artefact. The
+      # Bi-LSTM beside it was trained on synthetic data and its own card marks it
+      # `reportable: false`, so pointing local dev at it produced numbers that
+      # looked real and were not. Production already resolves to the tree.
+      - BEHAVIORAL_MODEL_PATH=models/behavioral_confusion_gbdt.onnx
       - BEHAVIORAL_STATS_PATH=models/behavioral_feature_stats.json
       - AFFECT_DETECTION_MODE=auto
       - FUSION_DRIVES_DECISION=false

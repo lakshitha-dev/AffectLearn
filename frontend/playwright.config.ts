@@ -46,13 +46,20 @@ export default defineConfig({
     },
   ],
 
-  /* Start Next.js before running tests */
-  webServer: {
-    command: "pnpm start",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  /* Start Next.js before running tests.
+   *
+   * Skipped when AL_BASE points somewhere other than localhost: the figure
+   * captures in `figures-admin.spec.ts` run against a deployed instance while a
+   * learner is using it, and booting a local server there would either fail or
+   * capture the wrong system. */
+  webServer: /^https?:\/\/localhost/.test(process.env.AL_BASE ?? "http://localhost:3000")
+    ? {
+        command: "pnpm start",
+        url: "http://localhost:3000",
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    : undefined,
 });

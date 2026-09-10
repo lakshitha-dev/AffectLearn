@@ -8,14 +8,8 @@
 
 import { test, expect } from "@playwright/test";
 import {
-  makeCredentials,
-  apiRegister,
-  apiGetMe,
-  apiEnroll,
-  getFirstCourseId,
-  getCourseDetail,
+  seedLearnerOnFirstLesson,
   seedSessionStorage,
-  type TestCredentials,
 } from "./helpers/auth";
 
 // ---------------------------------------------------------------------------
@@ -34,33 +28,15 @@ interface LessonSuiteState {
 let shared: LessonSuiteState;
 
 test.beforeAll(async ({ request }) => {
-  const creds = makeCredentials("lesson");
-  const tokens = await apiRegister(request, creds);
-  const user = await apiGetMe(request, tokens.accessToken);
-  const courseId = await getFirstCourseId(request, tokens.accessToken);
-
-  await apiEnroll(request, tokens.accessToken, courseId);
-
-  const course = await getCourseDetail(request, tokens.accessToken, courseId);
-  const firstModule = course.modules[0];
-
-  if (!firstModule) {
-    throw new Error("Test course has no modules — seed the database first.");
-  }
-
-  const firstLesson = firstModule.lessons[0];
-  if (!firstLesson) {
-    throw new Error("First module has no lessons — seed the database first.");
-  }
-
-  const lessonUrl = `/courses/${courseId}/modules/${firstModule.id}/lessons/${firstLesson.id}`;
+  const seeded = await seedLearnerOnFirstLesson(request, "lesson");
+  const { tokens, user, courseId, lessonUrl } = seeded;
 
   shared = {
     tokens,
     user,
     courseId,
-    moduleId: firstModule.id,
-    lessonId: firstLesson.id,
+    moduleId: seeded.moduleId,
+    lessonId: seeded.lessonId,
     lessonUrl,
   };
 });
@@ -83,17 +59,21 @@ test.describe("Lesson page layout", () => {
     const h1 = page.getByRole("heading", { level: 1 });
     await expect(h1).toBeVisible({ timeout: 15_000 });
 
-    // The page should NOT still be on the loading skeleton
-    await expect(page.locator(".animate-pulse").first()).not.toBeVisible({
-      timeout: 5_000,
+    // The page should NOT still be on the loading skeleton. Asserted by the presence of real
+    // section content rather than the absence of `.animate-pulse`: that class is now also on the
+    // WebSocket status dot, which pulses forever, so the old assertion could never pass again.
+    await expect(page.locator("section[id^='section-']").first()).toBeVisible({
+      timeout: 15_000,
     });
   });
 
   test("breadcrumbs show Course → Module → Lesson", async ({ page }) => {
     await page.goto(shared.lessonUrl);
 
-    // The Breadcrumb component renders a nav landmark
-    const breadcrumb = page.locator("nav[aria-label]").first();
+    // Named, not just "the first nav": the course-outline sidebar is also a labelled nav landmark
+    // and comes first in the DOM, so the unnamed locator resolved to a sidebar that is hidden at
+    // this viewport and the breadcrumb was never looked at.
+    const breadcrumb = page.getByRole("navigation", { name: "breadcrumb" });
     await expect(breadcrumb).toBeVisible({ timeout: 15_000 });
 
     // There should be at least two separator characters indicating 3 crumbs
@@ -121,7 +101,7 @@ test.describe("Mark Complete", () => {
     await page.waitForSelector("section[id^='section-']", { timeout: 15_000 });
 
     const markCompleteBtn = page
-      .getByRole("button", { name: /mark complete/i })
+      .getByRole("button", { name: /as complete/i })
       .first();
     await expect(markCompleteBtn).toBeVisible();
   });
@@ -134,16 +114,19 @@ test.describe("Mark Complete", () => {
     await page.waitForSelector("section[id^='section-']", { timeout: 15_000 });
 
     const markCompleteBtn = page
-      .getByRole("button", { name: /mark complete/i })
+      .getByRole("button", { name: /as complete/i })
       .first();
     await expect(markCompleteBtn).toBeVisible();
 
     await markCompleteBtn.click();
 
-    // After API call: "Completed" text appears in place of the button
-    await expect(page.getByText("Completed").first()).toBeVisible({
-      timeout: 10_000,
-    });
+    // After the API call the button is replaced by a "Completed" marker IN THE SECTION. Scoped
+    // there, because the course-outline sidebar also carries a `sr-only` "completed" for every
+    // finished section, and an unscoped match resolved to that -- permanently hidden, so the
+    // assertion could not pass however well the button worked.
+    await expect(
+      page.locator("section[id^='section-']").getByText("Completed").first(),
+    ).toBeVisible({ timeout: 10_000 });
 
     // Sonner toast
     await expect(page.getByText(/section complete/i)).toBeVisible({
@@ -165,7 +148,7 @@ test.describe("Mark Complete", () => {
     );
 
     const markCompleteBtn = page
-      .getByRole("button", { name: /mark complete/i })
+      .getByRole("button", { name: /as complete/i })
       .first();
 
     // Only attempt if button is visible (section not yet completed)

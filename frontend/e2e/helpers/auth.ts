@@ -1,6 +1,7 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
-const API_BASE = "http://localhost:8000/api/v1";
+/** Exported so a spec can call an endpoint the helpers do not wrap. */
+export const API_BASE = "http://localhost:8000/api/v1";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +66,23 @@ export async function apiRegister(
     throw new Error(`Registration failed (${res.status()}): ${body}`);
   }
 
-  return res.json();
+  // Registration issues NO tokens: login is gated on email verification, the token is stored
+  // only as a hash, and with email unconfigured the link is never even logged. So this helper
+  // used to return `{message: "..."}` and every caller read `undefined` out of it, which meant
+  // the whole e2e suite failed in `beforeAll` with a 401 from the NEXT call.
+  //
+  // `/dev/verify-email` does what clicking the emailed link does, and 404s in production.
+  const verified = await request.post(`${API_BASE}/dev/verify-email`, {
+    data: { emailAddress: creds.email },
+  });
+  if (!verified.ok()) {
+    throw new Error(
+      `Could not verify ${creds.email} (${verified.status()}). ` +
+        "The dev router 404s when ENVIRONMENT=production — e2e needs a development backend.",
+    );
+  }
+
+  return apiLogin(request, creds);
 }
 
 /**
@@ -391,4 +408,57 @@ export async function getCourseDetail(
   }
 
   return res.json();
+}
+
+/**
+ * Register a learner, enrol them in the first published course, and resolve its first lesson.
+ *
+ * Extracted because `lesson`, `facial-feature-capture` and `behavioral-signal-collection` each
+ * carried a verbatim copy of it, down to the two "seed the database first" error strings. Four
+ * copies is where a change to the shape of `getCourseDetail` starts breaking specs one at a time.
+ */
+export async function seedLearnerOnFirstLesson(
+  request: APIRequestContext,
+  prefix: string,
+  webcamEnabled = false,
+): Promise<{
+  creds: TestCredentials;
+  tokens: TokenResponse;
+  user: Record<string, unknown>;
+  courseId: string;
+  moduleId: string;
+  lessonId: string;
+  lessonUrl: string;
+}> {
+  const creds = makeCredentials(prefix);
+  const tokens = await apiRegister(request, creds);
+
+  // Onboarding, not just registration. Without consent the app redirects every lesson URL to
+  // /onboarding, so a spec that navigates straight to a lesson lands on "Let's set up your
+  // learning experience" and every assertion fails looking for content that was never rendered.
+  // Defaults to behavioural mode (no webcam), which is what the signal-collection specs assume.
+  await apiGiveConsent(request, tokens.accessToken);
+  await apiSetWebcamMode(request, tokens.accessToken, webcamEnabled);
+
+  // Re-fetched AFTER consent so the user object seeded into storage carries `consentGivenAt`;
+  // the client checks that field, not the server, before letting a lesson render.
+  const user = await apiGetMe(request, tokens.accessToken);
+  const courseId = await getFirstCourseId(request, tokens.accessToken);
+  await apiEnroll(request, tokens.accessToken, courseId);
+
+  const course = await getCourseDetail(request, tokens.accessToken, courseId);
+  const firstModule = course.modules[0];
+  if (!firstModule) throw new Error("Test course has no modules — seed the database first.");
+  const firstLesson = firstModule.lessons[0];
+  if (!firstLesson) throw new Error("First module has no lessons — seed the database first.");
+
+  return {
+    creds,
+    tokens,
+    user,
+    courseId,
+    moduleId: firstModule.id,
+    lessonId: firstLesson.id,
+    lessonUrl: `/courses/${courseId}/modules/${firstModule.id}/lessons/${firstLesson.id}`,
+  };
 }

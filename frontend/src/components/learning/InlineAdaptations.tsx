@@ -94,12 +94,31 @@ export function activeRenderableAdaptation(
   return latestMatching(queue, INLINE_ACTIONS);
 }
 
+/**
+ * Whether this adaptation has anything to say.
+ *
+ * Every action rendered on this surface is GENERATIVE — the whole item is the text. With an
+ * empty or whitespace-only `text` the callout still drew its full shell: left border, label
+ * ("Let's break this down"), dismiss button, and a blank body. That reads as a rendering fault
+ * to the learner, and it is indistinguishable from one when reported. It is really an
+ * adaptation that arrived with no content, which is a backend outcome and belongs in the
+ * pipeline monitor, not on a card.
+ *
+ * `show_encouragement` is exempt: its callout carries standalone fallback copy, so an empty one
+ * still delivers the encouragement it was chosen for.
+ */
+function hasRenderableText(adaptation: Adaptation): boolean {
+  if (adaptation.action === "show_encouragement") return true;
+  return (adaptation.text ?? "").trim().length > 0;
+}
+
 function latestMatching(
   queue: readonly Adaptation[],
   actions: ReadonlySet<AdaptationAction>,
 ): Adaptation | null {
   for (let i = queue.length - 1; i >= 0; i -= 1) {
-    if (actions.has(queue[i].action)) return queue[i];
+    const candidate = queue[i];
+    if (actions.has(candidate.action) && hasRenderableText(candidate)) return candidate;
   }
   return null;
 }

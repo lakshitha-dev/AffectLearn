@@ -13,8 +13,8 @@ const iconProps = {
 
 const TRUST = [
   {
-    title: "No video is ever stored",
-    body: "Webcam frames are read in memory and discarded — never written to disk.",
+    title: "No image ever leaves your device",
+    body: "Your webcam is read on your own machine. What reaches us is a handful of numbers describing where you are looking, never a picture.",
     icon: (
       <svg viewBox="0 0 24 24" {...iconProps}>
         <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />
