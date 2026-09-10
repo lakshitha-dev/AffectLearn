@@ -107,7 +107,14 @@ async function open(page: Page, route: string) {
 }
 
 
-async function whole(page: Page, name: string) {
+// Viewport rather than full page. The monitor is several screens tall, and a figure of
+// the whole thing renders the configuration banner as one unreadable line; the banner is
+// the point of that figure, so it is captured at the top of the viewport instead.
+async function viewport(page: Page, name: string) {
+  const body = ((await page.locator("body").innerText()) || "").replace(/\s+/g, " ").trim();
+  expect(body.length, `${name} is blank or still loading`).toBeGreaterThan(200);
+  const seen = body.match(EMAIL_RE);
+  expect(seen, `an email address is visible on ${name}: ${seen?.[0]}`).toBeNull();
   await page.screenshot({ path: path.join(FIGURES, name), fullPage: false });
   console.log(`  wrote ${name}`);
 }
@@ -121,6 +128,7 @@ test("pipeline monitor during a live learner session", async ({ page, request })
   // The banner is the load-bearing content: it evidences that the facial channel
   // is the geometric one and which floor each channel is held to.
   await expect(page.getByText(/facial:\s*geometry/i)).toBeVisible({ timeout: 60_000 });
+  await viewport(page, "figshot-monitor-config.png");
   // Give the live panels a cycle to populate before capturing.
   await page.waitForTimeout(8_000);
   await shotPage(page, "figshot-monitor-live.png");
@@ -133,6 +141,25 @@ test("monitor aggregate view", async ({ page, request }) => {
   await expect(tab).toBeVisible({ timeout: 45_000 });
   await tab.click();
   await expect(page.getByText(/why cycles did not adapt/i)).toBeVisible({ timeout: 45_000 });
+
+  // Thirty days, because that is the window the deployment record is reported over.
+  // The 24-hour default shows an empty chart on an instance nobody used yesterday,
+  // which evidences nothing and reads as a broken page.
+  const window = page.getByRole("combobox").first();
+  if (await window.isVisible().catch(() => false)) {
+    await window.click();
+    const thirty = page.getByRole("option", { name: /30 days/i });
+    // Tolerant on purpose: the option only exists on a frontend carrying the widened
+    // WINDOWS list, and a capture run against an older deploy should fall back rather
+    // than fail. The assertion below pins whichever window was actually selected.
+    if (await thirty.isVisible().catch(() => false)) {
+      await thirty.click();
+      await expect(page.getByText(/window: 720h/i)).toBeVisible({ timeout: 45_000 });
+    } else {
+      await page.getByRole("option", { name: /7 days/i }).click();
+      await expect(page.getByText(/window: 168h/i)).toBeVisible({ timeout: 45_000 });
+    }
+  }
   await shotPage(page, "figshot-monitor-aggregate.png");
 });
 
