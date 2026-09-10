@@ -37,8 +37,12 @@ from app.agents.edges import (
     GATE_CHANNEL_ADVISORY,
     GATE_COOLDOWN,
     GATE_LOW_CONFIDENCE,
+    GATE_NO_AFFECT,
+    GATE_NOT_ELIGIBLE,
     GATE_NOT_SUSTAINED,
+    GATE_SESSION_CAP,
     GATE_STATE_NOT_ACTIONABLE,
+    GATE_WITHHELD_RANDOM,
 )
 from app.models.research_event import ResearchEvent
 from app.services.analytics_service import _confidence
@@ -48,15 +52,40 @@ logger = structlog.get_logger(__name__)
 # Every reason the gate can give, so the UI can render a stable set of bars including zeroes.
 # Sourced from the GATE_* constants rather than restated, so a new reason cannot be missed here.
 GATE_REASONS: tuple[str, ...] = (
+    GATE_NO_AFFECT,
+    GATE_NOT_ELIGIBLE,
     GATE_STATE_NOT_ACTIONABLE,
     GATE_LOW_CONFIDENCE,
     GATE_NOT_SUSTAINED,
     GATE_COOLDOWN,
+    GATE_SESSION_CAP,
+    GATE_WITHHELD_RANDOM,
     # Added when channel authority was introduced. While it was missing, every cycle withheld
     # because its channel is advisory landed in `gateReasonsUnknown`, and the UI rendered its
     # "this list is out of date with the backend" warning -- correctly.
     GATE_CHANNEL_ADVISORY,
 )
+
+# The comment above says this list is sourced from the GATE_* constants so a new reason
+# cannot be missed. It was missed four times: `no_affect`, `not_eligible`, `session_cap`
+# and `withheld_random` all reached production while this tuple listed five reasons, and
+# the dashboard spent that time reporting itself out of date. A comment is not a
+# mechanism, so the completeness is now asserted rather than intended: `ok` is the one
+# outcome that is not a withholding reason, and everything else must appear here.
+def _assert_every_reason_tracked() -> None:
+    from app.agents import edges as _edges
+
+    declared = {v for k, v in vars(_edges).items()
+                if k.startswith("GATE_") and isinstance(v, str)}
+    missing = declared - set(GATE_REASONS) - {_edges.GATE_OK}
+    if missing:
+        raise AssertionError(
+            "gate reasons the aggregate service would file as unknown: %s. Add them to "
+            "GATE_REASONS so the dashboard renders a bar rather than a warning."
+            % sorted(missing))
+
+
+_assert_every_reason_tracked()
 
 # The event that carries the gate decision (one per completed cycle).
 _PROFILE_EVENT = "learner_profile_updated"
