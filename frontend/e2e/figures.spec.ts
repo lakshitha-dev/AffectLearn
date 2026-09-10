@@ -111,7 +111,13 @@ test("onboarding consent and webcam steps", async ({ page, request }) => {
   await page.getByRole("button", { name: /get started|continue|next/i }).first().click();
 
   await expect(page.getByRole("heading", { name: /consent/i })).toBeVisible();
-  await expect(page.getByText(/never leaves|no image|not transmitted/i)).toBeVisible();
+  // The guard is on the CURRENT privacy sentence, not on any sentence: a capture of the
+  // superseded "frames are never stored" copy is exactly what this must refuse to write.
+  // The alternation tracks `ConsentStep.tsx`, which reads "no photographs or video ever
+  // leave your computer" -- an earlier, narrower pattern missed that and would have hung.
+  await expect(
+    page.getByText(/ever leaves?|never leaves?|no image|not transmitted/i).first(),
+  ).toBeVisible();
   await shot(page, "figshot-consent.png");
 
   await page.getByRole("checkbox").first().check();
