@@ -128,9 +128,26 @@ test("pipeline monitor during a live learner session", async ({ page, request })
   // The banner is the load-bearing content: it evidences that the facial channel
   // is the geometric one and which floor each channel is held to.
   await expect(page.getByText(/facial:\s*geometry/i)).toBeVisible({ timeout: 60_000 });
+  // The banner is all this capture claims, and it is present whether or not anyone is
+  // learning, so it is taken before the wait.
   await viewport(page, "figshot-monitor-config.png");
+
   // Give the live panels a cycle to populate before capturing.
   await page.waitForTimeout(8_000);
+
+  // REFUSE an idle monitor. The blank-page guard passes on this page whether or not a
+  // learner is connected, because the chrome alone carries well over 200 characters --
+  // and it duly overwrote a good populated capture with an empty one whose caption
+  // describes sixteen cycles and six delivered interventions. The figure is only worth
+  // taking when the Live tab has an actual detection in it.
+  const idle = page.getByText(/no detection yet|no active session|awaiting affect events/i);
+  if (await idle.first().isVisible().catch(() => false)) {
+    throw new Error(
+      "figshot-monitor-live: the monitor is idle, so this would capture an empty page. " +
+        "This figure needs a learner in an adaptive session at the same time -- see the " +
+        "note at the head of this file. Refusing rather than overwriting the committed one.",
+    );
+  }
   await shotPage(page, "figshot-monitor-live.png");
 });
 
