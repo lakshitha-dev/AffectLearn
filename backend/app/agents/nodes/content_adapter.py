@@ -47,6 +47,7 @@ from app.agents import fallbacks
 from app.agents.llm import get_chat_client
 from app.agents.state import AgentState
 from app.core.config import settings
+from app.services import learner_activity
 from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
@@ -102,6 +103,14 @@ _ACTION_INSTRUCTION: dict[str, str] = {
     "simplify": (
         "Re-explain the current concept more gently, at a lower cognitive load — simpler "
         "words and smaller steps, with a brief encouraging tone."
+    ),
+    # The last confusion rung. The video itself is found by the Video sub-agent in parallel; this
+    # is only the line that introduces it, so it must not try to explain the idea again in text.
+    "show_video": (
+        "The learner has already had text explanations of this and is still stuck, so a short "
+        "video is being shown. Write ONE or TWO short sentences introducing it: name the exact "
+        "idea from the section that the video will walk through, and say that watching it worked "
+        "through can help. Do not explain the idea yourself and do not give any answer."
     ),
     # The boredom response. Flow theory places boredom at challenge BELOW skill, so this must
     # actually RAISE difficulty rather than re-present the same material more loudly. Asking a
@@ -162,7 +171,21 @@ def _build_human_prompt(
             f"{prior}"
         )
 
+    # WHAT THE LEARNER HAS DONE HERE, observed rather than inferred: wrong answers, a revealed
+    # answer, re-reading, time spent. Without it a hint for someone who has just failed the
+    # section's question three times read the same as one for someone who had not tried it.
+    activity = learner_activity.describe(content_context.get("learner_activity"))
+    if activity:
+        lines.append(f"\nWhat the learner has done in this section so far: {activity}.")
+
     lines.append(f"\nTask: {instruction}")
+
+    if activity and "incorrectly" in activity:
+        lines.append(
+            "They have already tried and got it wrong, so aim at the likely misconception "
+            "behind a wrong answer rather than restating the section. Still do not reveal the "
+            "correct answer."
+        )
 
     if already_shown:
         lines.append(

@@ -53,13 +53,14 @@ from app.services import (
     behavioral_inference,
     content_context_service,
     fusion_buffer,
+    learner_activity,
     redis_service,
     study_service,
 )
 from app.agents.fusion import forced_mode, fuse_modalities
 from app.agents.graph import get_graph
 from app.agents.llm import warm_up as llm_warm_up
-from app.agents.state import make_initial_state
+from app.agents.state import AFFECT_SOURCE_LEARNER_REQUEST, make_initial_state
 
 #: Strong references to fire-and-forget tasks. Without this the event loop is free to garbage
 #: collect a running task mid-flight, which cancels it silently and at random.
@@ -251,7 +252,9 @@ async def _handle_facial_features(
     # Resolved once and reused: it grounds the prompt AND supplies the content coordinates the
     # research event is stamped with. Built outside the try so a graph failure still yields a
     # located event -- knowing WHERE a cycle failed is the point of recording the failure.
-    content_context = await content_context_service.build(data.get("section_id"), db)
+    content_context = await learner_activity.attach(
+        await content_context_service.build(data.get("section_id"), db), user_id
+    )
     coords = _coords(content_context)
 
     result_state = None
@@ -374,7 +377,9 @@ async def _handle_behavioral_window(
 
     # See the facial handler: resolved once, used for both prompt grounding and the event's
     # content coordinates.
-    content_context = await content_context_service.build(data.get("section_id"), db)
+    content_context = await learner_activity.attach(
+        await content_context_service.build(data.get("section_id"), db), user_id
+    )
     coords = _coords(content_context)
 
     result_state = None
@@ -736,7 +741,13 @@ async def _handle_performance_window(
     data = envelope.get("data") or {}
     cycle = int(data.get("cycle_number", 0) or 0)
 
-    content_context = await content_context_service.build(data.get("section_id"), db)
+    # Kept for the two agents that write to the learner: a hint for someone who has just got the
+    # section's question wrong three times should not read like one for someone who has not tried
+    # it. Recorded BEFORE this window's own graph run so that run sees its own counters too.
+    await learner_activity.record(user_id, data.get("section_id"), data)
+    content_context = await learner_activity.attach(
+        await content_context_service.build(data.get("section_id"), db), user_id
+    )
     coords = _coords(content_context)
 
     result_state = None
@@ -792,6 +803,95 @@ async def _handle_performance_window(
 
 
 _VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
+
+# ── learner-requested help ("Still stuck" / "Give me a hint" / "I'd rather move on") ─────────
+#
+# A card on screen offers the learner the next step. The request names WHICH ladder to climb,
+# so the reading behind it is the learner's own statement rather than a detector's guess:
+#   still_stuck -> confused   (hint -> breakdown -> alternative)
+#   move_on     -> bored      (harder question -> skip ahead)
+_HELP_REQUEST_AFFECT = {"still_stuck": "confused", "move_on": "bored"}
+
+# Minimum gap between two requests from one learner. A double click, or a learner hammering the
+# button, must not queue several LLM calls; the second is dropped, not deferred.
+_HELP_REQUEST_MIN_GAP_MS = 8_000
+_last_help_request_ms: dict[str, int] = {}
+
+
+async def _handle_help_request(
+    envelope: dict[str, Any], user_id: str, session_id: str,
+    db: AsyncSession | None = None,
+    phase: str = "phase_a", group: str = "control",
+) -> None:
+    """Run the agents for the next step the learner asked for, and deliver it. Never raises.
+
+    The reading is seeded rather than detected: `affect_detection_node` reports an empty cycle
+    with no payload and leaves the seeded keys in place, the same mechanism the dev harness uses.
+    The gate recognises `AFFECT_SOURCE_LEARNER_REQUEST` and passes it without the detector's
+    restraints (`edges.adaptation_decision`), and eligibility still holds, so a control-arm
+    learner gets nothing from this path.
+    """
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        logger.warning("ws_invalid_message", user_id=user_id, reason="help_request_missing_data")
+        return
+    affect_state = _HELP_REQUEST_AFFECT.get(data.get("request"))
+    section_id = data.get("section_id")
+    if affect_state is None or not section_id:
+        logger.warning("ws_invalid_message", user_id=user_id, reason="help_request_invalid")
+        return
+
+    now = _now_ms()
+    if now - _last_help_request_ms.get(user_id, 0) < _HELP_REQUEST_MIN_GAP_MS:
+        logger.info("help_request_throttled", user_id=user_id)
+        return
+    _last_help_request_ms[user_id] = now
+
+    cycle = int(data.get("cycle_number", 0) or 0)
+    content_context = await learner_activity.attach(
+        await content_context_service.build(section_id, db), user_id
+    )
+    coords = _coords(content_context)
+
+    await _safe_emit({
+        "event_type": "help_requested",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": cycle,
+        "timestamp": now,
+        "phase": phase,
+        "group": group,
+        **coords,
+        "payload": {
+            "request": data.get("request"),
+            "affect_state": affect_state,
+            # The card the request was made from, so "still stuck after THAT" is joinable.
+            "from_adaptation_id": data.get("adaptation_id"),
+            "from_action": data.get("action"),
+        },
+    })
+
+    try:
+        state = make_initial_state(
+            learner_id=user_id,
+            session_id=session_id,
+            cycle_number=cycle,
+            db=db,
+            phase=phase,
+            group=group,
+            content_context=content_context,
+        )
+        state["affect_state"] = affect_state
+        state["affect_confidence"] = 1.0
+        state["affect_source"] = AFFECT_SOURCE_LEARNER_REQUEST
+        result_state = await get_graph().ainvoke(state)
+    except Exception:
+        logger.exception("help_request_failed", user_id=user_id, cycle=cycle)
+        return
+
+    await _deliver_adaptation(
+        result_state, user_id, session_id, cycle, phase, group, coords, db
+    )
 
 
 async def _handle_adaptation_interaction(
@@ -1145,6 +1245,12 @@ async def websocket_endpoint(
                 await _handle_adaptation_interaction(
                     envelope, user_id, session_id, phase, group, db
                 )
+                continue
+
+            if msg_type == "help_request":
+                # The learner asked for the next step from a card on screen. Same agents, same
+                # ladder; the gate passes it because the learner, not a detector, is the source.
+                await _handle_help_request(envelope, user_id, session_id, db, phase, group)
                 continue
 
             if msg_type == "self_report":

@@ -5,7 +5,9 @@ import { ChevronDown, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { VideoHelp } from "@/components/learning/VideoHelp";
 import type { Adaptation } from "@/stores/adaptation-store";
+import type { HelpRequestKind } from "@/types/ws-messages";
 
 /**
  * AdaptiveHintCallout — the FIRST visual consumer of the Story 5.3 `adaptationQueue`.
@@ -40,7 +42,8 @@ type CalloutVariant =
   | "breakdown"
   | "encouragement"
   | "simpler"
-  | "challenge";
+  | "challenge"
+  | "video";
 
 // Must cover every action `InlineAdaptations` routes here. `simplify` and `increase_difficulty`
 // were renderable but missing from this map, so both fell through the `?? "hint"` below and were
@@ -53,6 +56,7 @@ const VARIANT_BY_ACTION: Record<string, CalloutVariant> = {
   show_encouragement: "encouragement",
   simplify: "simpler",
   increase_difficulty: "challenge",
+  show_video: "video",
 };
 
 const VARIANT_LABEL: Record<CalloutVariant, string> = {
@@ -63,13 +67,51 @@ const VARIANT_LABEL: Record<CalloutVariant, string> = {
   simpler: "Put more simply",
   // An invitation, not help: a bored learner is under-challenged, not struggling.
   challenge: "Ready for a harder one?",
+  // The last confusion rung: the Pedagogical agent's Video sub-agent picked this video.
+  video: "Watch it worked through",
 };
 
 interface AdaptiveHintCalloutProps {
   adaptation: Adaptation;
   /** Called when the learner fully dismisses (after the fade-out completes). */
   onDismiss: () => void;
+  /**
+   * The learner asked for the next step from this card. When supplied, the card shows its
+   * response buttons; when absent (older mounts, tests) it renders exactly as before.
+   */
+  onRequest?: (kind: HelpRequestKind) => void;
+  /** The learner said the card worked ("Got it"). Reported, then the card is dismissed. */
+  onGotIt?: () => void;
+  /**
+   * The section this card is about. When supplied, confusion cards offer "Watch a video
+   * explanation" (the Video Resource Agent); when absent, no video button is shown.
+   */
+  sectionId?: string;
 }
+
+/** Cards about NOT understanding something, where a video explanation is a sensible next step. */
+const VIDEO_VARIANTS: ReadonlySet<CalloutVariant> = new Set([
+  "hint",
+  "alternative",
+  "breakdown",
+  "simpler",
+  "video",
+]);
+
+/**
+ * The two responses each variant offers. A help card asks whether it worked; a challenge card,
+ * shown to a learner who was under-challenged, offers help or a way forward instead.
+ */
+const RESPONSES: Partial<
+  Record<CalloutVariant, { primary: string; secondary: string; request: HelpRequestKind }>
+> = {
+  hint: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  alternative: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  breakdown: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  simpler: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  video: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  challenge: { primary: "Give me a hint", secondary: "I'd rather move on", request: "move_on" },
+};
 
 /** Split breakdown text into steps; degrades gracefully to a single step. */
 function parseSteps(text: string | undefined): string[] {
@@ -83,7 +125,13 @@ function parseSteps(text: string | undefined): string[] {
   return trimmed ? [trimmed] : [];
 }
 
-export function AdaptiveHintCallout({ adaptation, onDismiss }: AdaptiveHintCalloutProps) {
+export function AdaptiveHintCallout({
+  adaptation,
+  onDismiss,
+  onRequest,
+  onGotIt,
+  sectionId,
+}: AdaptiveHintCalloutProps) {
   const reducedMotion = useReducedMotion();
   const variant = VARIANT_BY_ACTION[adaptation.action] ?? "hint";
 
@@ -96,6 +144,9 @@ export function AdaptiveHintCallout({ adaptation, onDismiss }: AdaptiveHintCallo
   // 300ms CSS transition (AC1 / Success Criteria: "fades in over 300ms ease").
   const [visible, setVisible] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  // Set once the learner has asked for the next step, so the buttons cannot fire twice while the
+  // agents work; the next card replaces this one when it arrives.
+  const [requested, setRequested] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -239,6 +290,78 @@ export function AdaptiveHintCallout({ adaptation, onDismiss }: AdaptiveHintCallo
           <p className="mt-1 text-base leading-relaxed text-foreground">{body}</p>
         </div>
       )}
+
+      {onRequest && RESPONSES[variant] ? (
+        <ResponseButtons
+          labels={RESPONSES[variant]!}
+          requested={requested}
+          onPrimary={() => {
+            if (variant === "challenge") {
+              // "Give me a hint" on a challenge: the learner is now stuck, not bored.
+              setRequested(true);
+              onRequest("still_stuck");
+              return;
+            }
+            onGotIt?.();
+            handleDismiss();
+          }}
+          onSecondary={() => {
+            setRequested(true);
+            onRequest(RESPONSES[variant]!.request);
+          }}
+        />
+      ) : null}
+
+      {sectionId && VIDEO_VARIANTS.has(variant) ? (
+        <div className="pr-6">
+          <VideoHelp
+            sectionId={sectionId}
+            adaptationId={adaptation.id}
+            hintText={body}
+            highlighted={requested}
+            delivered={variant === "video" ? adaptation.video : undefined}
+            autoOpen={variant === "video"}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ResponseButtons({
+  labels,
+  requested,
+  onPrimary,
+  onSecondary,
+}: {
+  labels: { primary: string; secondary: string };
+  requested: boolean;
+  onPrimary: () => void;
+  onSecondary: () => void;
+}) {
+  if (requested) {
+    return (
+      <p role="status" className="mt-3 text-sm text-muted-foreground">
+        Finding another way to help…
+      </p>
+    );
+  }
+  return (
+    <div className="mt-3 flex flex-wrap gap-2 pr-6">
+      <button
+        type="button"
+        onClick={onPrimary}
+        className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+      >
+        {labels.primary}
+      </button>
+      <button
+        type="button"
+        onClick={onSecondary}
+        className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-border"
+      >
+        {labels.secondary}
+      </button>
     </div>
   );
 }

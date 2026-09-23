@@ -20,12 +20,28 @@ import { create } from "zustand";
 
 import type { AdaptationAction } from "@/types/ws-messages";
 
+export interface AdaptationVideo {
+  kind?: "embed" | "link";
+  url?: string;
+  videoId?: string;
+  title?: string;
+  channel?: string;
+  durationS?: number;
+  reason?: string;
+  /** The sub-agent ran out of time in the cycle; finish the lookup with this brief. */
+  pending?: boolean;
+  concept?: string;
+  query?: string;
+}
+
 export interface Adaptation {
   /** Stable client-generated id so 5.4–5.6 can key/dismiss (crypto.randomUUID). */
   id: string;
   action: AdaptationAction;
   text?: string;
   variant?: string;
+  /** `show_video` only: the Video sub-agent's result, camelCased from the wire. */
+  video?: AdaptationVideo;
   /** Client receipt time (ms) for ordering / staleness in later stories. */
   receivedAt: number;
 }

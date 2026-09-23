@@ -229,10 +229,10 @@ class TestEscalationIsEnforced:
         """Past the last rung there is nothing deeper; repeating it is the least-bad option."""
         from app.agents.nodes.pedagogical import _enforce_escalation
 
-        strategy = {"action_type": "show_alternative", "reason": "r", "urgency": "high"}
+        strategy = {"action_type": "show_video", "reason": "r", "urgency": "high"}
         out = _enforce_escalation(strategy, "confused", rung=5)
 
-        assert out["action_type"] == "show_alternative"
+        assert out["action_type"] == "show_video"
         assert "escalation_enforced" not in out
 
     def test_boredom_advances_to_skip_ahead(self):

@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.edges import (
     GATE_CHANNEL_ADVISORY,
     GATE_COOLDOWN,
+    GATE_LEARNER_REQUEST,
     GATE_LOW_CONFIDENCE,
     GATE_NO_AFFECT,
     GATE_NOT_ELIGIBLE,
@@ -78,7 +79,9 @@ def _assert_every_reason_tracked() -> None:
 
     declared = {v for k, v in vars(_edges).items()
                 if k.startswith("GATE_") and isinstance(v, str)}
-    missing = declared - set(GATE_REASONS) - {_edges.GATE_OK}
+    # `learner_request` is not a withholding reason either: it is a pass the learner asked for,
+    # counted on its own (`learnerRequests`) so it never inflates the detector-driven `gatePassed`.
+    missing = declared - set(GATE_REASONS) - {_edges.GATE_OK, _edges.GATE_LEARNER_REQUEST}
     if missing:
         raise AssertionError(
             "gate reasons the aggregate service would file as unknown: %s. Add them to "
@@ -128,6 +131,7 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
     # out of date with the backend, which is the warning that exists to catch a real
     # missing reason -- and a warning that cries wolf is worse than no warning.
     gate_passed = 0
+    learner_requests = 0
     affect_counts: dict[str, int] = {}
     delivered = 0
     fallback = 0
@@ -157,6 +161,8 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
             if isinstance(reason, str):
                 if reason == GATE_OK:
                     gate_passed += 1
+                elif reason == GATE_LEARNER_REQUEST:
+                    learner_requests += 1
                 elif reason in gate_counts:
                     gate_counts[reason] += 1
                 else:
@@ -277,6 +283,9 @@ async def aggregates(db: AsyncSession, *, hours: int = 24) -> dict[str, Any]:
         "gateReasons": gate_counts,
         "gateReasonsUnknown": gate_other,
         "gatePassed": gate_passed,
+        # Help the learner asked for from a card ("Still stuck"). Kept apart from `gatePassed`,
+        # which measures the DETECTOR's passes, so the gate statistics mean what they did before.
+        "learnerRequests": learner_requests,
         "gatedCycles": gated_cycles,
         "affectCounts": affect_counts,
         "modalityStats": modality_stats,

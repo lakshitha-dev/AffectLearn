@@ -98,6 +98,20 @@ function mapToAdaptation(msg: AdaptationMessage): Adaptation {
     action: msg.action,
     text: msg.content?.text,
     variant: msg.content?.variant,
+    video: msg.video
+      ? {
+          kind: msg.video.kind,
+          url: msg.video.url,
+          videoId: msg.video.video_id,
+          title: msg.video.title,
+          channel: msg.video.channel,
+          durationS: msg.video.duration_s,
+          reason: msg.video.reason,
+          pending: msg.video.pending,
+          concept: msg.video.concept,
+          query: msg.video.query,
+        }
+      : undefined,
     receivedAt: Date.now(),
   };
 }
