@@ -126,6 +126,7 @@ function latestMatching(
 export function InlineAdaptations({
   onInteraction,
   onRequest,
+  sectionId,
 }: {
   /**
    * Report a learner response to the research record. Optional so existing mounts and tests keep
@@ -145,6 +146,8 @@ export function InlineAdaptations({
     adaptation_id: string;
     action: AdaptationAction;
   }) => void;
+  /** The section on screen; enables "Watch a video explanation" on confusion cards. */
+  sectionId?: string;
 } = {}) {
   const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
 
@@ -169,6 +172,7 @@ export function InlineAdaptations({
           interaction: "accepted",
         })
       }
+      sectionId={sectionId}
       onRequest={
         onRequest
           ? (request) =>
@@ -201,12 +205,14 @@ function CenteredHint({
   onDismiss,
   onGotIt,
   onRequest,
+  sectionId,
 }: {
   adaptation: Parameters<typeof AdaptiveHintCallout>[0]["adaptation"];
   /** Reports the dismissal upstream; the callout still owns its own local dismissed state. */
   onDismiss?: () => void;
   onGotIt?: () => void;
   onRequest?: (kind: HelpRequestKind) => void;
+  sectionId?: string;
 }) {
   // Deferred by one frame so the browser paints the "before" state first; without this the
   // element mounts already-visible and the transition never runs.
@@ -239,6 +245,7 @@ function CenteredHint({
             adaptation={adaptation}
             onGotIt={onGotIt}
             onRequest={onRequest}
+            sectionId={sectionId}
             onDismiss={() => {
               // Queue ownership is unchanged: the callout still owns its own dismissed/re-access
               // state and the item stays in the queue. What is new is that the dismissal is

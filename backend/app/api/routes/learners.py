@@ -14,6 +14,7 @@ trying to measure. What comes back is what the learner already saw on screen: th
 where it appeared, and what they did with it.
 """
 
+import time
 import uuid
 from datetime import datetime
 
@@ -27,7 +28,15 @@ from app.models.enrollment import Enrollment
 from app.models.section_progress import SectionProgress
 from app.models.user import Role, User
 from app.schemas.base import CamelModel
-from app.services import assistance_service, course_ownership
+from app.services import (
+    assistance_service,
+    content_context_service,
+    course_ownership,
+    learner_activity,
+    video_resource_agent,
+)
+from app.services.research_logger import content_coords
+from app.services.research_logger import emit as emit_research_event
 
 router = APIRouter()
 
@@ -159,3 +168,114 @@ async def course_roster(
         )
         for user, enrollment, completed in rows
     ]
+
+
+# ── video help ("Watch a video explanation") ─────────────────────────────────────────
+#
+# On demand from a confusion card, outside the 30-second affect loop, so it can neither add latency
+# to detection nor move a gate statistic. Returns only what the learner will see: a video (or a
+# search link) and the agent's one-line reason. No affect state, per the module docstring.
+
+#: One lookup per learner per window. Each uncached lookup spends 100 of 10,000 daily quota units.
+_VIDEO_HELP_MIN_GAP_S = 5.0
+_last_video_help: dict[str, float] = {}
+
+
+class VideoHelpRequest(CamelModel):
+    section_id: uuid.UUID
+    #: The card the learner asked from, so "watched a video after THAT hint" is joinable.
+    adaptation_id: str | None = None
+    #: The hint text already on screen, so the agent looks for something that is not a repeat.
+    hint_text: str | None = None
+    session_id: str | None = None
+
+
+class VideoHelpResponse(CamelModel):
+    #: `embed` -- play `video_id` in the card. `link` -- open `url` (a YouTube search) in a new tab.
+    kind: str
+    url: str
+    video_id: str | None = None
+    title: str | None = None
+    channel: str | None = None
+    duration_s: int | None = None
+    reason: str | None = None
+    throttled: bool = False
+
+
+class VideoHelpClosed(CamelModel):
+    section_id: uuid.UUID
+    video_id: str | None = None
+    seconds_open: float = 0.0
+    session_id: str | None = None
+
+
+def _video_event(event_type: str, user: User, session_id: str | None, coords: dict,
+                 payload: dict) -> dict:
+    return {
+        "event_type": event_type,
+        "learner_id": str(user.id),
+        "session_id": session_id,
+        "cycle_number": 0,
+        "timestamp": int(time.time() * 1000),
+        **coords,
+        "payload": payload,
+    }
+
+
+@router.post("/me/video-help", response_model=VideoHelpResponse)
+async def video_help(
+    body: VideoHelpRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.learner)),
+):
+    """Let the Video Resource Agent find one explanation video for this section."""
+    user_key = str(current_user.id)
+    now = time.monotonic()
+    context = await learner_activity.attach(
+        await content_context_service.build(str(body.section_id), db), user_key
+    )
+    if now - _last_video_help.get(user_key, -1e9) < _VIDEO_HELP_MIN_GAP_S:
+        query, _concept = video_resource_agent.fallback_query(context)
+        return VideoHelpResponse(
+            kind="link", url=video_resource_agent.search_link(query), throttled=True
+        )
+    _last_video_help[user_key] = now
+
+    coords = content_coords(context)
+    await emit_research_event(_video_event(
+        "video_help_requested", current_user, body.session_id, coords,
+        {"from_adaptation_id": body.adaptation_id},
+    ))
+
+    result = await video_resource_agent.find_video(context, body.hint_text)
+
+    await emit_research_event(_video_event(
+        "video_help_served", current_user, body.session_id, coords,
+        {
+            "from_adaptation_id": body.adaptation_id,
+            "kind": result.get("kind"),
+            "video_id": result.get("video_id"),
+            "title": result.get("title"),
+            "channel": result.get("channel"),
+            "query": result.get("query"),
+            "concept": result.get("concept"),
+            "reason": result.get("reason"),
+            "source": result.get("source"),
+        },
+    ))
+    return VideoHelpResponse(**{k: result.get(k) for k in VideoHelpResponse.model_fields
+                                if k in result})
+
+
+@router.post("/me/video-help/closed", status_code=204)
+async def video_help_closed(
+    body: VideoHelpClosed,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.learner)),
+):
+    """Record how long the video stayed open. The only measure of whether it was watched."""
+    context = await content_context_service.build(str(body.section_id), db)
+    await emit_research_event(_video_event(
+        "video_help_closed", current_user, body.session_id, content_coords(context),
+        {"video_id": body.video_id, "seconds_open": round(max(0.0, body.seconds_open), 1)},
+    ))

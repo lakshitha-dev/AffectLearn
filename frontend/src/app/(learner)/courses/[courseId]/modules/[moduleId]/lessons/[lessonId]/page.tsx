@@ -465,7 +465,11 @@ export default function LessonPage({ params }: PageProps) {
       {/* Inline adaptive hints (Story 5.4) — renders the latest show_* adaptation
           inline at a natural content break; non-inline actions are left in the
           queue for Stories 5.5–5.7. */}
-      <InlineAdaptations onInteraction={logHintInteraction} onRequest={requestHelp} />
+      <InlineAdaptations
+        onInteraction={logHintInteraction}
+        onRequest={requestHelp}
+        sectionId={currentSectionId ?? undefined}
+      />
       {/* Asked once, 30s after a content intervention is delivered — long enough that the answer
           is about the help rather than about being interrupted. Inline, never blocking. */}
       <AdaptationProbe onRespond={logAdaptationProbe} />

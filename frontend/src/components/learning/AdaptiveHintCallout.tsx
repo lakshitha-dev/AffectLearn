@@ -5,6 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { VideoHelp } from "@/components/learning/VideoHelp";
 import type { Adaptation } from "@/stores/adaptation-store";
 import type { HelpRequestKind } from "@/types/ws-messages";
 
@@ -77,7 +78,20 @@ interface AdaptiveHintCalloutProps {
   onRequest?: (kind: HelpRequestKind) => void;
   /** The learner said the card worked ("Got it"). Reported, then the card is dismissed. */
   onGotIt?: () => void;
+  /**
+   * The section this card is about. When supplied, confusion cards offer "Watch a video
+   * explanation" (the Video Resource Agent); when absent, no video button is shown.
+   */
+  sectionId?: string;
 }
+
+/** Cards about NOT understanding something, where a video explanation is a sensible next step. */
+const VIDEO_VARIANTS: ReadonlySet<CalloutVariant> = new Set([
+  "hint",
+  "alternative",
+  "breakdown",
+  "simpler",
+]);
 
 /**
  * The two responses each variant offers. A help card asks whether it worked; a challenge card,
@@ -110,6 +124,7 @@ export function AdaptiveHintCallout({
   onDismiss,
   onRequest,
   onGotIt,
+  sectionId,
 }: AdaptiveHintCalloutProps) {
   const reducedMotion = useReducedMotion();
   const variant = VARIANT_BY_ACTION[adaptation.action] ?? "hint";
@@ -289,6 +304,17 @@ export function AdaptiveHintCallout({
             onRequest(RESPONSES[variant]!.request);
           }}
         />
+      ) : null}
+
+      {sectionId && VIDEO_VARIANTS.has(variant) ? (
+        <div className="pr-6">
+          <VideoHelp
+            sectionId={sectionId}
+            adaptationId={adaptation.id}
+            hintText={body}
+            highlighted={requested}
+          />
+        </div>
       ) : null}
     </div>
   );
