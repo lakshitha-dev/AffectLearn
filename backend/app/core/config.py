@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     VLLM_MODEL: str = "affectlearn/llama-3-8b-pedagogical"
     VLLM_API_KEY: str = "not-needed"  # vLLM ignores the key; OpenAI client requires a non-empty value
     VLLM_TIMEOUT_SECONDS: float = 3.0  # NFR5/architecture line 632 — fall back to rules past this
+    # Video help ("Watch a video explanation" on a confusion card). Empty key = no API search; the
+    # agent still writes a query and the learner gets a YouTube search link instead of an embed.
+    YOUTUBE_API_KEY: str = ""
+    # Budget for the whole on-demand lookup (two LLM calls + two API calls). Outside the 30s loop,
+    # so it can be longer than VLLM_TIMEOUT_SECONDS; the learner is watching a spinner, not a lesson.
+    VIDEO_HELP_TIMEOUT_SECONDS: float = 8.0
     # Raised from 256 after a delivered breakdown was cut off mid-sentence in production
     # ("...This condition checks" — 181 words ≈ 280 tokens against a 256 cap). The system prompt
     # now asks for under 80 words, so this is headroom against truncation rather than a licence

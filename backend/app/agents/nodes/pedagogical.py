@@ -26,8 +26,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents import fallbacks
 from app.agents.llm import get_chat_client
-from app.agents.state import AFFECT_STATES, AgentState
+from app.agents.state import AFFECT_SOURCE_LEARNER_REQUEST, AFFECT_STATES, AgentState
 from app.core.config import settings
+from app.services import learner_activity
 from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
@@ -39,10 +40,17 @@ _SYSTEM_PROMPT = (
     "decide the single best teaching intervention.\n\n"
     "Reply with ONLY a JSON object: "
     '{"action_type": <action>, "reason": <short string>, "urgency": "low"|"medium"|"high"}.\n'
+    "When action_type is show_video, ALSO include "
+    '"video_brief": {"concept": <the exact idea the learner is stuck on, 3-6 words>, '
+    '"query": <a 4-10 word YouTube search query for a beginner explanation of it>}. '
+    "Your Video sub-agent uses this brief to find the video, so base it on what the learner "
+    "got wrong, not only on the section title.\n"
     f"action_type MUST be one of: {', '.join(fallbacks.ACTION_TYPES)}.\n\n"
     "Guidance:\n"
     "- confused: show_hint (first/mild), then show_breakdown, then show_alternative as "
-    "confusion persists.\n"
+    "confusion persists, then show_video (a short video walkthrough) once text has not landed. "
+    "Choose show_video EARLIER only on strong evidence: learner_activity shows 3 or more wrong "
+    "answers, or learner_requested is yes after text help was already given.\n"
     "- frustrated: show_encouragement or simplify (moderate); suggest_break "
     "(high/extended, especially late sessions).\n"
     "- bored: increase_difficulty FIRST to re-engage. Only use skip_ahead once a harder "
@@ -55,7 +63,12 @@ _SYSTEM_PROMPT = (
     "substantial rung of the ladder shown. Re-sending something the learner has already "
     "seen and not benefited from wastes the interruption.\n\n"
     "Use the learner profile (skill level, mastery, recent affect history) and content "
-    "difficulty to choose. Prefer no_action over an unhelpful interruption."
+    "difficulty to choose. Prefer no_action over an unhelpful interruption.\n\n"
+    "EVIDENCE: `learner_activity`, when present, is what the learner actually DID in this "
+    "section. Repeated wrong answers or a revealed answer point to a misconception rather than "
+    "a momentary lapse, so a nudge is usually too little; a learner who has not attempted "
+    "anything yet usually needs only the nudge. Let that evidence, and `section_excerpt`, "
+    "shape both the action and the reason."
 )
 
 
@@ -69,26 +82,52 @@ def _ladder_hint(affect_state: str) -> str:
     return " -> ".join(rungs) if rungs else "no escalation defined"
 
 
+#: How much of the section the strategist sees. Enough to know what the section is ABOUT, which a
+#: title alone does not say; far short of the full body the content adapter gets, because this
+#: node classifies into nine actions and the rest would only cost latency.
+_EXCERPT_CHARS = 400
+
+
+def _excerpt(body: Any) -> str:
+    """The section's opening, cut at a word boundary and flattened to one line. Pure."""
+    text = " ".join(str(body or "").split())
+    if len(text) <= _EXCERPT_CHARS:
+        return text
+    cut = text[:_EXCERPT_CHARS].rsplit(" ", 1)[0]
+    return f"{cut} ..."
+
+
 def _build_human_prompt(
     affect_state: str,
     affect_confidence: Any,
     profile: dict,
     content_context: dict,
     rung: int = 0,
+    requested: bool = False,
 ) -> str:
     """Compact, token-efficient context block for the LLM.
 
-    Deliberately carries the section/lesson TITLES but not the section body, unlike
+    Carries a short excerpt of the section rather than the whole body, unlike
     `content_adapter._build_human_prompt`. The strategist only picks an `action_type` from a
-    locked vocabulary — a classification. Feeding it the full ~2000-char body would roughly
-    double the prompt for every cycle without changing which of nine actions it chooses. The
-    adapter is the node that writes learner-facing prose, so that is where the body belongs.
+    locked vocabulary, and the full ~2000-char body would roughly double the prompt for every
+    cycle. A title alone, though, left it unable to tell a definitional section from a worked
+    exercise -- the difference between a hint and a breakdown -- so it gets the opening of the
+    section, plus what the learner has actually done in it.
     """
     topic = content_context.get("topic", "unknown")
     difficulty = content_context.get("difficulty", "unknown")
     lesson = content_context.get("lesson")
     recent = (profile.get("affect_history") or [])[-5:]
     lesson_line = f"content_lesson: {lesson}\n" if lesson and lesson != "unknown" else ""
+    excerpt = _excerpt(content_context.get("body"))
+    excerpt_line = f"section_excerpt: {excerpt}\n" if excerpt else ""
+    activity = learner_activity.describe(content_context.get("learner_activity"))
+    activity_line = f"learner_activity: {activity}\n" if activity else ""
+    # The learner pressed "Still stuck" / "I'd rather move on" on the card already shown.
+    requested_line = (
+        "learner_requested: yes, the learner explicitly asked for the next step\n"
+        if requested else ""
+    )
     return (
         f"affect_state: {affect_state}\n"
         f"affect_confidence: {affect_confidence}\n"
@@ -99,6 +138,9 @@ def _build_human_prompt(
         f"{lesson_line}"
         f"content_topic: {topic}\n"
         f"content_difficulty: {difficulty}\n"
+        f"{excerpt_line}"
+        f"{activity_line}"
+        f"{requested_line}"
         # THE ESCALATION INPUTS. `rung` was a parameter of this function and was never
         # written into the prompt, so the model had no idea what had already been tried and
         # re-sent an identical breakdown to a learner who had just failed to understand that
@@ -142,11 +184,20 @@ def _parse_strategy(text: str) -> dict[str, Any] | None:
     urgency = obj.get("urgency")
     if urgency not in fallbacks.URGENCIES:
         urgency = "medium"
-    return {
+    parsed: dict[str, Any] = {
         "action_type": action_type,
         "reason": str(obj.get("reason", ""))[:300],
         "urgency": urgency,
     }
+    # The delegation to the Video sub-agent. Optional: without it the sub-agent writes its own
+    # query from the section, so a model that omits the brief costs precision, never the video.
+    brief = obj.get("video_brief")
+    if action_type == "show_video" and isinstance(brief, dict):
+        concept = " ".join(str(brief.get("concept") or "").split())[:80]
+        query = " ".join(str(brief.get("query") or "").split())[:120]
+        if concept and query:
+            parsed["video_brief"] = {"concept": concept, "query": query}
+    return parsed
 
 
 async def _decide(
@@ -155,6 +206,7 @@ async def _decide(
     profile: dict,
     content_context: dict,
     rung: int = 0,
+    requested: bool = False,
 ) -> dict[str, Any]:
     """Produce a strategy dict (with `fallback`/`fallback_reason` provenance). Never raises."""
     # No usable affect this cycle (e.g. empty/face-less cycle that still routed here):
@@ -169,7 +221,8 @@ async def _decide(
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(
                 content=_build_human_prompt(
-                    affect_state, affect_confidence, profile, content_context, rung
+                    affect_state, affect_confidence, profile, content_context, rung,
+                    requested,
                 )
             ),
         ]
@@ -252,6 +305,34 @@ def _enforce_escalation(
     }
 
 
+def _honour_request(
+    strategy: dict[str, Any], state: AgentState, rung: int
+) -> dict[str, Any]:
+    """Never answer a learner's explicit request for help with `no_action`.
+
+    `no_action` is the right call when a DETECTOR may be wrong: interrupting a coping learner
+    costs more than a missed window. When the learner pressed "Still stuck" there is nothing to be
+    wrong about, and replying with silence would read as the button being broken. The ladder's
+    rung for this state stands in, recorded the same way `_enforce_escalation` records its
+    overrides so a changed decision is never indistinguishable from the model's own.
+    """
+    if state.get("affect_source") != AFFECT_SOURCE_LEARNER_REQUEST:
+        return strategy
+    if strategy.get("action_type") != "no_action":
+        return strategy
+    action_type, urgency = fallbacks.ladder_for(state.get("affect_state"), rung)
+    if action_type == "no_action":
+        return strategy
+    logger.info("learner_request_honoured", model_action_type="no_action", enforced=action_type)
+    return {
+        **strategy,
+        "action_type": action_type,
+        "urgency": urgency,
+        "escalation_enforced": True,
+        "model_action_type": "no_action",
+    }
+
+
 async def pedagogical_node(state: AgentState) -> dict[str, Any]:
     """LangGraph node: decide and write the intervention `strategy`. Never raises (NFR22)."""
     affect_state = state.get("affect_state")
@@ -270,8 +351,10 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
         profile,
         content_context,
         rung,
+        requested=state.get("affect_source") == AFFECT_SOURCE_LEARNER_REQUEST,
     )
     strategy = _enforce_escalation(strategy, affect_state, rung)
+    strategy = _honour_request(strategy, state, rung)
 
     logger.info(
         "strategy_decided",
@@ -308,6 +391,8 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
             # this is the deterministic rule's description rather than model output; `fallback`
             # distinguishes the two, so a reader is never misled about where the reason came from.
             "reason": strategy.get("reason") or None,
+            # What the Pedagogical agent delegated to its Video sub-agent, when it chose a video.
+            "video_brief": strategy.get("video_brief"),
         },
     })
 

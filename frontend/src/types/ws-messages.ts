@@ -184,6 +184,29 @@ export interface AdaptationProbeMessage extends WSMessage {
   };
 }
 
+/**
+ * The learner asked for the next step from a card already on screen.
+ *
+ *   - `still_stuck` — climb the confusion ladder (hint → breakdown → different explanation)
+ *   - `move_on`     — climb the boredom ladder (harder question → skip ahead)
+ *
+ * The server runs the same agents for it; the reading is the learner's statement rather than a
+ * detection, so the gate passes it without the detector's restraints (adaptive arm only).
+ */
+export type HelpRequestKind = "still_stuck" | "move_on";
+
+export interface HelpRequestMessage extends WSMessage {
+  type: "help_request";
+  data: {
+    request: HelpRequestKind;
+    /** The card the learner asked from, so "still stuck after THAT" is joinable. */
+    adaptation_id: string;
+    action: AdaptationAction;
+    section_id?: string;
+    cycle_number?: number;
+  };
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
@@ -191,6 +214,7 @@ export type UpstreamMessage =
   | BehavioralWindowMessage
   | AdaptationInteractionMessage
   | AdaptationProbeMessage
+  | HelpRequestMessage
   | SelfReportMessage;
 
 // ---------- Downstream (server → client) ----------
@@ -245,6 +269,8 @@ export const ADAPTATION_ACTIONS = [
   "suggest_break",
   "skip_ahead",
   "increase_difficulty",
+  // The last confusion rung: the Pedagogical agent's Video sub-agent attaches a video.
+  "show_video",
 ] as const;
 
 /**
@@ -272,6 +298,22 @@ export interface AdaptationMessage extends WSMessage {
   adaptation_id?: string;
   action: AdaptationAction;
   content: { text?: string; variant?: string; message?: string };
+  /**
+   * `show_video` only: what the Video sub-agent found. `pending` means it did not finish inside
+   * the cycle and the client should complete the lookup with `concept`/`query` (the brief).
+   */
+  video?: {
+    kind?: "embed" | "link";
+    url?: string;
+    video_id?: string;
+    title?: string;
+    channel?: string;
+    duration_s?: number;
+    reason?: string;
+    pending?: boolean;
+    concept?: string;
+    query?: string;
+  };
 }
 
 /**

@@ -79,6 +79,10 @@ _NODE_PRESENTATION: dict[str, dict[str, str]] = {
         "label": "Content Adapter",
         "desc": "vLLM content generation → rule-based fallback (Story 5.2)",
     },
+    "video_resource": {
+        "label": "Video Sub-agent",
+        "desc": "Pedagogical agent's delegate: YouTube search → pick one video (show_video only)",
+    },
     "deliver": {
         "label": "Deliver",
         "desc": "Build adaptation wire payload → WS handler pushes to client (Story 5.3)",

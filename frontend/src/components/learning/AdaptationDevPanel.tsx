@@ -46,6 +46,7 @@ const LADDER: Record<AdaptationAction, { affect: AffectState; rung: number }> = 
   show_hint: { affect: "confused", rung: 0 },
   show_breakdown: { affect: "confused", rung: 1 },
   show_alternative: { affect: "confused", rung: 2 },
+  show_video: { affect: "confused", rung: 3 },
   increase_difficulty: { affect: "bored", rung: 0 },
   skip_ahead: { affect: "bored", rung: 1 },
   show_encouragement: { affect: "frustrated", rung: 0 },
@@ -63,6 +64,7 @@ const SAMPLE_TEXT: Record<AdaptationAction, string> = {
   increase_difficulty: "Sample challenge question — placeholder, not model output.",
   suggest_break: "Sample break suggestion — placeholder, not model output.",
   skip_ahead: "Sample skip suggestion — placeholder, not model output.",
+  show_video: "Sample video introduction — placeholder, not model output.",
 };
 
 interface SimulateResult {

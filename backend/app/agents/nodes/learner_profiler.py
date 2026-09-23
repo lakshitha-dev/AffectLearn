@@ -17,6 +17,7 @@ from typing import Any
 import structlog
 
 from app.agents.edges import (
+    GATE_LEARNER_REQUEST as _GATE_LEARNER_REQUEST,
     GATE_OK as _GATE_OK,
     adaptation_decision,
     arm_for,
@@ -118,6 +119,11 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         # start where this one would have.
         if gate_reason == _GATE_OK:
             record_delivered_rung(profile, session_id, section_id, state.get("affect_state"))
+    elif gate_reason == _GATE_LEARNER_REQUEST:
+        # A requested step still climbs the ladder -- "still stuck" after a hint must lead to the
+        # breakdown, not to the same hint again -- but spends neither the cooldown nor the session
+        # cap, which pace the DETECTOR and are not a budget on help the learner asked for.
+        record_delivered_rung(profile, session_id, section_id, state.get("affect_state"))
 
     # Write-through: Redis hot (best-effort) + Postgres cold (best-effort)
     try:

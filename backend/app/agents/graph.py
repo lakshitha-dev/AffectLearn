@@ -33,6 +33,7 @@ from app.agents.nodes.content_adapter import content_adapter_node
 from app.agents.nodes.learner_profiler import learner_profiler_node
 from app.agents.nodes.pedagogical import pedagogical_node
 from app.agents.nodes.terminal import deliver_node, log_only_node
+from app.agents.nodes.video_resource import video_resource_node
 from app.agents.state import AgentState
 from app.services.trace import emit_trace
 
@@ -63,6 +64,7 @@ NODE_IDS: tuple[str, ...] = (
     "log_only",
     "pedagogical",
     "content_adapter",
+    "video_resource",
     "deliver",
 )
 
@@ -74,7 +76,9 @@ EDGES: tuple[dict[str, str | None], ...] = (
     {"from": "learner_profiler", "to": "log_only", "kind": "conditional", "route": "log_only"},
     {"from": "learner_profiler", "to": "pedagogical", "kind": "conditional", "route": "pedagogical"},
     {"from": "pedagogical", "to": "content_adapter", "kind": None, "route": None},
+    {"from": "pedagogical", "to": "video_resource", "kind": None, "route": None},
     {"from": "content_adapter", "to": "deliver", "kind": None, "route": None},
+    {"from": "video_resource", "to": "deliver", "kind": None, "route": None},
     {"from": "deliver", "to": "END", "kind": None, "route": None},
     {"from": "log_only", "to": "END", "kind": None, "route": None},
 )
@@ -225,6 +229,8 @@ def build_graph() -> StateGraph:
     g.add_node("log_only", instrument("log_only", log_only_node))
     g.add_node("pedagogical", instrument("pedagogical", pedagogical_node))
     g.add_node("content_adapter", instrument("content_adapter", content_adapter_node))
+    # The Pedagogical agent's Video sub-agent. A no-op unless the strategist chose `show_video`.
+    g.add_node("video_resource", instrument("video_resource", video_resource_node))
     g.add_node("deliver", instrument("deliver", deliver_node))
 
     g.add_edge(START, "affect_detection")
@@ -234,8 +240,13 @@ def build_graph() -> StateGraph:
         instrument_router(route_after_profiler),
         {ROUTE_LOG_ONLY: "log_only", ROUTE_PEDAGOGICAL: "pedagogical"},
     )
+    # Fan-out: the strategist delegates in parallel -- the Content Adapter writes the card's text
+    # while the Video sub-agent finds a video -- and both join at `deliver`, which runs once after
+    # both have finished (same LangGraph superstep). The strategist never waits on YouTube.
     g.add_edge("pedagogical", "content_adapter")
+    g.add_edge("pedagogical", "video_resource")
     g.add_edge("content_adapter", "deliver")
+    g.add_edge("video_resource", "deliver")
     g.add_edge("deliver", END)
     g.add_edge("log_only", END)
     return g

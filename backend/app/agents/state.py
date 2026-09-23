@@ -57,6 +57,13 @@ AFFECT_SOURCE_FACIAL_GEOMETRY = "facial_geometry"
 #: opens makes the adaptive arm of a study indistinguishable from the control.
 AFFECT_SOURCE_PERFORMANCE = "performance"
 
+#: The learner ASKED for more help ("Still stuck") or to move on ("I'd rather move on") from a card
+#: already on screen. Not a detection: nothing is inferred, the learner said so. It therefore
+#: bypasses the detection gate (confidence, persistence, cooldown), which exists to stop an
+#: imperfect DETECTOR interrupting a learner, and does not apply to a learner who asked. It never
+#: enters the randomised trial arms, so it cannot move any gate or trial statistic.
+AFFECT_SOURCE_LEARNER_REQUEST = "learner_request"
+
 
 class AgentState(TypedDict, total=False):
     # Identifiers
@@ -98,6 +105,10 @@ class AgentState(TypedDict, total=False):
     strategy: dict | None
     # Agent 4 — Content Adapter output
     adaptation_content: dict | None
+    # Agent 3's Video sub-agent output, set only when the strategist chose `show_video`: the
+    # chosen video (`kind="embed"`), a search link (`kind="link"`), or `pending=True` when it did
+    # not finish in its budget and the client should fetch it with the same brief.
+    video_resource: dict | None
     # Terminal — `deliver` node output (Story 5.3). Transient deliver->WS-handler hand-off:
     # the built `adaptation` wire payload the socket-owning handler sends verbatim after
     # `ainvoke`. Not persisted; `make_initial_state` does not seed it (it is an output).
