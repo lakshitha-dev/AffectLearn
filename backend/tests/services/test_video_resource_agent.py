@@ -46,7 +46,7 @@ def model(monkeypatch):
     """Scripted model replies, consumed in call order; None means the model is unavailable."""
     replies: list = []
 
-    async def fake_ask(system, human):
+    async def fake_ask(system, human, timeout_s=None):
         return replies.pop(0) if replies else None
 
     monkeypatch.setattr(agent, "_ask", fake_ask)
@@ -120,7 +120,7 @@ async def test_a_failed_query_step_skips_the_choose_step(monkeypatch, memory_cac
     overrun the request budget and lose a video that was available."""
     asks = []
 
-    async def fake_ask(system, human):
+    async def fake_ask(system, human, timeout_s=None):
         asks.append(system)
         return None
 

@@ -188,6 +188,10 @@ class VideoHelpRequest(CamelModel):
     #: The hint text already on screen, so the agent looks for something that is not a repeat.
     hint_text: str | None = None
     session_id: str | None = None
+    #: The Pedagogical agent's delegation brief, sent back by a `show_video` card whose video was
+    #: still pending when the card was delivered. With it the sub-agent skips its own query step.
+    concept: str | None = None
+    query: str | None = None
 
 
 class VideoHelpResponse(CamelModel):
@@ -244,10 +248,11 @@ async def video_help(
     coords = content_coords(context)
     await emit_research_event(_video_event(
         "video_help_requested", current_user, body.session_id, coords,
-        {"from_adaptation_id": body.adaptation_id},
+        {"from_adaptation_id": body.adaptation_id, "briefed": bool(body.concept)},
     ))
 
-    result = await video_resource_agent.find_video(context, body.hint_text)
+    brief = {"concept": body.concept, "query": body.query} if body.concept else None
+    result = await video_resource_agent.find_video(context, body.hint_text, brief=brief)
 
     await emit_research_event(_video_event(
         "video_help_served", current_user, body.session_id, coords,

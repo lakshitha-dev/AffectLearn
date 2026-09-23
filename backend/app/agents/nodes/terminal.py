@@ -33,7 +33,18 @@ async def log_only_node(state: AgentState) -> dict[str, Any]:
     return {}
 
 
-def _build_delivery_message(adaptation_content: Any) -> dict[str, Any] | None:
+def _video_payload(video: Any) -> dict[str, Any] | None:
+    """The Video sub-agent's result, trimmed to what the card renders. Pure."""
+    if not isinstance(video, dict) or not video:
+        return None
+    allowed = ("kind", "url", "video_id", "title", "channel", "duration_s", "reason",
+               "pending", "concept", "query")
+    return {k: video[k] for k in allowed if video.get(k) is not None} or None
+
+
+def _build_delivery_message(
+    adaptation_content: Any, video_resource: Any = None
+) -> dict[str, Any] | None:
     """Build the downstream `adaptation` wire payload, or None if nothing to deliver.
 
     Pure + total: handles a well-formed `{text, variant, metadata}`, a partial dict, and
@@ -56,7 +67,7 @@ def _build_delivery_message(adaptation_content: Any) -> dict[str, Any] | None:
         return None
 
     text = adaptation_content.get("text")
-    return {
+    message = {
         "type": "adaptation",
         # SERVER-ISSUED identity for this adaptation.
         #
@@ -70,6 +81,12 @@ def _build_delivery_message(adaptation_content: Any) -> dict[str, Any] | None:
         "content": {"text": text, "variant": variant},
         "ts": int(time.time() * 1000),
     }
+    # Only a `show_video` card carries the sub-agent's video; any other action ignores it, so a
+    # stale value in state can never attach a video to a hint that did not ask for one.
+    video = _video_payload(video_resource) if action == "show_video" else None
+    if video:
+        message["video"] = video
+    return message
 
 
 async def deliver_node(state: AgentState) -> dict[str, Any]:
@@ -79,7 +96,9 @@ async def deliver_node(state: AgentState) -> dict[str, Any]:
     for `no_action` / absent / empty / malformed content. Never touches a socket (it
     has none) and never raises (NFR22).
     """
-    message = _build_delivery_message(state.get("adaptation_content"))
+    message = _build_delivery_message(
+        state.get("adaptation_content"), state.get("video_resource")
+    )
     if message is None:
         return {}
     return {"delivery_message": message}

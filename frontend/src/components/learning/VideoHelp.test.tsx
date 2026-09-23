@@ -85,3 +85,32 @@ describe("VideoHelp", () => {
     expect(screen.getByRole("button", { name: /watch a video explanation/i })).toBeInTheDocument();
   });
 });
+
+describe("VideoHelp on a show_video card (the Video sub-agent's delivery)", () => {
+  it("plays a delivered video immediately, with no lookup", () => {
+    render(
+      <VideoHelp
+        sectionId="s1"
+        autoOpen
+        delivered={{ kind: "embed", url: "u", videoId: "BBB", title: "Delivered video" }}
+      />,
+    );
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(screen.getByTitle("Delivered video").getAttribute("src")).toContain("/embed/BBB");
+  });
+
+  it("finishes a pending delegation with the strategist's brief", async () => {
+    apiFetch.mockResolvedValueOnce({ kind: "embed", url: "u", videoId: "CCC", title: "Found" });
+    render(
+      <VideoHelp
+        sectionId="s1"
+        autoOpen
+        delivered={{ pending: true, concept: "range end value", query: "python range stop" }}
+      />,
+    );
+    expect(await screen.findByTitle("Found")).toBeInTheDocument();
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.concept).toBe("range end value");
+    expect(body.query).toBe("python range stop");
+  });
+});

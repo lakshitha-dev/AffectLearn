@@ -35,6 +35,10 @@ ACTION_TYPES: tuple[str, ...] = (
     "suggest_break",
     "skip_ahead",
     "increase_difficulty",
+    # Added after the fine-tuned adapter was trained and evaluated on the nine actions above, so
+    # only the served strategist uses it. The Pedagogical agent picks it; its Video sub-agent
+    # (`nodes/video_resource.py`) finds the video.
+    "show_video",
 )
 
 URGENCIES: tuple[str, ...] = ("low", "medium", "high")
@@ -59,8 +63,10 @@ URGENCIES: tuple[str, ...] = ("low", "medium", "high")
 # the record, and can be defended in a viva -- which a learned policy at this sample size cannot.
 _RULE_LADDER: dict[str, tuple[tuple[str, str], ...]] = {
     # Cheapest nudge first, then structure, then a different framing altogether.
+    # A video is the last rung: a different MEDIUM once three pieces of text have not landed,
+    # and the most expensive for the learner (minutes of watching), so it comes after them.
     "confused": (("show_hint", "medium"), ("show_breakdown", "medium"),
-                 ("show_alternative", "high")),
+                 ("show_alternative", "high"), ("show_video", "high")),
     # Flow theory places boredom at challenge BELOW skill, so raise challenge before conceding
     # that the material is not worth their time.
     "bored": (("increase_difficulty", "low"), ("skip_ahead", "medium")),
@@ -130,6 +136,8 @@ GENERATIVE_ACTIONS: tuple[str, ...] = (
     "suggest_break",
     "simplify",
     "increase_difficulty",
+    # Generative for its one-line introduction; the video itself comes from the Video sub-agent.
+    "show_video",
 )
 SELECTIVE_ACTIONS: tuple[str, ...] = ("skip_ahead",)
 
@@ -173,6 +181,10 @@ _GENERATIVE_COPY: dict[str, str] = {
     # Deliberately a QUESTION, not an announcement. The point of this action is to raise
     # challenge, so the fallback has to ask the learner to do something -- "here is a harder
     # thing" with no harder thing attached is exactly the empty gesture this action used to be.
+    "show_video": (
+        "Sometimes it helps to watch someone work through it. Here's a short video on exactly "
+        "this idea."
+    ),
     "increase_difficulty": (
         "Ready for something with a bit more bite? Try this: without scrolling back, explain "
         "in your own words why this idea works the way it does — and where it would break down."

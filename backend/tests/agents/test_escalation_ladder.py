@@ -61,8 +61,9 @@ def test_engaged_never_escalates_into_an_intervention():
 
 def test_the_ladder_clamps_rather_than_wrapping():
     """Cycling back to a hint the learner already dismissed would be worse than repeating the
-    deepest rung, and there is nothing past "a different explanation" this system can deliver."""
-    deepest = ladder_for("confused", 2)
+    deepest rung, and there is nothing past a video walkthrough this system can deliver."""
+    deepest = ladder_for("confused", 3)
+    assert deepest[0] == "show_video"
     assert ladder_for("confused", 99) == deepest
 
 

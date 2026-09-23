@@ -269,6 +269,8 @@ export const ADAPTATION_ACTIONS = [
   "suggest_break",
   "skip_ahead",
   "increase_difficulty",
+  // The last confusion rung: the Pedagogical agent's Video sub-agent attaches a video.
+  "show_video",
 ] as const;
 
 /**
@@ -296,6 +298,22 @@ export interface AdaptationMessage extends WSMessage {
   adaptation_id?: string;
   action: AdaptationAction;
   content: { text?: string; variant?: string; message?: string };
+  /**
+   * `show_video` only: what the Video sub-agent found. `pending` means it did not finish inside
+   * the cycle and the client should complete the lookup with `concept`/`query` (the brief).
+   */
+  video?: {
+    kind?: "embed" | "link";
+    url?: string;
+    video_id?: string;
+    title?: string;
+    channel?: string;
+    duration_s?: number;
+    reason?: string;
+    pending?: boolean;
+    concept?: string;
+    query?: string;
+  };
 }
 
 /**

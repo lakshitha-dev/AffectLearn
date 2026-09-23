@@ -42,7 +42,8 @@ type CalloutVariant =
   | "breakdown"
   | "encouragement"
   | "simpler"
-  | "challenge";
+  | "challenge"
+  | "video";
 
 // Must cover every action `InlineAdaptations` routes here. `simplify` and `increase_difficulty`
 // were renderable but missing from this map, so both fell through the `?? "hint"` below and were
@@ -55,6 +56,7 @@ const VARIANT_BY_ACTION: Record<string, CalloutVariant> = {
   show_encouragement: "encouragement",
   simplify: "simpler",
   increase_difficulty: "challenge",
+  show_video: "video",
 };
 
 const VARIANT_LABEL: Record<CalloutVariant, string> = {
@@ -65,6 +67,8 @@ const VARIANT_LABEL: Record<CalloutVariant, string> = {
   simpler: "Put more simply",
   // An invitation, not help: a bored learner is under-challenged, not struggling.
   challenge: "Ready for a harder one?",
+  // The last confusion rung: the Pedagogical agent's Video sub-agent picked this video.
+  video: "Watch it worked through",
 };
 
 interface AdaptiveHintCalloutProps {
@@ -91,6 +95,7 @@ const VIDEO_VARIANTS: ReadonlySet<CalloutVariant> = new Set([
   "alternative",
   "breakdown",
   "simpler",
+  "video",
 ]);
 
 /**
@@ -104,6 +109,7 @@ const RESPONSES: Partial<
   alternative: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
   breakdown: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
   simpler: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  video: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
   challenge: { primary: "Give me a hint", secondary: "I'd rather move on", request: "move_on" },
 };
 
@@ -313,6 +319,8 @@ export function AdaptiveHintCallout({
             adaptationId={adaptation.id}
             hintText={body}
             highlighted={requested}
+            delivered={variant === "video" ? adaptation.video : undefined}
+            autoOpen={variant === "video"}
           />
         </div>
       ) : null}

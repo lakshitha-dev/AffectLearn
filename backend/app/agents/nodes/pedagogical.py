@@ -40,10 +40,17 @@ _SYSTEM_PROMPT = (
     "decide the single best teaching intervention.\n\n"
     "Reply with ONLY a JSON object: "
     '{"action_type": <action>, "reason": <short string>, "urgency": "low"|"medium"|"high"}.\n'
+    "When action_type is show_video, ALSO include "
+    '"video_brief": {"concept": <the exact idea the learner is stuck on, 3-6 words>, '
+    '"query": <a 4-10 word YouTube search query for a beginner explanation of it>}. '
+    "Your Video sub-agent uses this brief to find the video, so base it on what the learner "
+    "got wrong, not only on the section title.\n"
     f"action_type MUST be one of: {', '.join(fallbacks.ACTION_TYPES)}.\n\n"
     "Guidance:\n"
     "- confused: show_hint (first/mild), then show_breakdown, then show_alternative as "
-    "confusion persists.\n"
+    "confusion persists, then show_video (a short video walkthrough) once text has not landed. "
+    "Choose show_video EARLIER only on strong evidence: learner_activity shows 3 or more wrong "
+    "answers, or learner_requested is yes after text help was already given.\n"
     "- frustrated: show_encouragement or simplify (moderate); suggest_break "
     "(high/extended, especially late sessions).\n"
     "- bored: increase_difficulty FIRST to re-engage. Only use skip_ahead once a harder "
@@ -177,11 +184,20 @@ def _parse_strategy(text: str) -> dict[str, Any] | None:
     urgency = obj.get("urgency")
     if urgency not in fallbacks.URGENCIES:
         urgency = "medium"
-    return {
+    parsed: dict[str, Any] = {
         "action_type": action_type,
         "reason": str(obj.get("reason", ""))[:300],
         "urgency": urgency,
     }
+    # The delegation to the Video sub-agent. Optional: without it the sub-agent writes its own
+    # query from the section, so a model that omits the brief costs precision, never the video.
+    brief = obj.get("video_brief")
+    if action_type == "show_video" and isinstance(brief, dict):
+        concept = " ".join(str(brief.get("concept") or "").split())[:80]
+        query = " ".join(str(brief.get("query") or "").split())[:120]
+        if concept and query:
+            parsed["video_brief"] = {"concept": concept, "query": query}
+    return parsed
 
 
 async def _decide(
@@ -375,6 +391,8 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
             # this is the deterministic rule's description rather than model output; `fallback`
             # distinguishes the two, so a reader is never misled about where the reason came from.
             "reason": strategy.get("reason") or None,
+            # What the Pedagogical agent delegated to its Video sub-agent, when it chose a video.
+            "video_brief": strategy.get("video_brief"),
         },
     })
 

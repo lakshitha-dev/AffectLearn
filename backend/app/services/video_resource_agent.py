@@ -20,9 +20,13 @@ HOW IT DECIDES (three steps, each with a deterministic fallback)
 
 WHERE IT RUNS
 
-Only when the learner clicks "Watch a video explanation" -- a REST call, never the 30-second
-affect loop. So no quota is spent on cards nobody opens, no latency reaches the detection path,
-and nothing here can move a gate or trial statistic.
+As the Pedagogical agent's SUB-AGENT: when the strategist chooses `show_video` it writes a brief
+(`{concept, query}`) and delegates, and `nodes/video_resource.py` runs this in parallel with the
+Content Adapter, so the strategist never waits on YouTube. With a brief, step 1 is skipped.
+
+And on demand, when the learner clicks "Watch a video explanation" on any confusion card -- a REST
+call with no brief, so the sub-agent writes its own query. Neither path runs in the detection
+path, so nothing here can move a gate or trial statistic.
 
 COST AND FAILURE
 
@@ -58,6 +62,10 @@ _MAX_DURATION_S = 15 * 60
 _MAX_CANDIDATES = 8
 #: Per-step budgets. Two model calls and two HTTP calls must fit VIDEO_HELP_TIMEOUT_SECONDS.
 _LLM_STEP_TIMEOUT_S = 3.0
+#: Ranking eight titles is a small job, and the top search result is already a good answer, so the
+#: choose step gives up sooner. Measured locally with no model: 1s search + a 3s choose wait
+#: overran the sub-agent's in-cycle budget and turned an available video into a pending one.
+_CHOOSE_TIMEOUT_S = 2.0
 _HTTP_TIMEOUT_S = 4.0
 
 _QUERY_PROMPT = (
@@ -140,12 +148,14 @@ def _cache_key(section_id: Any, concept: str) -> str:
 # ── steps ────────────────────────────────────────────────────────────────────────────
 
 
-async def _ask(system: str, human: str) -> dict[str, Any] | None:
+async def _ask(
+    system: str, human: str, timeout_s: float = _LLM_STEP_TIMEOUT_S
+) -> dict[str, Any] | None:
     """One model call returning a JSON object, or None on any failure. Never raises."""
     try:
         resp = await asyncio.wait_for(
             get_chat_client().ainvoke([SystemMessage(content=system), HumanMessage(content=human)]),
-            timeout=_LLM_STEP_TIMEOUT_S,
+            timeout=timeout_s,
         )
     except Exception as exc:  # noqa: BLE001 -- timeout, network, auth: all mean "fall back"
         logger.info("video_agent_llm_unavailable", error=type(exc).__name__)
@@ -220,7 +230,9 @@ async def choose(concept: str, candidates: list[dict[str, Any]]) -> tuple[dict[s
         f"{c['description']}"
         for c in candidates
     )
-    obj = await _ask(_CHOOSE_PROMPT, f"concept: {concept}\ncandidates:\n{listing}")
+    obj = await _ask(
+        _CHOOSE_PROMPT, f"concept: {concept}\ncandidates:\n{listing}", _CHOOSE_TIMEOUT_S
+    )
     by_id = {c["video_id"]: c for c in candidates}
     picked = by_id.get((obj or {}).get("video_id"))
     if picked is not None:
@@ -232,14 +244,32 @@ async def choose(concept: str, candidates: list[dict[str, Any]]) -> tuple[dict[s
 # ── the agent ────────────────────────────────────────────────────────────────────────
 
 
+def clean_brief(brief: Any) -> dict[str, str] | None:
+    """A usable `{concept, query}` delegation brief, or None. Pure."""
+    if not isinstance(brief, dict):
+        return None
+    concept = _flat(brief.get("concept"), 80)
+    query = _flat(brief.get("query"), 120)
+    return {"concept": concept, "query": query} if concept and query else None
+
+
 async def find_video(
-    content_context: dict[str, Any] | None, last_hint_text: str | None = None
+    content_context: dict[str, Any] | None,
+    last_hint_text: str | None = None,
+    brief: dict[str, Any] | None = None,
+    timeout_s: float | None = None,
 ) -> dict[str, Any]:
-    """One video (embed) or a search link for what the learner is stuck on. Never raises."""
+    """One video (embed) or a search link for what the learner is stuck on. Never raises.
+
+    `brief` is the delegation from the Pedagogical agent (`{concept, query}`). When present the
+    sub-agent skips its own query step: the strategist has already read the learner's evidence and
+    written the search, so a second model call would only cost time and could only drift from it.
+    """
     context = content_context or {}
     try:
         return await asyncio.wait_for(
-            _find(context, last_hint_text), timeout=settings.VIDEO_HELP_TIMEOUT_SECONDS
+            _find(context, last_hint_text, clean_brief(brief)),
+            timeout=timeout_s or settings.VIDEO_HELP_TIMEOUT_SECONDS,
         )
     except Exception as exc:  # noqa: BLE001 -- including the overall timeout
         logger.warning("video_agent_failed", error=type(exc).__name__)
@@ -254,8 +284,13 @@ def _link(query: str, concept: str, source: str) -> dict[str, Any]:
     }
 
 
-async def _find(context: dict[str, Any], last_hint_text: str | None) -> dict[str, Any]:
-    query, concept, from_model = await build_query(context, last_hint_text)
+async def _find(
+    context: dict[str, Any], last_hint_text: str | None, brief: dict[str, str] | None = None
+) -> dict[str, Any]:
+    if brief:
+        query, concept, from_model = brief["query"], brief["concept"], True
+    else:
+        query, concept, from_model = await build_query(context, last_hint_text)
     section_id = context.get("section_id")
 
     key = _cache_key(section_id, concept) if section_id else None

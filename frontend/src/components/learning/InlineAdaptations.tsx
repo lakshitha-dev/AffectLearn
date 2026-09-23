@@ -50,6 +50,7 @@ const INLINE_ACTIONS = new Set<AdaptationAction>([
   "show_encouragement",
   "simplify",
   "increase_difficulty",
+  "show_video",
 ]);
 
 /**
@@ -67,6 +68,7 @@ const ASSISTANCE_ACTIONS = new Set<AdaptationAction>([
   "show_breakdown",
   "show_encouragement",
   "simplify",
+  "show_video",
 ]);
 
 /**

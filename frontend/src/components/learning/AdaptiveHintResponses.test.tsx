@@ -106,3 +106,25 @@ describe("AdaptiveHintCallout response buttons", () => {
     ]);
   });
 });
+
+describe("AdaptiveHintCallout show_video card", () => {
+  it("introduces the sub-agent's video and plays it", () => {
+    render(
+      <AdaptiveHintCallout
+        adaptation={{
+          id: "v1",
+          action: "show_video",
+          text: "Here is a short walkthrough of where range stops.",
+          video: { kind: "embed", url: "u", videoId: "BBB", title: "Why range stops early" },
+          receivedAt: Date.now(),
+        }}
+        onDismiss={() => {}}
+        onRequest={() => {}}
+        sectionId="s1"
+      />,
+    );
+    expect(screen.getByText("Watch it worked through")).toBeInTheDocument();
+    expect(screen.getByTitle("Why range stops early")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Still stuck" })).toBeInTheDocument();
+  });
+});

@@ -22,7 +22,7 @@ def stubbed(monkeypatch):
     async def fake_build(section_id, _db):
         return {"topic": "Loops", "lesson": "range", "section_id": section_id}
 
-    async def fake_find(context, hint_text=None):
+    async def fake_find(context, hint_text=None, brief=None, timeout_s=None):
         return {"kind": "embed", "video_id": "BBB", "title": "Why range stops early",
                 "channel": "Y", "duration_s": 300, "url": "https://www.youtube.com/watch?v=BBB",
                 "query": "q", "concept": "range", "reason": "Shows it.", "source": "api"}

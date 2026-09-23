@@ -105,6 +105,10 @@ class AgentState(TypedDict, total=False):
     strategy: dict | None
     # Agent 4 — Content Adapter output
     adaptation_content: dict | None
+    # Agent 3's Video sub-agent output, set only when the strategist chose `show_video`: the
+    # chosen video (`kind="embed"`), a search link (`kind="link"`), or `pending=True` when it did
+    # not finish in its budget and the client should fetch it with the same brief.
+    video_resource: dict | None
     # Terminal — `deliver` node output (Story 5.3). Transient deliver->WS-handler hand-off:
     # the built `adaptation` wire payload the socket-owning handler sends verbatim after
     # `ainvoke`. Not persisted; `make_initial_state` does not seed it (it is an output).

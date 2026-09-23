@@ -5,6 +5,7 @@ import { CirclePlay, ExternalLink, X } from "lucide-react";
 
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
+import type { AdaptationVideo } from "@/stores/adaptation-store";
 
 /**
  * "Watch a video explanation" on a confusion card.
@@ -38,6 +39,27 @@ interface VideoHelpProps {
   hintText?: string;
   /** Emphasise the button, e.g. after the learner pressed "Still stuck". */
   highlighted?: boolean;
+  /**
+   * What the Pedagogical agent's Video sub-agent already delivered with a `show_video` card.
+   * A ready video renders immediately; `pending` finishes the lookup with the same brief; no
+   * value at all (on a `show_video` card) lets the sub-agent write its own query.
+   */
+  delivered?: AdaptationVideo;
+  /** Open without waiting for a click. Set on `show_video` cards, where the video IS the help. */
+  autoOpen?: boolean;
+}
+
+function deliveredResult(video: AdaptationVideo | undefined): VideoHelpResult | null {
+  if (!video || video.pending || !video.kind || !video.url) return null;
+  return {
+    kind: video.kind,
+    url: video.url,
+    videoId: video.videoId ?? null,
+    title: video.title ?? null,
+    channel: video.channel ?? null,
+    durationS: video.durationS ?? null,
+    reason: video.reason ?? null,
+  };
 }
 
 type Phase =
@@ -53,9 +75,19 @@ function formatMinutes(seconds: number | null | undefined): string | null {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function VideoHelp({ sectionId, adaptationId, hintText, highlighted }: VideoHelpProps) {
-  const [phase, setPhase] = useState<Phase>({ name: "idle" });
-  const openedAt = useRef<number | null>(null);
+export function VideoHelp({
+  sectionId,
+  adaptationId,
+  hintText,
+  highlighted,
+  delivered,
+  autoOpen,
+}: VideoHelpProps) {
+  const ready = deliveredResult(delivered);
+  const [phase, setPhase] = useState<Phase>(
+    ready ? { name: "shown", result: ready } : { name: "idle" },
+  );
+  const openedAt = useRef<number | null>(ready?.kind === "embed" ? Date.now() : null);
 
   const reportClosed = (videoId: string | null | undefined) => {
     if (openedAt.current === null) return;
@@ -88,7 +120,15 @@ export function VideoHelp({ sectionId, adaptationId, hintText, highlighted }: Vi
     try {
       const result = await apiFetch<VideoHelpResult>("/learners/me/video-help", {
         method: "POST",
-        body: JSON.stringify({ sectionId, adaptationId, hintText }),
+        body: JSON.stringify({
+          sectionId,
+          adaptationId,
+          hintText,
+          // The strategist's brief, when the sub-agent ran out of time inside the cycle.
+          ...(delivered?.pending && delivered.concept
+            ? { concept: delivered.concept, query: delivered.query }
+            : {}),
+        }),
       });
       if (result.kind === "embed") openedAt.current = Date.now();
       setPhase({ name: "shown", result });
@@ -96,6 +136,16 @@ export function VideoHelp({ sectionId, adaptationId, hintText, highlighted }: Vi
       setPhase({ name: "failed" });
     }
   };
+
+  // A `show_video` card whose video is not ready yet: finish the delegation straight away rather
+  // than making the learner click for the very thing the card was sent to show.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoOpen || ready || autoStarted.current) return;
+    autoStarted.current = true;
+    void open();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
 
   const close = () => {
     if (phase.name === "shown") reportClosed(phase.result.videoId);

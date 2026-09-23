@@ -104,6 +104,14 @@ _ACTION_INSTRUCTION: dict[str, str] = {
         "Re-explain the current concept more gently, at a lower cognitive load — simpler "
         "words and smaller steps, with a brief encouraging tone."
     ),
+    # The last confusion rung. The video itself is found by the Video sub-agent in parallel; this
+    # is only the line that introduces it, so it must not try to explain the idea again in text.
+    "show_video": (
+        "The learner has already had text explanations of this and is still stuck, so a short "
+        "video is being shown. Write ONE or TWO short sentences introducing it: name the exact "
+        "idea from the section that the video will walk through, and say that watching it worked "
+        "through can help. Do not explain the idea yourself and do not give any answer."
+    ),
     # The boredom response. Flow theory places boredom at challenge BELOW skill, so this must
     # actually RAISE difficulty rather than re-present the same material more loudly. Asking a
     # question also makes the intervention measurable: a question can be answered or ignored,
