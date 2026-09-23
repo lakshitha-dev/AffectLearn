@@ -42,6 +42,7 @@ from app.agents.state import (
     AFFECT_SOURCE_FACIAL_GEOMETRY,
     AFFECT_SOURCE_PERFORMANCE,
     AFFECT_SOURCE_FUSION,
+    AFFECT_SOURCE_LEARNER_REQUEST,
     AgentState,
 )
 
@@ -167,6 +168,10 @@ GATE_CHANNEL_ADVISORY = "channel_advisory"
 GATE_WITHHELD_RANDOM = "withheld_random"
 # The learner has already had this session's full allowance of interventions.
 GATE_SESSION_CAP = "session_cap"
+# NOT a withholding reason: the learner explicitly asked for the next step from a card already on
+# screen. Recorded under its own name so it never counts as a detector-driven pass (`ok`) and
+# never enters either trial arm.
+GATE_LEARNER_REQUEST = "learner_request"
 
 # ── the randomised trial arm ──────────────────────────────────────────────────────────
 #
@@ -368,6 +373,7 @@ _KNOWN_AFFECT_SOURCES = frozenset({
     AFFECT_SOURCE_BEHAVIORAL, AFFECT_SOURCE_FUSION,
     AFFECT_SOURCE_CATEGORY, AFFECT_SOURCE_ENGAGEMENT,
     AFFECT_SOURCE_FACIAL_GEOMETRY, AFFECT_SOURCE_PERFORMANCE,
+    AFFECT_SOURCE_LEARNER_REQUEST,
 })
 
 
@@ -478,6 +484,13 @@ def adaptation_decision(
     """
     if not should_adapt(state):
         return False, GATE_NOT_ELIGIBLE
+    # The learner asked. Eligibility still applies -- a control-arm learner is never shown a card
+    # to ask from, and must not be able to reach the strategist this way either -- but nothing
+    # below does: the confidence floor, persistence, cooldown, session cap and trial draw all exist
+    # to restrain a DETECTOR, and withholding help a learner explicitly requested would be the
+    # system overruling the one reading it cannot get wrong.
+    if state.get("affect_source") == AFFECT_SOURCE_LEARNER_REQUEST:
+        return True, GATE_LEARNER_REQUEST
     # Per-channel history, not the interleaved one: the graph runs once per modality per cycle,
     # so the last two entries of `affect_history` are usually the two channels disagreeing
     # inside a single cycle rather than one state holding across two -- which made the

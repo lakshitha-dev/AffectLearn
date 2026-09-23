@@ -57,6 +57,13 @@ AFFECT_SOURCE_FACIAL_GEOMETRY = "facial_geometry"
 #: opens makes the adaptive arm of a study indistinguishable from the control.
 AFFECT_SOURCE_PERFORMANCE = "performance"
 
+#: The learner ASKED for more help ("Still stuck") or to move on ("I'd rather move on") from a card
+#: already on screen. Not a detection: nothing is inferred, the learner said so. It therefore
+#: bypasses the detection gate (confidence, persistence, cooldown), which exists to stop an
+#: imperfect DETECTOR interrupting a learner, and does not apply to a learner who asked. It never
+#: enters the randomised trial arms, so it cannot move any gate or trial statistic.
+AFFECT_SOURCE_LEARNER_REQUEST = "learner_request"
+
 
 class AgentState(TypedDict, total=False):
     # Identifiers

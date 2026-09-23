@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { AdaptiveHintCallout } from "@/components/learning/AdaptiveHintCallout";
 import { cn } from "@/lib/cn";
 import { type Adaptation, useAdaptationStore } from "@/stores/adaptation-store";
-import type { AdaptationAction } from "@/types/ws-messages";
+import type { AdaptationAction, HelpRequestKind } from "@/types/ws-messages";
 
 /**
  * InlineAdaptations — thin consumer rendering the active `show_*` adaptation.
@@ -125,6 +125,7 @@ function latestMatching(
 
 export function InlineAdaptations({
   onInteraction,
+  onRequest,
 }: {
   /**
    * Report a learner response to the research record. Optional so existing mounts and tests keep
@@ -133,7 +134,16 @@ export function InlineAdaptations({
   onInteraction?: (payload: {
     adaptation_id: string;
     action: AdaptationAction;
-    interaction: "dismissed";
+    interaction: "dismissed" | "accepted";
+  }) => void;
+  /**
+   * The learner asked for the next step from the card on screen. Optional: without it the card
+   * shows no response buttons, exactly as before.
+   */
+  onRequest?: (payload: {
+    request: HelpRequestKind;
+    adaptation_id: string;
+    action: AdaptationAction;
   }) => void;
 } = {}) {
   const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
@@ -151,6 +161,19 @@ export function InlineAdaptations({
           action: active.action,
           interaction: "dismissed",
         })
+      }
+      onGotIt={() =>
+        onInteraction?.({
+          adaptation_id: active.id,
+          action: active.action,
+          interaction: "accepted",
+        })
+      }
+      onRequest={
+        onRequest
+          ? (request) =>
+              onRequest({ request, adaptation_id: active.id, action: active.action })
+          : undefined
       }
     />
   );
@@ -176,10 +199,14 @@ export function InlineAdaptations({
 function CenteredHint({
   adaptation,
   onDismiss,
+  onGotIt,
+  onRequest,
 }: {
   adaptation: Parameters<typeof AdaptiveHintCallout>[0]["adaptation"];
   /** Reports the dismissal upstream; the callout still owns its own local dismissed state. */
   onDismiss?: () => void;
+  onGotIt?: () => void;
+  onRequest?: (kind: HelpRequestKind) => void;
 }) {
   // Deferred by one frame so the browser paints the "before" state first; without this the
   // element mounts already-visible and the transition never runs.
@@ -210,6 +237,8 @@ function CenteredHint({
         <div className="px-5">
           <AdaptiveHintCallout
             adaptation={adaptation}
+            onGotIt={onGotIt}
+            onRequest={onRequest}
             onDismiss={() => {
               // Queue ownership is unchanged: the callout still owns its own dismissed/re-access
               // state and the item stays in the queue. What is new is that the dismissal is

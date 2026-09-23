@@ -37,6 +37,7 @@ import {
 import { useAdaptationStore } from "@/stores/adaptation-store";
 import { useUiStore } from "@/stores/ui-store";
 import type { SectionDetail } from "@/types/course";
+import type { AdaptationAction, HelpRequestKind } from "@/types/ws-messages";
 
 const AFFECT_DEBUG_ENABLED = process.env.NEXT_PUBLIC_AFFECT_DEBUG === "1";
 
@@ -195,9 +196,22 @@ export default function LessonPage({ params }: PageProps) {
   // show_breakdown / show_encouragement had an empty dismissal handler. So the content the study
   // is actually about produced no learner-response signal. Same WS channel, same event.
   const logHintInteraction = useCallback(
-    (payload: { adaptation_id: string; action: string; interaction: "dismissed" }) => {
+    (payload: { adaptation_id: string; action: string; interaction: "dismissed" | "accepted" }) => {
       send({
         type: "adaptation_interaction",
+        ts: Date.now(),
+        data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
+      });
+    },
+    [send, currentSectionId],
+  );
+
+  // "Still stuck" / "I'd rather move on" from the card on screen. The server runs the same agents
+  // for the next rung of the ladder and delivers the result like any other adaptation.
+  const requestHelp = useCallback(
+    (payload: { request: HelpRequestKind; adaptation_id: string; action: AdaptationAction }) => {
+      send({
+        type: "help_request",
         ts: Date.now(),
         data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
       });
@@ -451,7 +465,7 @@ export default function LessonPage({ params }: PageProps) {
       {/* Inline adaptive hints (Story 5.4) — renders the latest show_* adaptation
           inline at a natural content break; non-inline actions are left in the
           queue for Stories 5.5–5.7. */}
-      <InlineAdaptations onInteraction={logHintInteraction} />
+      <InlineAdaptations onInteraction={logHintInteraction} onRequest={requestHelp} />
       {/* Asked once, 30s after a content intervention is delivered — long enough that the answer
           is about the help rather than about being interrupted. Inline, never blocking. */}
       <AdaptationProbe onRespond={logAdaptationProbe} />

@@ -184,6 +184,29 @@ export interface AdaptationProbeMessage extends WSMessage {
   };
 }
 
+/**
+ * The learner asked for the next step from a card already on screen.
+ *
+ *   - `still_stuck` — climb the confusion ladder (hint → breakdown → different explanation)
+ *   - `move_on`     — climb the boredom ladder (harder question → skip ahead)
+ *
+ * The server runs the same agents for it; the reading is the learner's statement rather than a
+ * detection, so the gate passes it without the detector's restraints (adaptive arm only).
+ */
+export type HelpRequestKind = "still_stuck" | "move_on";
+
+export interface HelpRequestMessage extends WSMessage {
+  type: "help_request";
+  data: {
+    request: HelpRequestKind;
+    /** The card the learner asked from, so "still stuck after THAT" is joinable. */
+    adaptation_id: string;
+    action: AdaptationAction;
+    section_id?: string;
+    cycle_number?: number;
+  };
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
@@ -191,6 +214,7 @@ export type UpstreamMessage =
   | BehavioralWindowMessage
   | AdaptationInteractionMessage
   | AdaptationProbeMessage
+  | HelpRequestMessage
   | SelfReportMessage;
 
 // ---------- Downstream (server → client) ----------

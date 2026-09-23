@@ -47,6 +47,7 @@ from app.agents import fallbacks
 from app.agents.llm import get_chat_client
 from app.agents.state import AgentState
 from app.core.config import settings
+from app.services import learner_activity
 from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
@@ -162,7 +163,21 @@ def _build_human_prompt(
             f"{prior}"
         )
 
+    # WHAT THE LEARNER HAS DONE HERE, observed rather than inferred: wrong answers, a revealed
+    # answer, re-reading, time spent. Without it a hint for someone who has just failed the
+    # section's question three times read the same as one for someone who had not tried it.
+    activity = learner_activity.describe(content_context.get("learner_activity"))
+    if activity:
+        lines.append(f"\nWhat the learner has done in this section so far: {activity}.")
+
     lines.append(f"\nTask: {instruction}")
+
+    if activity and "incorrectly" in activity:
+        lines.append(
+            "They have already tried and got it wrong, so aim at the likely misconception "
+            "behind a wrong answer rather than restating the section. Still do not reveal the "
+            "correct answer."
+        )
 
     if already_shown:
         lines.append(

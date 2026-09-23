@@ -6,6 +6,7 @@ import { ChevronDown, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { Adaptation } from "@/stores/adaptation-store";
+import type { HelpRequestKind } from "@/types/ws-messages";
 
 /**
  * AdaptiveHintCallout — the FIRST visual consumer of the Story 5.3 `adaptationQueue`.
@@ -69,7 +70,28 @@ interface AdaptiveHintCalloutProps {
   adaptation: Adaptation;
   /** Called when the learner fully dismisses (after the fade-out completes). */
   onDismiss: () => void;
+  /**
+   * The learner asked for the next step from this card. When supplied, the card shows its
+   * response buttons; when absent (older mounts, tests) it renders exactly as before.
+   */
+  onRequest?: (kind: HelpRequestKind) => void;
+  /** The learner said the card worked ("Got it"). Reported, then the card is dismissed. */
+  onGotIt?: () => void;
 }
+
+/**
+ * The two responses each variant offers. A help card asks whether it worked; a challenge card,
+ * shown to a learner who was under-challenged, offers help or a way forward instead.
+ */
+const RESPONSES: Partial<
+  Record<CalloutVariant, { primary: string; secondary: string; request: HelpRequestKind }>
+> = {
+  hint: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  alternative: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  breakdown: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  simpler: { primary: "Got it", secondary: "Still stuck", request: "still_stuck" },
+  challenge: { primary: "Give me a hint", secondary: "I'd rather move on", request: "move_on" },
+};
 
 /** Split breakdown text into steps; degrades gracefully to a single step. */
 function parseSteps(text: string | undefined): string[] {
@@ -83,7 +105,12 @@ function parseSteps(text: string | undefined): string[] {
   return trimmed ? [trimmed] : [];
 }
 
-export function AdaptiveHintCallout({ adaptation, onDismiss }: AdaptiveHintCalloutProps) {
+export function AdaptiveHintCallout({
+  adaptation,
+  onDismiss,
+  onRequest,
+  onGotIt,
+}: AdaptiveHintCalloutProps) {
   const reducedMotion = useReducedMotion();
   const variant = VARIANT_BY_ACTION[adaptation.action] ?? "hint";
 
@@ -96,6 +123,9 @@ export function AdaptiveHintCallout({ adaptation, onDismiss }: AdaptiveHintCallo
   // 300ms CSS transition (AC1 / Success Criteria: "fades in over 300ms ease").
   const [visible, setVisible] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  // Set once the learner has asked for the next step, so the buttons cannot fire twice while the
+  // agents work; the next card replaces this one when it arrives.
+  const [requested, setRequested] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -239,6 +269,65 @@ export function AdaptiveHintCallout({ adaptation, onDismiss }: AdaptiveHintCallo
           <p className="mt-1 text-base leading-relaxed text-foreground">{body}</p>
         </div>
       )}
+
+      {onRequest && RESPONSES[variant] ? (
+        <ResponseButtons
+          labels={RESPONSES[variant]!}
+          requested={requested}
+          onPrimary={() => {
+            if (variant === "challenge") {
+              // "Give me a hint" on a challenge: the learner is now stuck, not bored.
+              setRequested(true);
+              onRequest("still_stuck");
+              return;
+            }
+            onGotIt?.();
+            handleDismiss();
+          }}
+          onSecondary={() => {
+            setRequested(true);
+            onRequest(RESPONSES[variant]!.request);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ResponseButtons({
+  labels,
+  requested,
+  onPrimary,
+  onSecondary,
+}: {
+  labels: { primary: string; secondary: string };
+  requested: boolean;
+  onPrimary: () => void;
+  onSecondary: () => void;
+}) {
+  if (requested) {
+    return (
+      <p role="status" className="mt-3 text-sm text-muted-foreground">
+        Finding another way to help…
+      </p>
+    );
+  }
+  return (
+    <div className="mt-3 flex flex-wrap gap-2 pr-6">
+      <button
+        type="button"
+        onClick={onPrimary}
+        className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+      >
+        {labels.primary}
+      </button>
+      <button
+        type="button"
+        onClick={onSecondary}
+        className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-border"
+      >
+        {labels.secondary}
+      </button>
     </div>
   );
 }
