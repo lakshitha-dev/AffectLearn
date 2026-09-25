@@ -27,6 +27,7 @@ from app.agents.edges import (
     record_delivered_rung,
     record_eligible_cycle,
 )
+from app.agents import delivery_guard
 from app.agents.state import AgentState
 from app.services import config_service, profile_service, redis_service
 from app.services.research_logger import content_coords
@@ -107,6 +108,11 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     # one rung deep and the first rung of every ladder would never be used.
     section_id = (state.get("content_context") or {}).get("section_id")
     rung = current_rung(profile, session_id, section_id, state.get("affect_state"))
+    # A card the learner dismissed was "not now", not "that did not help": it does not count as a
+    # rung tried, so the next offer here is the same rung rather than a heavier one.
+    rung = max(0, rung - delivery_guard.rung_credit(
+        state.get("ui_state"), section_id, state.get("affect_state")
+    ))
 
     if consumes_cooldown(gate_reason):
         profile["last_adaptation_cycle"] = int(cycle or 0)

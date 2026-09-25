@@ -33,8 +33,10 @@ from app.services import (
     content_context_service,
     course_ownership,
     learner_activity,
+    ui_state,
     video_resource_agent,
 )
+from app.agents import delivery_guard
 from app.services.research_logger import content_coords
 from app.services.research_logger import emit as emit_research_event
 
@@ -268,6 +270,12 @@ async def video_help(
             "source": result.get("source"),
         },
     ))
+    if result.get("kind") == "embed":
+        # A video is playing in the card: no automatic card replaces it until it is closed.
+        now_ms = int(time.time() * 1000)
+        await ui_state.update(user_key, lambda u: delivery_guard.on_video(
+            u, opened=True, adaptation_id=body.adaptation_id, now_ms=now_ms
+        ))
     return VideoHelpResponse(**{k: result.get(k) for k in VideoHelpResponse.model_fields
                                 if k in result})
 
@@ -280,6 +288,10 @@ async def video_help_closed(
 ):
     """Record how long the video stayed open. The only measure of whether it was watched."""
     context = await content_context_service.build(str(body.section_id), db)
+    now_ms = int(time.time() * 1000)
+    await ui_state.update(str(current_user.id), lambda u: delivery_guard.on_video(
+        u, opened=False, adaptation_id=None, now_ms=now_ms
+    ))
     await emit_research_event(_video_event(
         "video_help_closed", current_user, body.session_id, content_coords(context),
         {"video_id": body.video_id, "seconds_open": round(max(0.0, body.seconds_open), 1)},

@@ -27,6 +27,9 @@ interface ConnectionState {
   lastError: string | null;
   reconnectAttempts: number;
   sessionRestored: boolean;
+  /** Whether this learner receives adaptations; null until the server says. */
+  adaptive: boolean | null;
+  setAdaptive: (adaptive: boolean | null) => void;
   setConnected: (connected: boolean) => void;
   setConnectionState: (state: ConnectionStatus) => void;
   setError: (msg: string | null) => void;
@@ -42,6 +45,7 @@ const initialState = {
   lastError: null,
   reconnectAttempts: 0,
   sessionRestored: false,
+  adaptive: null as boolean | null,
 };
 
 export const useConnectionStore = create<ConnectionState>()((set) => ({
@@ -53,5 +57,6 @@ export const useConnectionStore = create<ConnectionState>()((set) => ({
     set((s) => ({ reconnectAttempts: s.reconnectAttempts + 1 })),
   resetReconnect: () => set({ reconnectAttempts: 0 }),
   markSessionRestored: () => set({ sessionRestored: true }),
+  setAdaptive: (adaptive) => set({ adaptive }),
   reset: () => set(initialState),
 }));

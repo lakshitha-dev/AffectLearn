@@ -57,6 +57,15 @@ const REASON_HELP: Record<string, string> = {
   channel_advisory: "the channel is inferred and logged but not authorised to intervene alone",
   session_cap: "the learner has had this session's full allowance of interventions",
   withheld_random: "cleared every condition, then withheld by the trial draw: the control arm",
+  // What was on the learner's screen (the delivery guard).
+  stale_section: "the reading was about a section the learner had already left",
+  page_hidden: "the learner's tab was hidden",
+  card_open: "a help card or video was still on screen",
+  section_grace: "the learner had only just arrived on the section",
+  quiz_active: "the learner was answering a question",
+  recent_help: "help was delivered or dismissed moments ago",
+  resolved: "the learner said \"Got it\" for this state here recently",
+  ladder_exhausted: "every rung of help had already been tried in this section",
 };
 
 const REASON_COLOR: Record<string, string> = {
@@ -69,6 +78,15 @@ const REASON_COLOR: Record<string, string> = {
   channel_advisory: "#f59e0b", // amber — a reliability decision, like the floor
   session_cap: "#22c55e", // green — designed restraint
   withheld_random: "#22c55e",
+  // The learner-side holds: designed restraint, like the cooldown.
+  stale_section: "#94a3b8",
+  page_hidden: "#94a3b8",
+  card_open: "#14b8a6",
+  section_grace: "#14b8a6",
+  quiz_active: "#14b8a6",
+  recent_help: "#14b8a6",
+  resolved: "#14b8a6",
+  ladder_exhausted: "#6366f1",
 };
 
 function Tile({

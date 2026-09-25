@@ -42,6 +42,8 @@ export interface Adaptation {
   variant?: string;
   /** `show_video` only: the Video sub-agent's result, camelCased from the wire. */
   video?: AdaptationVideo;
+  /** The section this help was written for (absent from older servers: shown anywhere). */
+  sectionId?: string;
   /** Client receipt time (ms) for ordering / staleness in later stories. */
   receivedAt: number;
 }
@@ -50,6 +52,8 @@ interface AdaptationState {
   adaptationQueue: Adaptation[];
   pushAdaptation: (a: Adaptation) => void;
   dismissAdaptation: (id: string) => void;
+  /** Drop every card that belongs to a different section than `sectionId`. */
+  keepSection: (sectionId: string | undefined) => void;
   reset: () => void;
 }
 
@@ -63,5 +67,10 @@ export const useAdaptationStore = create<AdaptationState>()((set) => ({
     set((s) => ({ adaptationQueue: [...s.adaptationQueue, a] })),
   dismissAdaptation: (id) =>
     set((s) => ({ adaptationQueue: s.adaptationQueue.filter((x) => x.id !== id) })),
+  keepSection: (sectionId) =>
+    set((s) => {
+      const kept = s.adaptationQueue.filter((x) => !x.sectionId || x.sectionId === sectionId);
+      return kept.length === s.adaptationQueue.length ? s : { adaptationQueue: kept };
+    }),
   reset: () => set({ adaptationQueue: [] }),
 }));

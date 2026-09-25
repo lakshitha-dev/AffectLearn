@@ -43,7 +43,7 @@ def _video_payload(video: Any) -> dict[str, Any] | None:
 
 
 def _build_delivery_message(
-    adaptation_content: Any, video_resource: Any = None
+    adaptation_content: Any, video_resource: Any = None, section_id: Any = None
 ) -> dict[str, Any] | None:
     """Build the downstream `adaptation` wire payload, or None if nothing to deliver.
 
@@ -79,6 +79,9 @@ def _build_delivery_message(
         "adaptation_id": str(uuid.uuid4()),
         "action": action,
         "content": {"text": text, "variant": variant},
+        # The section this help was written for. The client drops a card whose section is no
+        # longer on screen, and the WS handler refuses to send one the learner has already left.
+        "section_id": str(section_id) if section_id else None,
         "ts": int(time.time() * 1000),
     }
     # Only a `show_video` card carries the sub-agent's video; any other action ignores it, so a
@@ -97,7 +100,9 @@ async def deliver_node(state: AgentState) -> dict[str, Any]:
     has none) and never raises (NFR22).
     """
     message = _build_delivery_message(
-        state.get("adaptation_content"), state.get("video_resource")
+        state.get("adaptation_content"),
+        state.get("video_resource"),
+        (state.get("content_context") or {}).get("section_id"),
     )
     if message is None:
         return {}
