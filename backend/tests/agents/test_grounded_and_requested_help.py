@@ -170,3 +170,33 @@ def test_no_action_on_a_detected_cycle_is_left_alone():
     state["affect_source"] = "facial_geometry"
     strategy = {"action_type": "no_action", "reason": "", "urgency": "low", "fallback": False}
     assert ped._honour_request(strategy, state, rung=0) == strategy
+
+
+# ── the same words twice in one section are not sent ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_identical_fallback_text_is_not_sent_twice(monkeypatch):
+    from app.agents import fallbacks
+
+    copy = fallbacks.rule_based_content("show_hint")["text"]
+
+    async def already(state):
+        return [copy]
+
+    def no_model():
+        raise RuntimeError("model unavailable")
+
+    async def quiet(event):
+        pass
+
+    monkeypatch.setattr(ca, "_previously_shown", already)
+    monkeypatch.setattr(ca, "get_chat_client", no_model)
+    monkeypatch.setattr(ca, "emit_research_event", quiet)
+
+    state = make_initial_state(learner_id="l1", session_id="s1", cycle_number=3,
+                               phase="phase_b", group="adaptive",
+                               content_context={"section_id": "sec"})
+    state["strategy"] = {"action_type": "show_hint"}
+    state["affect_state"] = "confused"
+    assert await ca.content_adapter_node(state) == {}

@@ -81,3 +81,24 @@ describe("useAdaptationStore", () => {
     });
   });
 });
+
+describe("keepSection (cards belong to the section they were written for)", () => {
+  it("drops cards for another section and keeps this section's and legacy cards", () => {
+    const store = useAdaptationStore.getState();
+    store.reset();
+    store.pushAdaptation({ id: "a", action: "show_hint", sectionId: "s1", receivedAt: 1 });
+    store.pushAdaptation({ id: "b", action: "show_hint", sectionId: "s2", receivedAt: 2 });
+    store.pushAdaptation({ id: "c", action: "show_hint", receivedAt: 3 });
+    useAdaptationStore.getState().keepSection("s2");
+    expect(useAdaptationStore.getState().adaptationQueue.map((a) => a.id)).toEqual(["b", "c"]);
+  });
+
+  it("leaves the queue object untouched when nothing is stale (no render loop)", () => {
+    const store = useAdaptationStore.getState();
+    store.reset();
+    store.pushAdaptation({ id: "a", action: "show_hint", sectionId: "s1", receivedAt: 1 });
+    const before = useAdaptationStore.getState().adaptationQueue;
+    useAdaptationStore.getState().keepSection("s1");
+    expect(useAdaptationStore.getState().adaptationQueue).toBe(before);
+  });
+});

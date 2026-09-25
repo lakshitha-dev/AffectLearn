@@ -98,6 +98,7 @@ function mapToAdaptation(msg: AdaptationMessage): Adaptation {
     action: msg.action,
     text: msg.content?.text,
     variant: msg.content?.variant,
+    sectionId: msg.section_id ?? undefined,
     video: msg.video
       ? {
           kind: msg.video.kind,
@@ -333,12 +334,15 @@ export function useWebSocket(
       }
 
       if (isSystemConnected(msg)) {
-        // Already handled in handleOpen; nothing extra to do unless server attaches data.
+        // Whether this learner is adapted to decides which help controls the page offers.
+        useConnectionStore.getState().setAdaptive(msg.data?.adaptive ?? null);
         return;
       }
 
       if (isSystemSessionRestored(msg)) {
-        useConnectionStore.getState().markSessionRestored();
+        const s = useConnectionStore.getState();
+        s.markSessionRestored();
+        s.setAdaptive(msg.data?.adaptive ?? null);
         return;
       }
 

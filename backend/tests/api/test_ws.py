@@ -231,6 +231,8 @@ def test_session_state_omits_the_affect_inference(monkeypatch):
         "current_section_id": "sec-9",
         "phase": "phase_b",
         "group": "adaptive",
+        # Kept so a server restart does not start the learner's session (and ladder) over.
+        "session_id": None,
     }
     assert "last_affect_state" not in written["value"]
     assert written["ttl"] == ws_module._SESSION_STATE_TTL_SECONDS

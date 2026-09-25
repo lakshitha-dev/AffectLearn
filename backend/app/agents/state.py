@@ -140,6 +140,9 @@ class AgentState(TypedDict, total=False):
     fusion_weights: dict          # per-modality weights used, for the research event
     db: Any              # transient WS-connection AsyncSession for the profiler cold store (Story 4.5)
     content_context: dict  # transient: current section topic/difficulty for the strategist (Story 5.1)
+    # transient: what is on the learner's screen (open card, section entry, visibility...), read by
+    # the delivery guard. Loaded per cycle by the WS handler; see `agents/delivery_guard.py`.
+    ui_state: dict
 
 
 def make_initial_state(
@@ -156,6 +159,7 @@ def make_initial_state(
     content_context: dict[str, Any] | None = None,
     phase: str = "phase_a",
     group: str = "control",
+    ui_state: dict[str, Any] | None = None,
 ) -> AgentState:
     """Seed an AgentState for one cycle.
 
@@ -179,4 +183,5 @@ def make_initial_state(
         counterpart_modality=counterpart_modality,
         db=db,
         content_context=content_context or {},
+        ui_state=ui_state or {},
     )

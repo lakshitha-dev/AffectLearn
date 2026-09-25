@@ -46,6 +46,7 @@ from app.agents.edges import (
     GATE_STATE_NOT_ACTIONABLE,
     GATE_WITHHELD_RANDOM,
 )
+from app.agents.delivery_guard import GUARD_REASONS
 from app.models.research_event import ResearchEvent
 from app.services.analytics_service import _confidence
 
@@ -66,6 +67,8 @@ GATE_REASONS: tuple[str, ...] = (
     # because its channel is advisory landed in `gateReasonsUnknown`, and the UI rendered its
     # "this list is out of date with the backend" warning -- correctly.
     GATE_CHANNEL_ADVISORY,
+    # The learner-side holds (`agents/delivery_guard.py`): what was on the learner's screen.
+    *GUARD_REASONS,
 )
 
 # The comment above says this list is sourced from the GATE_* constants so a new reason

@@ -113,6 +113,11 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
   // than a 30s cycle. Reading the latest value at cycle time keeps navigation cheap.
   const sectionIdRef = useRef<string | undefined>(sectionId);
   sectionIdRef.current = sectionId;
+  // The section this 30 s window STARTED on. A window is sent when it closes, so labelling it with
+  // the section on screen at send time made "bored for 25 s on page A" arrive as a reading about
+  // page B, and the hint was written for the wrong page. The server withholds a reading whose
+  // section is no longer on screen.
+  const windowSectionRef = useRef<string | undefined>(sectionId);
 
   const debugRef = useRef<DebugMetrics | null>(
     IS_DEV ? makeEmptyMetrics() : null,
@@ -325,9 +330,11 @@ export function useMediaPipe(options: UseMediaPipeOptions): UseMediaPipeReturn {
             geometry_contract_version: GEOMETRY_CONTRACT.version,
             channel_order: GEOMETRY_CONTRACT.channels,
             frames_per_cycle: GEOMETRY_CONTRACT.framesPerCycle,
-            section_id: sectionIdRef.current,
+            section_id: windowSectionRef.current ?? sectionIdRef.current,
           },
         };
+        // The next window starts now, on whatever section is on screen now.
+        windowSectionRef.current = sectionIdRef.current;
 
         if (!useConnectionStore.getState().isConnected) {
           // AC #9: drop the cycle (NOT queue) — temporal context would be stale on reconnect.

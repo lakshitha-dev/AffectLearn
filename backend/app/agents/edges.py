@@ -45,6 +45,18 @@ from app.agents.state import (
     AFFECT_SOURCE_LEARNER_REQUEST,
     AgentState,
 )
+# The learner-side holds (open card, section change, "Got it"...). Imported into this namespace so
+# the monitor's completeness check, which reads every GATE_* here, sees them too.
+from app.agents.delivery_guard import (  # noqa: E402,F401
+    GATE_CARD_OPEN,
+    GATE_LADDER_EXHAUSTED,
+    GATE_PAGE_HIDDEN,
+    GATE_QUIZ_ACTIVE,
+    GATE_RECENT_HELP,
+    GATE_RESOLVED,
+    GATE_SECTION_GRACE,
+    GATE_STALE_SECTION,
+)
 
 # Conditional-edge route keys (graph node names).
 ROUTE_LOG_ONLY = "log_only"
@@ -509,6 +521,12 @@ def adaptation_decision(
     if not allowed:
         return False, reason
 
+    # What is on the learner's screen. Only a cycle the DETECTOR would act on reaches this, and it
+    # runs before the cap and the draw so a hold withholds from both trial arms alike.
+    held = _screen_hold(state, profile or {})
+    if held:
+        return False, held
+
     # Checked BEFORE the draw, and counted across BOTH arms. Capping only DELIVERED interventions
     # would stop the delivered arm at six while the withheld arm carried on accruing controls --
     # the two would then cover different parts of the session, and later observations would appear
@@ -526,6 +544,28 @@ def adaptation_decision(
         return False, GATE_WITHHELD_RANDOM
 
     return True, GATE_OK
+
+
+def _screen_hold(state: AgentState, profile: dict) -> str | None:
+    """The delivery guard's verdict for this cycle, with the ladder position it needs."""
+    import time
+
+    from app.agents import delivery_guard
+
+    ui = state.get("ui_state") or {}
+    if not ui:
+        return None
+    section_id = (state.get("content_context") or {}).get("section_id")
+    affect = state.get("affect_state")
+    used = current_rung(profile, state.get("session_id"), section_id, affect)
+    used = max(0, used - delivery_guard.rung_credit(ui, section_id, affect))
+    return delivery_guard.blocked_reason(
+        ui,
+        now_ms=int(time.time() * 1000),
+        section_id=section_id,
+        affect_state=affect,
+        rungs_used=used,
+    )
 
 
 def route_after_profiler(state: AgentState) -> str:

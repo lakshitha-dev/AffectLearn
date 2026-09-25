@@ -56,7 +56,9 @@ from app.services import (
     learner_activity,
     redis_service,
     study_service,
+    ui_state as ui_state_service,
 )
+from app.agents import delivery_guard
 from app.agents.fusion import forced_mode, fuse_modalities
 from app.agents.graph import get_graph
 from app.agents.llm import warm_up as llm_warm_up
@@ -189,7 +191,8 @@ async def _load_session_state(user_id: str) -> dict[str, Any] | None:
 
 
 async def _save_session_state(
-    user_id: str, *, section_id: Any, phase: str | None, group: str | None
+    user_id: str, *, section_id: Any, phase: str | None, group: str | None,
+    session_id: str | None = None,
 ) -> None:
     """Remember where a learner was, so a reconnect can say so.
 
@@ -210,6 +213,7 @@ async def _save_session_state(
                 "current_section_id": str(section_id),
                 "phase": phase,
                 "group": group,
+                "session_id": session_id,
             },
             ttl_seconds=_SESSION_STATE_TTL_SECONDS,
         )
@@ -272,6 +276,7 @@ async def _handle_facial_features(
             # Grounds the strategist/adapter prompts in the section the learner is actually on.
             # Omitted before, so every prompt said `content_topic: unknown`.
             content_context=content_context,
+            ui_state=await ui_state_service.load(user_id),
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:
@@ -396,6 +401,7 @@ async def _handle_behavioral_window(
             group=group,
             # See the facial call site above — same grounding, same reason.
             content_context=content_context,
+            ui_state=await ui_state_service.load(user_id),
         )
         result_state = await get_graph().ainvoke(initial_state)
     except FileNotFoundError as exc:
@@ -591,6 +597,31 @@ async def _deliver_adaptation(
     if not delivery_message:
         return
 
+    # The learner may have moved on while the agents were writing (1-5 s). A card about a section
+    # that is no longer on screen is worse than no card, so it is not sent -- and the refusal is
+    # recorded, so "help was produced but withheld as stale" stays countable.
+    ui = await ui_state_service.load(user_id)
+    card_section = delivery_message.get("section_id")
+    on_screen = ui.get("section_id")
+    if card_section and on_screen and str(card_section) != str(on_screen):
+        logger.info("adaptation_dropped_stale_section", user_id=user_id, cycle=cycle)
+        await _safe_emit({
+            "event_type": "adaptation_dropped",
+            "learner_id": user_id,
+            "session_id": session_id,
+            "cycle_number": cycle,
+            "timestamp": _now_ms(),
+            "phase": phase,
+            "group": group,
+            **(coords or {}),
+            "payload": {
+                "adaptation_id": delivery_message.get("adaptation_id"),
+                "action": delivery_message.get("action"),
+                "reason": "stale_section",
+            },
+        })
+        return
+
     sent = await connection_manager.send_to(user_id, delivery_message)
     if not sent:
         # Socket gone or send failed — degrade gracefully. Log at debug level so
@@ -628,6 +659,17 @@ async def _deliver_adaptation(
             phase, group, coords, db, delivered=False,
         )
         return
+
+    # On screen now: nothing automatic replaces it until the learner answers it, closes it, or it
+    # times out; and the next automatic card waits at least the minimum spacing.
+    now_ms = _now_ms()
+    await ui_state_service.update(user_id, lambda u: delivery_guard.on_delivery(
+        u,
+        adaptation_id=delivery_message.get("adaptation_id"),
+        action=delivery_message.get("action"),
+        section_id=card_section,
+        now_ms=now_ms,
+    ))
 
     metadata = (result_state.get("adaptation_content") or {}).get("metadata") or {}
     await _safe_emit({
@@ -761,6 +803,7 @@ async def _handle_performance_window(
             phase=phase,
             group=group,
             content_context=content_context,
+            ui_state=await ui_state_service.load(user_id),
         )
         result_state = await get_graph().ainvoke(initial_state)
     except Exception:
@@ -804,6 +847,33 @@ async def _handle_performance_window(
 
 _VALID_INTERACTIONS = {"dismissed", "accepted", "applied"}
 
+# ── what is on the learner's screen (`agents/delivery_guard.py`) ────────────────────────
+_UI_EVENTS = {"section_entered", "visibility", "quiz_activity", "video_opened", "video_closed"}
+
+
+async def _handle_ui_event(envelope: dict[str, Any], user_id: str) -> None:
+    """Record a screen fact the delivery guard needs. Never raises; unknown events are dropped."""
+    data = envelope.get("data")
+    if not isinstance(data, dict) or data.get("event") not in _UI_EVENTS:
+        logger.warning("ws_invalid_message", user_id=user_id, reason="ui_event_invalid")
+        return
+    event = data["event"]
+    now = _now_ms()
+
+    def change(u: dict[str, Any]) -> dict[str, Any]:
+        if event == "section_entered":
+            return delivery_guard.on_section_entered(u, data.get("section_id"), now)
+        if event == "visibility":
+            return delivery_guard.on_visibility(u, bool(data.get("visible")))
+        if event == "quiz_activity":
+            return delivery_guard.on_quiz_activity(u, now)
+        return delivery_guard.on_video(
+            u, opened=event == "video_opened", adaptation_id=data.get("adaptation_id"), now_ms=now
+        )
+
+    await ui_state_service.update(user_id, change)
+
+
 # ── learner-requested help ("Still stuck" / "Give me a hint" / "I'd rather move on") ─────────
 #
 # A card on screen offers the learner the next step. The request names WHICH ladder to climb,
@@ -846,6 +916,11 @@ async def _handle_help_request(
         logger.info("help_request_throttled", user_id=user_id)
         return
     _last_help_request_ms[user_id] = now
+    # The card the learner asked from is answered: it is no longer "being read".
+    await ui_state_service.update(user_id, lambda u: delivery_guard.on_interaction(
+        u, interaction="requested", action=data.get("action"),
+        section_id=section_id, now_ms=now,
+    ))
 
     cycle = int(data.get("cycle_number", 0) or 0)
     content_context = await learner_activity.attach(
@@ -880,6 +955,7 @@ async def _handle_help_request(
             phase=phase,
             group=group,
             content_context=content_context,
+            ui_state=await ui_state_service.load(user_id),
         )
         state["affect_state"] = affect_state
         state["affect_confidence"] = 1.0
@@ -952,6 +1028,17 @@ async def _handle_adaptation_interaction(
         await assistance_service.record_interaction(
             db, adaptation_id=str(data["adaptation_id"]), interaction=interaction
         )
+
+    # "Got it" leaves this state alone here for a while; "not now" waits longer and does not count
+    # as a rung tried. Either way the card is no longer on screen.
+    now_ms = _now_ms()
+    await ui_state_service.update(user_id, lambda u: delivery_guard.on_interaction(
+        u,
+        interaction=interaction,
+        action=data.get("action"),
+        section_id=data.get("section_id"),
+        now_ms=now_ms,
+    ))
 
 
 # Story 6.2: the 5-value self-report ground-truth vocabulary. This is `AFFECT_STATES`
@@ -1123,7 +1210,13 @@ async def websocket_endpoint(
     user_id = str(user.id)
     accept_ms = _now_ms()
 
-    superseded, session_id = await connection_manager.connect(user_id, websocket)
+    # The learner's session survives a server restart: the id is kept with the session state, so a
+    # redeploy mid-lesson does not reset the ladder and repeat the first hint.
+    prior_state = await _load_session_state(user_id)
+    superseded, session_id = await connection_manager.connect(
+        user_id, websocket,
+        preferred_session_id=(prior_state or {}).get("session_id"),
+    )
 
     # Pay the model's cold-start cost NOW, in the background, rather than inside the first
     # intervention of the session. Cold is ~23s against ~60ms warm on this deployment, and the
@@ -1143,10 +1236,14 @@ async def websocket_endpoint(
     # for a coordinator-driven pilot; protects the per-cycle latency budget — see AC6).
     phase, group = await _resolve_phase_group(db, user_id)
 
-    # Send connected or session_restored
-    prior_state = await _load_session_state(user_id)
+    # Send connected or session_restored. `adaptive` tells the page whether to offer help controls
+    # such as "I'm stuck": a control-arm learner is never adapted to, so a button would do nothing.
+    adaptive = phase == "phase_b" and group == "adaptive"
     if prior_state is not None:
-        await websocket.send_json(_system_message("session_restored", prior_state))
+        restored = {k: v for k, v in prior_state.items() if k != "session_id"}
+        await websocket.send_json(
+            _system_message("session_restored", {**restored, "adaptive": adaptive})
+        )
         await _safe_emit({
             "event_type": "ws_session_restored",
             "learner_id": user_id,
@@ -1158,7 +1255,9 @@ async def websocket_endpoint(
             "payload": {"keys": list(prior_state.keys())},
         })
     else:
-        await websocket.send_json(_system_message("connected", {"welcome": True}))
+        await websocket.send_json(
+            _system_message("connected", {"welcome": True, "adaptive": adaptive})
+        )
 
     await _safe_emit({
         "event_type": "ws_reconnected" if superseded else "ws_connected",
@@ -1209,6 +1308,7 @@ async def websocket_endpoint(
                     section_id=(envelope.get("data") or {}).get("section_id"),
                     phase=phase,
                     group=group,
+                    session_id=session_id,
                 )
 
             if msg_type == "heartbeat":
@@ -1245,6 +1345,12 @@ async def websocket_endpoint(
                 await _handle_adaptation_interaction(
                     envelope, user_id, session_id, phase, group, db
                 )
+                continue
+
+            if msg_type == "ui_event":
+                # Screen facts for the delivery guard: section entered, tab visibility, answering
+                # a question, a video playing. They decide whether help may interrupt.
+                await _handle_ui_event(envelope, user_id)
                 continue
 
             if msg_type == "help_request":
