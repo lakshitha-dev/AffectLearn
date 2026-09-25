@@ -113,6 +113,11 @@ export function useBehavioralSignals(
   // discard the partially-collected window.
   const sectionIdRef = useRef<string | undefined>(sectionId);
   sectionIdRef.current = sectionId;
+  // The section this 30 s window STARTED on. A window is sent when it closes, so labelling it with
+  // the section on screen at send time made "bored for 25 s on page A" arrive as a reading about
+  // page B, and the hint was written for the wrong page. The server withholds a reading whose
+  // section is no longer on screen.
+  const windowSectionRef = useRef<string | undefined>(sectionId);
 
   const debugRef = useRef<BehavioralDebug | null>(
     IS_DEV ? makeEmptyDebug() : null,
@@ -375,9 +380,11 @@ export function useBehavioralSignals(
           events: buffer,
           summary,
           dropped_events: dropped,
-          section_id: sectionIdRef.current,
+          section_id: windowSectionRef.current ?? sectionIdRef.current,
         },
       };
+      // The next window starts now, on whatever section is on screen now.
+      windowSectionRef.current = sectionIdRef.current;
 
       // AC #9: drop (do NOT queue) when the socket is down — stale 30s windows
       // would corrupt downstream temporal modelling.

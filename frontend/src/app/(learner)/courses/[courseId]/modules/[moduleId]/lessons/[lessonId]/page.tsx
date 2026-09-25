@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowLeft, CircleHelp, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import {
   SELF_REPORT_OMISSION_RATE,
 } from "@/hooks/use-self-report-trigger";
 import { useAdaptationStore } from "@/stores/adaptation-store";
+import { useConnectionStore } from "@/stores/connection-store";
 import { useUiStore } from "@/stores/ui-store";
 import type { SectionDetail } from "@/types/course";
 import type { AdaptationAction, HelpRequestKind } from "@/types/ws-messages";
@@ -141,6 +142,65 @@ export default function LessonPage({ params }: PageProps) {
     sectionSignals.enterSection(currentSectionId);
   }, [currentSectionId, sectionSignals]);
 
+  // ── what is on screen, for the server's delivery guard ───────────────────────────────
+  //
+  // Help must be about the page the learner is on, and must not interrupt a card being read, a
+  // hidden tab or a question being answered. The server can only know those things if the page
+  // says so. `send` drops messages while the socket is down, so the section is announced again
+  // whenever the connection comes up (re-announcing the same section is a no-op server-side).
+  const isConnected = useConnectionStore((s) => s.isConnected);
+  const adaptive = useConnectionStore((s) => s.adaptive);
+  useEffect(() => {
+    if (!currentSectionId || !isConnected) return;
+    send({
+      type: "ui_event",
+      ts: Date.now(),
+      data: { event: "section_entered", section_id: currentSectionId },
+    });
+  }, [currentSectionId, isConnected, send]);
+
+  // Cards belong to the section they were written for. Moving on clears them, and a card that
+  // arrives late for a section already left is dropped rather than shown out of context.
+  const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
+  useEffect(() => {
+    if (currentSectionId) useAdaptationStore.getState().keepSection(currentSectionId);
+  }, [currentSectionId, adaptationQueue]);
+  // ...and nothing follows the learner into the next lesson.
+  useEffect(() => () => useAdaptationStore.getState().reset(), []);
+
+  useEffect(() => {
+    const report = () =>
+      send({
+        type: "ui_event",
+        ts: Date.now(),
+        data: { event: "visibility", visible: document.visibilityState === "visible" },
+      });
+    document.addEventListener("visibilitychange", report);
+    return () => document.removeEventListener("visibilitychange", report);
+  }, [send]);
+
+  // Answering a question: tapping an option, focusing or typing inside a `[data-quiz]` block.
+  // Throttled: the server holds help for 45 s after the latest report, so one every 10 s is plenty.
+  const lastQuizReport = useRef(0);
+  useEffect(() => {
+    const onActivity = (e: Event) => {
+      const target = e.target as Element | null;
+      if (!target?.closest?.("[data-quiz]")) return;
+      const now = Date.now();
+      if (now - lastQuizReport.current < 10_000) return;
+      lastQuizReport.current = now;
+      send({ type: "ui_event", ts: now, data: { event: "quiz_activity" } });
+    };
+    document.addEventListener("pointerdown", onActivity, true);
+    document.addEventListener("focusin", onActivity, true);
+    document.addEventListener("keydown", onActivity, true);
+    return () => {
+      document.removeEventListener("pointerdown", onActivity, true);
+      document.removeEventListener("focusin", onActivity, true);
+      document.removeEventListener("keydown", onActivity, true);
+    };
+  }, [send]);
+
   // Declared AFTER `sectionSignals` deliberately: a useCallback dependency array is evaluated
   // during render, so referencing a `const` declared further down would throw a TDZ error.
   const handleMarkComplete = useCallback((sectionId: string) => {
@@ -209,7 +269,7 @@ export default function LessonPage({ params }: PageProps) {
   // "Still stuck" / "I'd rather move on" from the card on screen. The server runs the same agents
   // for the next rung of the ladder and delivers the result like any other adaptation.
   const requestHelp = useCallback(
-    (payload: { request: HelpRequestKind; adaptation_id: string; action: AdaptationAction }) => {
+    (payload: { request: HelpRequestKind; adaptation_id?: string; action?: AdaptationAction }) => {
       send({
         type: "help_request",
         ts: Date.now(),
@@ -427,9 +487,14 @@ export default function LessonPage({ params }: PageProps) {
         const section = sections[idx];
         return (
           <>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Section {idx + 1} of {sections.length}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Section {idx + 1} of {sections.length}
+              </p>
+              {/* Help on request, with or without a card on screen. Adaptive learners only: a
+                  control-arm learner is never adapted to, so the button would do nothing. */}
+              {adaptive ? <StuckButton onRequest={() => requestHelp({ request: "still_stuck" })} /> : null}
+            </div>
             <SectionView
               key={section.id}
               section={section}
@@ -531,5 +596,33 @@ function LessonSkeleton() {
         {[1, 2, 3].map((i) => <div key={i} className="h-24 bg-border rounded" />)}
       </div>
     </div>
+  );
+}
+
+/**
+ * "I'm stuck": asks for help on the current section at any time. Automatic help needs a confident,
+ * sustained detection, and on this reader the behavioural channel rarely reaches it, so without
+ * this a genuinely stuck learner could wait for help that never comes.
+ */
+function StuckButton({ onRequest }: { onRequest: () => void }) {
+  const [waiting, setWaiting] = useState(false);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setTimeout(() => setWaiting(false), 8_000);
+    return () => clearTimeout(t);
+  }, [waiting]);
+  return (
+    <button
+      type="button"
+      disabled={waiting}
+      onClick={() => {
+        setWaiting(true);
+        onRequest();
+      }}
+      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface hover:text-foreground disabled:opacity-60"
+    >
+      <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
+      {waiting ? "Finding help…" : "I'm stuck"}
+    </button>
   );
 }

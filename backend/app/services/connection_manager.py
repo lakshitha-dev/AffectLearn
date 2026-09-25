@@ -37,7 +37,9 @@ class ConnectionManager:
         self._session_ids: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
-    async def connect(self, user_id: str, websocket: WebSocket) -> tuple[bool, str]:
+    async def connect(
+        self, user_id: str, websocket: WebSocket, preferred_session_id: str | None = None
+    ) -> tuple[bool, str]:
         """Register a new socket for `user_id`. If a prior socket exists, close it with 4001.
 
         Returns `(superseded, session_id)`. `session_id` is reused across same-user
@@ -50,7 +52,10 @@ class ConnectionManager:
             self._sockets[user_id] = websocket
             session_id = self._session_ids.get(user_id)
             if session_id is None:
-                session_id = uuid_mod.uuid4().hex
+                # This process has not seen the learner (first connect, or a restart). Reuse the
+                # session the learner was in, when one is on record, so a redeploy mid-lesson does
+                # not reset the escalation ladder and the cooldown.
+                session_id = preferred_session_id or uuid_mod.uuid4().hex
                 self._session_ids[user_id] = session_id
 
         if prior is not None and prior is not websocket:

@@ -199,12 +199,29 @@ export interface HelpRequestMessage extends WSMessage {
   type: "help_request";
   data: {
     request: HelpRequestKind;
-    /** The card the learner asked from, so "still stuck after THAT" is joinable. */
-    adaptation_id: string;
-    action: AdaptationAction;
+    /**
+     * The card the learner asked from, so "still stuck after THAT" is joinable. Absent when the
+     * learner used the always-available "I'm stuck" button with no card on screen.
+     */
+    adaptation_id?: string;
+    action?: AdaptationAction;
     section_id?: string;
     cycle_number?: number;
   };
+}
+
+/**
+ * Screen facts the server's delivery guard needs before it may interrupt the learner:
+ *   - `section_entered` — the learner is now on this section (anything older is stale)
+ *   - `visibility`      — the tab was hidden or shown
+ *   - `quiz_activity`   — the learner is answering a question
+ */
+export interface UiEventMessage extends WSMessage {
+  type: "ui_event";
+  data:
+    | { event: "section_entered"; section_id: string }
+    | { event: "visibility"; visible: boolean }
+    | { event: "quiz_activity"; section_id?: string };
 }
 
 export type UpstreamMessage =
@@ -215,6 +232,7 @@ export type UpstreamMessage =
   | AdaptationInteractionMessage
   | AdaptationProbeMessage
   | HelpRequestMessage
+  | UiEventMessage
   | SelfReportMessage;
 
 // ---------- Downstream (server → client) ----------
@@ -222,7 +240,8 @@ export type UpstreamMessage =
 export interface SystemConnectedMessage extends WSMessage {
   type: "system";
   action: "connected";
-  data: { welcome: boolean };
+  /** `adaptive` = this learner receives adaptations (Phase B, adaptive arm). */
+  data: { welcome: boolean; adaptive?: boolean };
 }
 
 export interface SystemSessionRestoredMessage extends WSMessage {
@@ -232,6 +251,8 @@ export interface SystemSessionRestoredMessage extends WSMessage {
   // to the REST camelCase rule). Story 4.5+ populates real values; for Story 4.1
   // every field is optional because the load returns `null`.
   data: {
+    /** `adaptive` = this learner receives adaptations (Phase B, adaptive arm). */
+    adaptive?: boolean;
     current_lesson_id?: string;
     current_section_id?: string;
     last_affect_state?: unknown;
@@ -298,6 +319,8 @@ export interface AdaptationMessage extends WSMessage {
   adaptation_id?: string;
   action: AdaptationAction;
   content: { text?: string; variant?: string; message?: string };
+  /** The section this help was written for. A card for another section is dropped, not shown. */
+  section_id?: string | null;
   /**
    * `show_video` only: what the Video sub-agent found. `pending` means it did not finish inside
    * the cycle and the client should complete the lookup with `concept`/`query` (the brief).

@@ -224,6 +224,10 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _normalise(text: Any) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
 def _content_text(content: Any) -> str:
     """Normalise a chat message's content to a string (str or list-of-blocks).
 
@@ -427,9 +431,14 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
             },
         }
     elif action_type in fallbacks.GENERATIVE_ACTIONS:
-        content = await _generate(
-            action_type, profile, content_context, await _previously_shown(state)
-        )
+        already_shown = await _previously_shown(state)
+        content = await _generate(action_type, profile, content_context, already_shown)
+        # The same words twice in one section is not help, it is noise. The prompt asks the model
+        # not to repeat itself; the pre-written fallback copy cannot vary, so a slow model would
+        # otherwise hand the learner the identical sentence again.
+        if _normalise(content.get("text")) in {_normalise(t) for t in already_shown}:
+            logger.info("adaptation_skipped_duplicate_text", action_type=action_type)
+            return {}
     else:
         # Out-of-partition action_type (should not happen — vocabulary is locked).
         logger.warning("content_adapter_unknown_action", action_type=action_type)

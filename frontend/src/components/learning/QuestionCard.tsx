@@ -12,7 +12,7 @@ interface QuestionCardProps {
 
 export function QuestionCard({ question, selectedOptionId, onSelect, index }: QuestionCardProps) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-6 space-y-4">
+    <div data-quiz="" className="rounded-xl border border-border bg-surface p-6 space-y-4">
       <p id={`question-${question.id}`} className="font-medium text-base text-foreground">
         {index + 1}. {question.text}
       </p>
