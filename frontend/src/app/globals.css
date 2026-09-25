@@ -98,6 +98,75 @@
     background-color: rgb(var(--background));
     color: rgb(var(--foreground));
   }
+
+  /*
+   * "Daylight" -- the admin area's theme. Scoped to `.admin-theme` (set by the admin layout), so
+   * the learner-facing UI is untouched. Light-first and deliberately bright: a warm off-white
+   * canvas, white cards, one indigo accent, teal for "working", amber for "held back". Dark mode
+   * is a soft navy, never black, so an operator watching a session late at night is not looking
+   * into a void.
+   */
+  .admin-theme {
+    --primary: 79 70 229;          /* #4F46E5 Indigo 600 */
+    --primary-soft: 238 242 255;   /* #EEF2FF Indigo 50 */
+    --muted: 107 114 142;
+    --background: 248 247 252;     /* #F8F7FC warm lavender-white canvas */
+    --surface: 243 244 251;
+    --border: 228 229 242;
+    --success: 13 148 136;         /* #0D9488 Teal 600 */
+    --warning: 217 119 6;          /* #D97706 Amber 600 */
+    --error: 225 29 72;            /* #E11D48 Rose 600 */
+    --info: 79 70 229;
+    --foreground: 30 34 58;
+    --card: 255 255 255;
+    --card-foreground: 30 34 58;
+    --muted-foreground: 101 107 134;
+    --primary-foreground: 255 255 255;
+    --ring: 79 70 229;
+    --input: 228 229 242;
+    --accent: 243 244 251;
+    --accent-foreground: 30 34 58;
+    --radius: 0.875rem;
+  }
+
+  .dark .admin-theme {
+    --primary: 129 140 248;        /* #818CF8 Indigo 400 */
+    --primary-soft: 42 45 92;
+    --muted: 160 166 196;
+    --background: 20 24 45;        /* #14182D soft navy, not black */
+    --surface: 27 32 58;
+    --border: 48 55 92;
+    --success: 45 212 191;         /* #2DD4BF Teal 400 */
+    --warning: 251 191 36;         /* #FBBF24 Amber 400 */
+    --error: 251 113 133;          /* #FB7185 Rose 400 */
+    --info: 129 140 248;
+    --foreground: 236 238 250;
+    --card: 29 34 62;
+    --card-foreground: 236 238 250;
+    --muted-foreground: 163 169 199;
+    --ring: 129 140 248;
+    --input: 48 55 92;
+    --accent: 36 42 74;
+    --accent-foreground: 236 238 250;
+  }
+}
+
+/* React Flow canvas inside the monitor: inherit the theme instead of the library's greys. */
+.admin-theme .react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: rgb(var(--muted) / 0.55);
+  --xy-edge-stroke-selected: rgb(var(--primary));
+  --xy-controls-button-background-color: rgb(var(--card));
+  --xy-controls-button-background-color-hover: rgb(var(--surface));
+  --xy-controls-button-color: rgb(var(--foreground));
+  --xy-controls-button-border-color: rgb(var(--border));
+  --xy-attribution-background-color: transparent;
+}
+
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
 }
 
 body {
