@@ -2,16 +2,18 @@
 
 import type { NodeRuntimeStatus } from "@/types/monitor";
 
-// Affect category colors (match the designer analytics heatmap palette).
+// Affect category colors for the monitor (the Daylight palette). Mid-tones chosen to read on both
+// the light canvas and the navy dark mode; bored is a soft indigo rather than grey, so a disengaged
+// learner shows up as a state to act on instead of fading into the background.
 export const AFFECT_COLORS: Record<string, string> = {
-  bored: "#94a3b8", // slate-400
+  bored: "#818cf8", // indigo-400
   confused: "#f59e0b", // amber-500
-  engaged: "#22c55e", // green-500
-  frustrated: "#ef4444", // red-500
+  engaged: "#14b8a6", // teal-500
+  frustrated: "#f43f5e", // rose-500
 };
 
 export function affectColor(a?: string): string {
-  return (a && AFFECT_COLORS[a]) || "#64748b";
+  return (a && AFFECT_COLORS[a]) || "#94a3b8";
 }
 
 /**

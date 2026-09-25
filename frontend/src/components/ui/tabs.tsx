@@ -52,7 +52,7 @@ export function Tabs({ tabs, defaultValue, children, className }: TabsProps) {
         role="tablist"
         aria-label="Monitor views"
         onKeyDown={onKeyDown}
-        className="mb-6 flex gap-1 border-b border-border"
+        className="mb-6 inline-flex flex-wrap gap-1 rounded-2xl border border-border bg-card p-1 shadow-sm"
       >
         {tabs.map((t) => {
           const selected = t.value === active;
@@ -69,10 +69,11 @@ export function Tabs({ tabs, defaultValue, children, className }: TabsProps) {
               tabIndex={selected ? 0 : -1}
               onClick={() => setActive(t.value)}
               className={cn(
-                "-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors",
+                "rounded-xl px-4 py-2 text-sm font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 selected
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-surface hover:text-foreground",
               )}
             >
               {t.label}
