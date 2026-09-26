@@ -289,11 +289,30 @@ class _Writer:
         # learner id -> [session id, last activity, next sequence number, next cycle]
         self._sessions: dict[uuid.UUID, list[Any]] = {}
         self.session_totals: Counter = Counter()
+        # Help -> the attempt that followed it, linked by `settle` once both rows exist.
+        self._outcomes: list[tuple[AssistanceEvent, QuizAttempt]] = []
+        self._linked: set[str] = set()
 
     def add(self, obj: Any) -> Any:
         self.db.add(obj)
         self.counts[obj.__tablename__] += 1
         return obj
+
+    async def settle(self) -> None:
+        """Write what is pending, then point each help event at the attempt that followed it.
+
+        The ORM orders inserts only along relationships, and most foreign keys here have none,
+        so a row can reach the database before the row it points at. Postgres rejects that
+        (SQLite, which the tests use, does not check unless asked). Parents are flushed before
+        their children throughout; this handles the one link made inside a batch.
+        """
+        await self.db.flush()
+        for event, attempt in self._outcomes:
+            event.outcome_attempt_id = attempt.id
+            event.outcome_is_correct = attempt.is_correct
+            event.outcome_resolved_at = attempt.submitted_at
+        self._outcomes.clear()
+        await self.db.flush()
 
     def ago(self, days: float, hour: float | None = None) -> datetime:
         when = self.now - timedelta(days=days)
@@ -425,10 +444,9 @@ class _Writer:
                     submitted_at=when, created_at=when, updated_at=when,
                 ))
                 attempts.append(attempt)
-                if on_screen is not None and on_screen.outcome_attempt_id is None:
-                    on_screen.outcome_attempt_id = attempt.id
-                    on_screen.outcome_is_correct = correct
-                    on_screen.outcome_resolved_at = when
+                if on_screen is not None and on_screen.adaptation_id not in self._linked:
+                    self._linked.add(on_screen.adaptation_id)
+                    self._outcomes.append((on_screen, attempt))
 
         if attempts:
             # The per-block summary keeps the FIRST answer, as the real route does.
@@ -617,6 +635,7 @@ async def seed_demo(db: AsyncSession, *, learner_password: str, designer_passwor
     designer = w.add(_user(DESIGNER["email_address"], DESIGNER["first_name"],
                            DESIGNER["last_name"], password=designer_password,
                            role=Role.course_designer, created=w.ago(95)))
+    await db.flush()  # before the courses that point at her
     web, sql, python = web_fundamentals.build(), sql_design.build(), python_data.build()
     # Python is the newest published course, so her dashboard opens on it; the SQL draft was
     # started earlier and is still being written.
@@ -649,6 +668,7 @@ async def seed_demo(db: AsyncSession, *, learner_password: str, designer_passwor
                          password=learner_password, role=Role.learner, created=w.ago(28, 19),
                          age=LEARNER["age_range"], degree=LEARNER["degree_program"],
                          consent=w.ago(28, 19.1), webcam=True))
+    await db.flush()  # before the rows that point at her
     w.add(QuestionnaireResponse(user_id=nimali.id, responses=LEARNER_QUESTIONNAIRE,
                                 submitted_at=w.ago(28, 19.2)))
     w.add(StudyGroup(user_id=nimali.id, group="adaptive"))
@@ -675,6 +695,7 @@ async def seed_demo(db: AsyncSession, *, learner_password: str, designer_passwor
                 mastery[str(section.id)] = _mastery(plan)
         enrollment.progress_percentage = completed * 100.0 / len(_sections(course))
         enrollment.last_accessed_at = last_seen
+    await w.settle()
     w.add(LearnerProfile(user_id=nimali.id, profile=_profile(
         nimali_affect, w.session_totals[nimali.id], skill=_skill(ratio), mastery=mastery,
         preferences={"preferred_format": "interactive", "worked_examples": "high"},
@@ -685,7 +706,7 @@ async def seed_demo(db: AsyncSession, *, learner_password: str, designer_passwor
     for mate in CLASS:
         await _classmate(w, mate, {"web": web, "python": python}, versions, pre)
 
-    await db.flush()
+    await w.settle()
     return {"skipped": False, "counts": dict(sorted(w.counts.items()))}
 
 
@@ -698,6 +719,7 @@ async def _classmate(w: _Writer, mate: Classmate, courses: dict[str, Course],
         created=w.ago(first_start["web"] + 1), age=mate.age, degree=mate.degree,
         consent=w.ago(first_start["web"] + 1), webcam=rng.random() < 0.8,
     ))
+    await w.db.flush()  # before the rows that point at them
     w.add(StudyGroup(user_id=learner.id, group=mate.group))
     await w.db.flush()
 
@@ -751,6 +773,7 @@ async def _classmate(w: _Writer, mate: Classmate, courses: dict[str, Course],
         enrollment.progress_percentage = done * 100.0 / len(sections)
         enrollment.last_accessed_at = last_seen
 
+    await w.settle()
     w.add(LearnerProfile(user_id=learner.id, profile=_profile(
         affect, w.session_totals[learner.id], skill=skill, mastery={}, preferences={},
         updated=w.now - timedelta(days=2),

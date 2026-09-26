@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 import app.db.seed_demo as seed
 from app.core.security import create_access_token, hash_password
@@ -31,6 +31,22 @@ pytestmark = pytest.mark.asyncio
 
 LEARNER_PW = "Learner-demo-1"
 DESIGNER_PW = "Designer-demo-1"
+
+
+@pytest.fixture(autouse=True)
+async def enforce_foreign_keys(db):
+    """Check foreign keys the way Postgres does.
+
+    SQLite ignores them unless asked, and the seed's first production dry run failed on exactly
+    that: the ORM orders inserts only along relationships, so a course could be inserted before
+    the designer it points at. Every test here runs with enforcement on, and turns it off again
+    so the rest of the suite sees the database it expects.
+    """
+    await db.execute(text("PRAGMA foreign_keys=ON"))
+    assert (await db.execute(text("PRAGMA foreign_keys"))).scalar() == 1
+    yield
+    await db.rollback()
+    await db.execute(text("PRAGMA foreign_keys=OFF"))
 
 
 @pytest.fixture(autouse=True)
