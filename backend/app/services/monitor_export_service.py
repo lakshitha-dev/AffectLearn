@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.research_event import ResearchEvent
+from app.services import demo_scope
 from app.services.research_export_service import _apply_filters, _ordered
 
 logger = structlog.get_logger(__name__)
@@ -171,6 +172,8 @@ async def stream_csv(
         event_types=event_types,
         start_ts=start_ts,
         end_ts=end_ts,
+        # The download is research data: seeded demo accounts never belong in it.
+        exclude_learner_ids=await demo_scope.demo_learner_id_strings(db),
     )
     result = await db.stream(_ordered(stmt))
 

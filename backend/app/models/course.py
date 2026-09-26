@@ -39,6 +39,8 @@ class Course(BaseModel):
     estimated_duration_minutes = Column(Integer, nullable=True)
     is_published = Column(Boolean, nullable=False, default=False)
     learning_objectives = Column(Text, nullable=True)
+    #: A seeded demonstration course (migration 029). Never listed to a real learner.
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
     #: The designer who created this course (migration 024).
     #:
     #: Until this existed, `require_role(course_designer, admin)` was the ONLY guard on every

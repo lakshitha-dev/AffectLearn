@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -58,16 +58,24 @@ async def list_courses(
     published_only: bool = False,
     search: str | None = None,
     learner_id: uuid.UUID | None = None,
+    exclude_demo: bool = False,
+    owner_first: uuid.UUID | None = None,
 ) -> tuple[list[dict], int]:
     """List courses with optional filtering and learner enrollment annotation.
 
     Returns dicts (one per course) carrying the SQLAlchemy Course plus the
     annotation fields ``module_count``, ``is_enrolled``, ``enrollment_progress``.
     Designers/admins typically pass ``published_only=False`` and ``learner_id=None``.
+
+    ``exclude_demo`` hides seeded demonstration courses (migration 029) — a real learner must
+    never find one in the catalogue and enrol. ``owner_first`` lists that designer's own courses
+    ahead of everyone else's, newest first within each group.
     """
     filters = []
     if published_only:
         filters.append(Course.is_published.is_(True))
+    if exclude_demo:
+        filters.append(Course.is_demo.is_(False))
     if search:
         like = f"%{search}%"
         filters.append(or_(Course.title.ilike(like), Course.description.ilike(like)))
@@ -101,8 +109,11 @@ async def list_courses(
         )
     for f in filters:
         stmt = stmt.where(f)
+    ordering = [Course.created_at.desc()]
+    if owner_first is not None:
+        ordering.insert(0, case((Course.created_by == owner_first, 0), else_=1))
     stmt = (
-        stmt.order_by(Course.created_at.desc())
+        stmt.order_by(*ordering)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
