@@ -124,6 +124,12 @@ class AgentState(TypedDict, total=False):
     # strategist. MUST be declared here: AgentState is the graph schema, and LangGraph silently
     # drops any key that is not, which is how p_confused/p_disengaged once vanished.
     ladder_rung: int
+    # What a passing cycle will spend IF its card reaches the learner: the cooldown, the session
+    # cap and a ladder rung for a detector-driven card, a rung only for a learner request. Set by
+    # the profiler (`edges.pending_offer`) and applied by the socket handler after a successful
+    # send (`learner_profiler.commit_delivered_offer`). None when the cycle spends nothing.
+    # Declared for the same reason as `ladder_rung`: an undeclared key is dropped by LangGraph.
+    offer_commit: dict | None
     # Transient per-cycle input (NOT persisted — see module docstring)
     facial_payload: dict
     behavioral_payload: dict

@@ -17,15 +17,16 @@ from typing import Any
 import structlog
 
 from app.agents.edges import (
-    GATE_LEARNER_REQUEST as _GATE_LEARNER_REQUEST,
-    GATE_OK as _GATE_OK,
+    GATE_WITHHELD_RANDOM as _GATE_WITHHELD_RANDOM,
     adaptation_decision,
     arm_for,
-    consumes_cooldown,
+    commit_offer,
     current_rung,
+    cycles_since_offer,
     is_decisive,
-    record_delivered_rung,
+    pending_offer,
     record_eligible_cycle,
+    stamp_offer,
 )
 from app.agents import delivery_guard
 from app.agents.state import AgentState
@@ -42,6 +43,13 @@ _COLD_PERSIST_EVERY = max(1, int(os.getenv("PROFILE_COLD_PERSIST_EVERY", "10")))
 
 def _key(learner_id: Any) -> str:
     return f"profile:learner:{learner_id}"
+
+
+def _clock_ms() -> int:
+    """The server clock the cooldown is measured on. One function so the gate that reads the
+    cooldown and the commit that starts it can never use different clocks (and tests can drive it).
+    """
+    return int(time.time() * 1000)
 
 
 async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
@@ -67,7 +75,7 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         profile = profile_service.default_profile()
         source = "default"
 
-    now_ms = int(time.time() * 1000)
+    now_ms = _clock_ms()
     profile = profile_service.apply_affect(
         profile, state.get("affect_state"), cycle, now_ms, source=state.get("affect_source")
     )
@@ -79,30 +87,21 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
     # history and the persistence rule would be off by one.
     #
     # The cooldown marker lives in the profile rather than a separate Redis key so it rides the
-    # write-through below — no new I/O site. It is stamped when the gate PASSES, i.e. when an
-    # adaptation is about to be attempted, not when one is confirmed delivered. If the LLM then
-    # returns `no_action` the cooldown is still consumed; that errs toward fewer interventions,
-    # which is the safe direction for an imperfect detector.
-    # The marker is compared against `cycle_number`, which RESTARTS AT 1 each session, while
-    # the profile is keyed by learner and outlives the session. A marker left by an earlier,
-    # longer session therefore exceeds the current cycle and the subtraction goes negative --
-    # permanently below the cooldown window, so the gate withheld `cooldown` forever. Stamping
-    # the session alongside it makes a foreign marker detectable, and a foreign marker is
-    # ignored rather than trusted.
+    # write-through below -- no new I/O site. It is measured on the SERVER clock
+    # (`cycles_since_offer`), not by subtracting client `cycle_number` values: those restart at 1
+    # whenever the lesson page remounts and differ between channels, while the session carries
+    # on. The session is stamped beside the marker, so one left by an earlier session is ignored
+    # rather than trusted.
     session_id = state.get("session_id")
-    last_adapt = profile.get("last_adaptation_cycle")
-    if profile.get("last_adaptation_session") != session_id:
-        last_adapt = None
     affect_source = state.get("affect_source")
     # A SYNCHRONOUS cache read, not a database call: the cache is primed at startup and
     # invalidated on write, so a threshold changed on the settings page applies from the next
     # cycle without putting a query in the hot path.
     config = config_service.get_config()
-    adapt, gate_reason = adaptation_decision(state, profile, last_adapt, config)
-    # Stamped on the RANDOMISED-TRIAL condition, not on `adapt`. A cycle withheld by the trial
-    # draw cleared every gate condition and must spend the cooldown exactly as a delivered one
-    # does -- otherwise the control arm becomes eligible again sooner, drifts to a higher trigger
-    # rate, and stops being matched to the delivered arm it exists to be compared against.
+    adapt, gate_reason = adaptation_decision(
+        state, profile, None, config,
+        cycles_since_last_offer=cycles_since_offer(profile, session_id, now_ms),
+    )
     # Read BEFORE advancing: this is the rung the strategist should use for THIS cycle, and the
     # stored counter is how many were delivered BEFORE it. Reading after would open every learner
     # one rung deep and the first rung of every ladder would never be used.
@@ -114,22 +113,26 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         state.get("ui_state"), section_id, state.get("affect_state")
     ))
 
-    if consumes_cooldown(gate_reason):
-        profile["last_adaptation_cycle"] = int(cycle or 0)
-        profile["last_adaptation_session"] = session_id
-        # Counts BOTH arms, for the same reason the cooldown is spent by both: the cap bounds how
-        # much of the session the trial occupies, not how much help was given.
+    # WHAT THIS CYCLE SPENDS, AND WHEN.
+    #
+    # A cycle withheld by the trial draw is complete here: it cleared every gate condition and
+    # must spend the cooldown and the session cap exactly as a delivered one does, otherwise the
+    # control arm becomes eligible again sooner and stops being matched to the delivered arm. It
+    # does not advance the ladder -- it showed the learner nothing, so nothing was tried.
+    #
+    # A cycle that PASSED has not shown the learner anything yet. The strategist may still choose
+    # `no_action`, the adapter may drop text identical to earlier help, the socket handler may drop
+    # a card for a section the learner has left, or the send may fail. Stamping here spent the
+    # cooldown, the cap and a ladder rung on cards the learner never saw, so the ladder could climb
+    # (or reach `ladder_exhausted`) on help that was never shown. The cost is therefore carried
+    # forward as `offer_commit` and spent by the socket handler only after a successful send
+    # (`commit_delivered_offer`). A learner request is carried the same way: it advances the
+    # ladder when its card arrives, and never spends the cooldown or the cap, which pace the
+    # DETECTOR and are not a budget on help the learner asked for.
+    if gate_reason == _GATE_WITHHELD_RANDOM:
+        stamp_offer(profile, session_id, now_ms)
         record_eligible_cycle(profile, session_id)
-        # The LADDER advances on delivery only. A withheld cycle showed the learner nothing, so
-        # nothing was tried and nothing ruled out; the next delivered intervention must still
-        # start where this one would have.
-        if gate_reason == _GATE_OK:
-            record_delivered_rung(profile, session_id, section_id, state.get("affect_state"))
-    elif gate_reason == _GATE_LEARNER_REQUEST:
-        # A requested step still climbs the ladder -- "still stuck" after a hint must lead to the
-        # breakdown, not to the same hint again -- but spends neither the cooldown nor the session
-        # cap, which pace the DETECTOR and are not a budget on help the learner asked for.
-        record_delivered_rung(profile, session_id, section_id, state.get("affect_state"))
+    offer = pending_offer(state, gate_reason)
 
     # Write-through: Redis hot (best-effort) + Postgres cold (best-effort)
     try:
@@ -198,4 +201,39 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         "should_adapt": adapt,
         "adaptation_gate_reason": gate_reason,
         "ladder_rung": rung,
+        "offer_commit": offer,
     }
+
+
+async def commit_delivered_offer(
+    learner_id: Any, offer: dict | None, db: Any = None, now_ms: int | None = None
+) -> bool:
+    """Spend what a card cost, once it has actually reached the learner. Never raises.
+
+    Called by the socket handler after a successful send, with the `offer_commit` the profiler
+    carried forward. Reads the profile the profiler wrote this cycle, applies `commit_offer`
+    (cooldown and cap for a detector-driven card, a ladder rung for both kinds), and writes it
+    back. When Redis is unavailable the profile came from Postgres, so it is persisted there
+    instead -- otherwise the cooldown would be lost and the next cycle could offer again at once.
+    """
+    if not offer:
+        return False
+    stamp_ms = int(now_ms if now_ms is not None else _clock_ms())
+    try:
+        profile = await redis_service.get_json(_key(learner_id))
+        from_cold = False
+        if profile is None and db is not None:
+            profile = await profile_service.load_or_init(db, learner_id)
+            from_cold = True
+        if profile is None:
+            logger.warning("offer_commit_no_profile", learner_id=learner_id)
+            return False
+        if not commit_offer(profile, offer, stamp_ms):
+            return False
+        await redis_service.set_json(_key(learner_id), profile)
+        if from_cold:
+            await profile_service.persist_cold(db, learner_id, profile)
+        return True
+    except Exception:
+        logger.warning("offer_commit_failed", learner_id=learner_id, exc_info=True)
+        return False
