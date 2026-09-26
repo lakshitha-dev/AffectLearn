@@ -1469,7 +1469,9 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         scenario_file = str(args.scenarios)
     results["config"]["scenario_file"] = scenario_file.replace("\\", "/")
-    results["config"]["scenario_sha256"] = hashlib.sha256(data).hexdigest()
+    # Over LF-normalised bytes: `* text=auto` may check the file out with CRLF on Windows, and the
+    # same scenario set must hash the same on every machine.
+    results["config"]["scenario_sha256"] = hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
     results["config"]["limit"] = args.limit
 
     raw_path = args.raw_out or DEFAULT_RAW[mode]
