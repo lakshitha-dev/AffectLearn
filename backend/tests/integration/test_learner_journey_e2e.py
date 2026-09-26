@@ -113,7 +113,7 @@ def journey(db: AsyncSession, monkeypatch):
     connection_manager._session_ids.clear()
 
 
-def _facial(cycle: int, section: str) -> dict:
+def _facial_message(cycle: int, section: str) -> dict:
     return {"type": "facial_features", "ts": 1, "data": {
         "cycle_number": cycle, "capture_started_at": 0, "capture_ended_at": 1,
         "frames_captured": 10, "dropped_frames": 0,
@@ -152,6 +152,15 @@ def _cards(messages: list[dict]) -> list[dict]:
 def test_a_learners_session_end_to_end(journey, test_user: User, monkeypatch):
     client, store, verdicts = journey
     token = create_access_token(str(test_user.id))
+
+    # The cooldown is measured on the server clock, so drive it: each facial window arrives at its
+    # cycle's 30 s mark, exactly as the live client paces them.
+    clock = {"ms": 0}
+    monkeypatch.setattr(learner_profiler, "_clock_ms", lambda: clock["ms"])
+
+    def _facial(cycle: int, section: str) -> dict:
+        clock["ms"] = cycle * 30_000
+        return _facial_message(cycle, section)
 
     with client.websocket_connect(f"/api/v1/ws?token={token}") as ws:
         hello = ws.receive_json()

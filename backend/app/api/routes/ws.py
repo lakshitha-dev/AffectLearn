@@ -59,6 +59,7 @@ from app.services import (
     ui_state as ui_state_service,
 )
 from app.agents import delivery_guard
+from app.agents.nodes import learner_profiler
 from app.agents.fusion import forced_mode, fuse_modalities
 from app.agents.graph import get_graph
 from app.agents.llm import warm_up as llm_warm_up
@@ -670,6 +671,10 @@ async def _deliver_adaptation(
         section_id=card_section,
         now_ms=now_ms,
     ))
+    # Only NOW does the offer cost anything: the cooldown, the session cap and the ladder rung are
+    # spent on a card the learner received, never on one dropped as stale or lost on a failed send
+    # above (both return before this line), nor on a cycle that produced no card at all.
+    await learner_profiler.commit_delivered_offer(user_id, result_state.get("offer_commit"), db)
 
     metadata = (result_state.get("adaptation_content") or {}).get("metadata") or {}
     await _safe_emit({

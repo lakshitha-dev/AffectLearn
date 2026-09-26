@@ -7,9 +7,10 @@ ELIGIBILITY (`should_adapt`) follows the architecture (lines 166-174): in Phase 
 `log_only` and ENDs — no adaptation. Only Phase B + adaptive group is eligible.
 
 THE GATE (`passes_adaptation_gate`) is the second half of the decision, and it exists
-because eligibility alone is not enough. The affect detector is imperfect — the facial
-branch sits at a deployed weighted-F1 of ~0.47-0.48 and behaviour-only detection tops out
-around 0.70 AUC in the literature — so acting on every cycle means acting on noise. Without
+because eligibility alone is not enough. The affect detectors are imperfect — the deployed
+behavioural confusion model reaches AUC 0.734 on DUX (leave-one-session-out, raw features), and
+even the facial-geometry disengagement model (AUC 0.922 on EngageNet test) is wrong on a share of
+windows — so acting on every cycle means acting on noise. Without
 a gate a 0.26-confidence guess triggers the same intervention as a 0.95 one, and the state
 can flip every 30 seconds, giving the learner whiplash.
 
@@ -87,13 +88,17 @@ def _env_int(name: str, default: int) -> int:
 #   threshold   precision   interventions/hour   one every
 #   -------------------------------------------------------
 #   (no gate)       0.181            120.0        30 s
-#   0.55            0.391              5.4        11 min
-#   0.60            0.429              4.1        15 min
-#   0.65            0.400              2.5        24 min
+#   0.55            0.368              5.8        10 min
+#   0.60            0.412              4.3        14 min
+#   0.65            0.367              2.5        24 min
 #   0.70            0.500              1.5        39 min      <- chosen
 #
+# (reports/dux_v1_z/gate_calibration.json. These predictions are session-z-scored; the deployed
+# model uses raw features, so the sweep may flatter it slightly.)
+#
 # 0.55 was an unvalidated guess. 0.70 is where measured precision peaks, and it cuts interruptions
-# from 5.4/hour to 1.5/hour. The metric is PRECISION, not recall, because the cost of the two errors
+# from 5.8/hour to 1.5/hour. The floor was chosen from this same sweep, so 0.500 is an in-sample
+# figure resting on 18 offers. The metric is PRECISION, not recall, because the cost of the two errors
 # is asymmetric: a hint shown to a learner who was coping is mildly redundant, while an intervention
 # fired on a false positive actively interrupts someone who was fine. Recall is deliberately
 # sacrificed — a missed confused window is usually followed by another one, since confusion persists.
@@ -112,7 +117,7 @@ ADAPT_MIN_CONFIDENCE = _env_float("ADAPT_MIN_CONFIDENCE", 0.70)
 # persistence 2 and cooldown 3, intervals resampling participants):
 #
 #   channel            floor   gated precision        interventions/h
-#   behavioural        0.50    0.500 [0.273, 0.737]   ~1.5      <- WAS deployed; raised to 0.70
+#   behavioural        0.70    0.500 [0.273, 0.737]   ~1.5      <- deployed (was 0.50 until Sep 2026)
 #   facial geometry    0.50    0.763 [0.635, 0.853]   ~10.3
 #   facial geometry    0.70    0.872 [0.783, 0.937]   ~7.1      <- chosen
 #
@@ -121,10 +126,11 @@ ADAPT_MIN_CONFIDENCE = _env_float("ADAPT_MIN_CONFIDENCE", 0.70)
 # it at 0.50 would give away 0.109 of precision on the geometry channel for no reason.
 _CHANNEL_MIN_CONFIDENCE: dict[str, float] = {
     AFFECT_SOURCE_FACIAL_GEOMETRY: _env_float("ADAPT_MIN_CONFIDENCE_GEOMETRY", 0.70),
-    # RAISED from the 0.50 the deployment was running (2026-09), where measured precision at that
-    # operating point is 0.500 [0.273, 0.737] -- a coin flip. Half of every confusion intervention
-    # was firing on a learner who was not confused, which is not a threshold that can support a
-    # claim about whether confusion interventions help.
+    # RAISED from the 0.50 the deployment was running (2026-09). The 0.50 floor was never swept
+    # for this channel; at 0.55 the measured precision is only 0.368, and even the chosen 0.70
+    # reaches 0.500 [0.273, 0.737] -- a coin flip, on 18 offers. A floor that fires on more
+    # learners who are not confused than on learners who are cannot support a claim about whether
+    # confusion interventions help.
     #
     # Stated EXPLICITLY here rather than left to fall through to `ADAPT_MIN_CONFIDENCE`, because
     # the deployment overrides that global to 0.50 for other reasons; an inherited floor would
@@ -154,6 +160,17 @@ ADAPT_MIN_CONSECUTIVE = _env_int("ADAPT_MIN_CONSECUTIVE", 2)
 
 # Cycles that must elapse after an adaptation before another may fire (~30s per cycle).
 ADAPT_COOLDOWN_CYCLES = _env_int("ADAPT_COOLDOWN_CYCLES", 3)
+
+# Length of one sensing cycle, used to measure the cooldown on the SERVER clock.
+#
+# The cooldown used to subtract client `cycle_number` values. Those are not a clock: each channel's
+# hook keeps its own counter, and every counter restarts at 1 when the lesson page remounts, while
+# the session (and the marker) carry on. An offer at cycle 40 in one lesson therefore held the next
+# lesson in `cooldown` until its counter climbed back past 43 -- about 20 minutes of silence -- and
+# a facial and a behavioural counter that started at different moments disagreed even within one
+# lesson. Elapsed server time, rounded to whole cycles, measures the same "three cycles" without
+# trusting a counter the client resets.
+ADAPT_CYCLE_SECONDS = max(1, _env_int("ADAPT_CYCLE_SECONDS", 30))
 
 # States that may trigger an intervention. `engaged` is deliberately absent: the design
 # leaves engagement undisturbed, and it is also the state the detector is worst at, so
@@ -234,9 +251,16 @@ def _session_cap_reached(
 ) -> bool:
     """Whether this session has already used its allowance.
 
-    The counter is session-scoped the same way the cooldown marker is: `cycle_number` restarts at
-    1 each session while the profile outlives it, so a count carried over from an earlier session
-    would suppress interventions in this one from its first cycle.
+    The counter is session-scoped the same way the cooldown marker is: the profile outlives the
+    session, so a count carried over from an earlier session would suppress interventions in this
+    one from its first cycle.
+
+    SCOPE OF "SESSION". `session_id` is the platform session, not a lesson: `connection_manager`
+    keeps one per learner for the life of the server process, reused across lesson navigation and
+    reconnects, and after a restart it is resumed from the Redis session record (12 h sliding
+    TTL, refreshed by every message). The cap therefore bounds offers across every lesson a learner
+    studies in that platform session, and a new session starts only on a new process with no
+    recent session record.
     """
     if profile.get("adaptation_session_id") != session_id:
         return False
@@ -304,13 +328,85 @@ def record_delivered_rung(
 
 
 def consumes_cooldown(gate_reason: str) -> bool:
-    """Whether this verdict spends the cooldown window.
+    """Whether this verdict spends the cooldown window and the session cap.
 
-    A withheld cycle MUST spend it exactly as a delivered one does. If it did not, the control
+    A withheld cycle MUST spend them exactly as a delivered one does. If it did not, the control
     arm would become eligible again sooner, drift to a higher trigger rate, and stop being
     matched to the delivered arm -- which is the whole basis of the comparison.
+
+    WHEN they are spent differs. A withheld cycle is complete at the gate, so the profiler spends
+    them there. An `ok` cycle has not shown the learner anything yet -- the strategist may still
+    choose `no_action`, the adapter may drop a duplicate, the socket may drop a stale card or fail
+    to send -- so it spends them only when a card actually reaches the learner (`commit_offer`).
     """
     return gate_reason in (GATE_OK, GATE_WITHHELD_RANDOM)
+
+
+def stamp_offer(profile: dict, session_id: Any, now_ms: int) -> None:
+    """Start the cooldown at `now_ms` on the server clock. Mutates `profile` in place.
+
+    The session is stamped beside it so a marker left by an earlier session is recognisable and
+    ignored rather than trusted (see `cycles_since_offer`).
+    """
+    profile["last_adaptation_ms"] = int(now_ms)
+    profile["last_adaptation_session"] = session_id
+    # The pre-fix marker compared client cycle numbers; drop it so nothing reads it by mistake.
+    profile.pop("last_adaptation_cycle", None)
+
+
+def cycles_since_offer(
+    profile: dict, session_id: Any, now_ms: int, cycle_seconds: int | None = None
+) -> int | None:
+    """Whole cycles elapsed since this session's last offer, or None if it has had none.
+
+    Rounded to the nearest cycle rather than floored: windows arrive every 30 s with a little
+    jitter, so the third window after an offer lands at 89.9 s as often as at 90.1 s, and flooring
+    would turn "three cycles" into four about half the time.
+    """
+    if profile.get("last_adaptation_session") != session_id:
+        return None
+    last = profile.get("last_adaptation_ms")
+    if last is None:
+        return None
+    cycle_ms = 1000 * (cycle_seconds or ADAPT_CYCLE_SECONDS)
+    return max(0, int(round((int(now_ms) - int(last)) / cycle_ms)))
+
+
+def pending_offer(state: AgentState, gate_reason: str) -> dict | None:
+    """What a passing cycle will spend IF its card is delivered, or None if it spends nothing.
+
+    Carried through the graph to the socket handler, which applies it with `commit_offer` after a
+    successful send. Captured here, at the gate, because the section and state are the ones the
+    gate ruled on.
+    """
+    if gate_reason not in (GATE_OK, GATE_LEARNER_REQUEST):
+        return None
+    return {
+        "gate_reason": gate_reason,
+        "session_id": state.get("session_id"),
+        "section_id": (state.get("content_context") or {}).get("section_id"),
+        "affect_state": state.get("affect_state"),
+    }
+
+
+def commit_offer(profile: dict, offer: dict | None, now_ms: int) -> bool:
+    """Spend what a DELIVERED card costs. Mutates `profile` in place; returns whether it did.
+
+    A detector-driven card (`ok`) starts the cooldown, counts toward the session cap and advances
+    the ladder. A card the learner asked for (`learner_request`) advances the ladder only: the
+    cooldown and the cap pace the DETECTOR and are not a budget on help the learner requested.
+    """
+    if not offer:
+        return False
+    reason = offer.get("gate_reason")
+    session_id = offer.get("session_id")
+    if reason == GATE_OK:
+        stamp_offer(profile, session_id, now_ms)
+        record_eligible_cycle(profile, session_id)
+    elif reason != GATE_LEARNER_REQUEST:
+        return False
+    record_delivered_rung(profile, session_id, offer.get("section_id"), offer.get("affect_state"))
+    return True
 
 
 def arm_for(gate_reason: str) -> str | None:
@@ -486,6 +582,8 @@ def adaptation_decision(
     profile: dict | None,
     last_adaptation_cycle: int | None,
     config: "GateConfigLike | None" = None,
+    *,
+    cycles_since_last_offer: int | None = None,
 ) -> tuple[bool, str]:
     """Combine eligibility and the gate. Pure — the caller supplies the fresh profile.
 
@@ -493,7 +591,15 @@ def adaptation_decision(
     profiler computes the new profile locally and returns it; at the moment the decision is
     made it is NOT yet in `state`. Reading it from state there would silently use the
     PREVIOUS cycle's affect history.
+
+    `cycles_since_last_offer` is the cooldown measured on the server clock (`cycles_since_offer`),
+    which is what the profiler supplies. When given it replaces the `cycle_number` arithmetic;
+    `last_adaptation_cycle` remains for direct callers and tests that reason in cycle numbers.
     """
+    if cycles_since_last_offer is not None:
+        cooldown_now, cooldown_last = int(cycles_since_last_offer), 0
+    else:
+        cooldown_now, cooldown_last = state.get("cycle_number"), last_adaptation_cycle
     if not should_adapt(state):
         return False, GATE_NOT_ELIGIBLE
     # The learner asked. Eligibility still applies -- a control-arm learner is never shown a card
@@ -513,8 +619,8 @@ def adaptation_decision(
         state.get("affect_state"),
         state.get("affect_confidence"),
         sustain_history(profile or {}, state.get("affect_source")),
-        state.get("cycle_number"),
-        last_adaptation_cycle,
+        cooldown_now,
+        cooldown_last,
         state.get("affect_source"),
         config,
     )
