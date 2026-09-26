@@ -1,0 +1,458 @@
+{
+  "harness_version": 1,
+  "mode": "live",
+  "run_date": "2026-09-26",
+  "started_at_utc": "2026-09-26T23:27:40+00:00",
+  "finished_at_utc": "2026-09-26T23:35:41+00:00",
+  "wall_seconds": 480.5,
+  "config": {
+    "effective": {
+      "endpoint": "https://api.openai.com",
+      "model": "gpt-4o",
+      "max_tokens": 400,
+      "timeout_seconds": 15.0,
+      "temperature": 0.3,
+      "client": {
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 400,
+        "max_retries": "openai SDK default (2)"
+      }
+    },
+    "deployed": {
+      "endpoint": "https://api.openai.com",
+      "model": "gpt-4o",
+      "temperature": 0.3,
+      "max_tokens": 400,
+      "timeout_seconds": 15.0
+    },
+    "api_key_source": "OPENAI_API_KEY",
+    "n_scenarios": 60,
+    "runs_per_scenario": 3,
+    "seed": 20260926,
+    "iteration_order": "run-major (all scenarios for run 1, then run 2, ...)",
+    "research_events_captured": 360,
+    "scenario_file": "backend/scripts/eval_llm_offline_scenarios.json",
+    "scenario_sha256": "3d825d6481966f53ba3d4cf9488c25db3dcb8a9e89c7a489778c10ae24839919",
+    "limit": null
+  },
+  "model_snapshot": "gpt-4o-2024-08-06",
+  "model_snapshots": {
+    "gpt-4o-2024-08-06": 330
+  },
+  "system_fingerprints": {
+    "fp_40aced2ba4": 173,
+    "fp_087f6ae320": 142,
+    "fp_38255cd5f6": 8,
+    "fp_8dbe57060b": 7
+  },
+  "n_runs_total": 180,
+  "token_usage": {
+    "pedagogical": {
+      "calls": 180,
+      "calls_with_usage": 180,
+      "input_tokens": 139719,
+      "output_tokens": 8816,
+      "prompt_tokens_estimated": 137739
+    },
+    "content_adapter": {
+      "calls": 150,
+      "calls_with_usage": 150,
+      "input_tokens": 108815,
+      "output_tokens": 9097,
+      "prompt_tokens_estimated": 107165
+    }
+  },
+  "pedagogical": {
+    "decisions": 180,
+    "llm_calls": 180,
+    "llm_outcomes": {
+      "response": 180
+    },
+    "responses_received": 180,
+    "valid_json": {
+      "count": 180,
+      "denominator": 180,
+      "rate": 1.0
+    },
+    "valid_json_strict": {
+      "count": 49,
+      "denominator": 180,
+      "rate": 0.2722
+    },
+    "valid_json_over_all_calls": {
+      "count": 180,
+      "denominator": 180,
+      "rate": 1.0
+    },
+    "in_vocabulary": {
+      "count": 180,
+      "denominator": 180,
+      "rate": 1.0
+    },
+    "parse_accepted": {
+      "count": 180,
+      "denominator": 180,
+      "rate": 1.0
+    },
+    "out_of_vocabulary_actions": {},
+    "fallback": {
+      "count": 0,
+      "denominator": 180,
+      "rate": 0.0,
+      "by_reason": {}
+    },
+    "action_distribution": {
+      "final": {
+        "show_video": 67,
+        "show_breakdown": 33,
+        "increase_difficulty": 30,
+        "skip_ahead": 30,
+        "show_hint": 13,
+        "show_alternative": 7
+      },
+      "model": {
+        "show_video": 67,
+        "show_breakdown": 33,
+        "increase_difficulty": 30,
+        "skip_ahead": 30,
+        "show_hint": 13,
+        "show_alternative": 7
+      },
+      "final_by_state": {
+        "bored": {
+          "increase_difficulty": 30,
+          "skip_ahead": 30
+        },
+        "confused": {
+          "show_video": 67,
+          "show_breakdown": 33,
+          "show_hint": 13,
+          "show_alternative": 7
+        }
+      }
+    },
+    "no_action": {
+      "final": {
+        "count": 0,
+        "denominator": 180,
+        "rate": 0.0
+      },
+      "model": {
+        "count": 0,
+        "denominator": 180,
+        "rate": 0.0
+      }
+    },
+    "override": {
+      "any": {
+        "count": 0,
+        "denominator": 180,
+        "rate": 0.0
+      },
+      "repeated_rung": {
+        "count": 0,
+        "denominator": 180,
+        "rate": 0.0
+      },
+      "no_action_on_request": {
+        "count": 0,
+        "denominator": 180,
+        "rate": 0.0
+      },
+      "repeated_rung_given_rung_above_0": {
+        "count": 0,
+        "denominator": 117,
+        "rate": 0.0
+      },
+      "no_action_on_request_given_request": {
+        "count": 0,
+        "denominator": 99,
+        "rate": 0.0
+      }
+    },
+    "ladder_adherence": {
+      "model": {
+        "count": 180,
+        "denominator": 180,
+        "rate": 1.0
+      },
+      "final": {
+        "count": 180,
+        "denominator": 180,
+        "rate": 1.0
+      },
+      "by_state_rung": {
+        "bored|r0": {
+          "n": 30,
+          "fallback": 0,
+          "override": 0,
+          "model_adherent": 30,
+          "model_decisions": 30,
+          "final_adherent": 30,
+          "final_actions": {
+            "increase_difficulty": 30
+          }
+        },
+        "bored|r1": {
+          "n": 30,
+          "fallback": 0,
+          "override": 0,
+          "model_adherent": 30,
+          "model_decisions": 30,
+          "final_adherent": 30,
+          "final_actions": {
+            "skip_ahead": 30
+          }
+        },
+        "confused|r0": {
+          "n": 33,
+          "fallback": 0,
+          "override": 0,
+          "model_adherent": 33,
+          "model_decisions": 33,
+          "final_adherent": 33,
+          "final_actions": {
+            "show_video": 17,
+            "show_hint": 13,
+            "show_breakdown": 3
+          }
+        },
+        "confused|r1": {
+          "n": 30,
+          "fallback": 0,
+          "override": 0,
+          "model_adherent": 30,
+          "model_decisions": 30,
+          "final_adherent": 30,
+          "final_actions": {
+            "show_breakdown": 30
+          }
+        },
+        "confused|r2": {
+          "n": 33,
+          "fallback": 0,
+          "override": 0,
+          "model_adherent": 33,
+          "model_decisions": 33,
+          "final_adherent": 33,
+          "final_actions": {
+            "show_video": 26,
+            "show_alternative": 7
+          }
+        },
+        "confused|r3": {
+          "n": 24,
+          "fallback": 0,
+          "override": 0,
+          "model_adherent": 24,
+          "model_decisions": 24,
+          "final_adherent": 24,
+          "final_actions": {
+            "show_video": 24
+          }
+        }
+      }
+    },
+    "video_brief_when_show_video": {
+      "count": 67,
+      "denominator": 67,
+      "rate": 1.0
+    },
+    "latency": {
+      "llm_call": {
+        "n": 180,
+        "p50_ms": 1209.3,
+        "p95_ms": 2649.2,
+        "mean_ms": 1428.6,
+        "max_ms": 4621.7
+      },
+      "node": {
+        "n": 180,
+        "p50_ms": 1209.6,
+        "p95_ms": 2649.5,
+        "mean_ms": 1428.9,
+        "max_ms": 4622.0
+      }
+    },
+    "consistency_checks": {
+      "parse_accepted_vs_valid_and_in_vocab_mismatches": 0,
+      "parse_error_vs_not_accepted_mismatches": 0
+    }
+  },
+  "content_adapter": {
+    "invocations": 180,
+    "paths": {
+      "generative": 150,
+      "selective": 30
+    },
+    "llm_calls": 150,
+    "llm_outcomes": {
+      "response": 150
+    },
+    "action_distribution_generative": {
+      "show_video": 67,
+      "show_breakdown": 33,
+      "increase_difficulty": 30,
+      "show_hint": 13,
+      "show_alternative": 7
+    },
+    "fallback": {
+      "count": 0,
+      "denominator": 150,
+      "rate": 0.0,
+      "by_reason": {}
+    },
+    "generated_texts": 150,
+    "word_count": {
+      "generated": {
+        "compliant": {
+          "count": 127,
+          "denominator": 150,
+          "rate": 0.8467
+        },
+        "limit": 80,
+        "min": 20,
+        "p50": 37.0,
+        "p95": 93.0,
+        "max": 118,
+        "mean": 48.5,
+        "histogram": {
+          "0": 0,
+          "1-20": 1,
+          "21-40": 88,
+          "41-60": 18,
+          "61-80": 20,
+          "81-100": 18,
+          "101-150": 5,
+          "151+": 0
+        }
+      },
+      "all_delivered_texts": {
+        "compliant": {
+          "count": 157,
+          "denominator": 180,
+          "rate": 0.8722
+        },
+        "limit": 80,
+        "min": 14,
+        "p50": 34.0,
+        "p95": 91.1,
+        "max": 118,
+        "mean": 42.8,
+        "histogram": {
+          "0": 0,
+          "1-20": 31,
+          "21-40": 88,
+          "41-60": 18,
+          "61-80": 20,
+          "81-100": 18,
+          "101-150": 5,
+          "151+": 0
+        }
+      }
+    },
+    "answer_leakage": {
+      "any": {
+        "count": 1,
+        "denominator": 150,
+        "rate": 0.0067
+      },
+      "exact": {
+        "count": 1,
+        "denominator": 150,
+        "rate": 0.0067
+      },
+      "normalized": {
+        "count": 1,
+        "denominator": 150,
+        "rate": 0.0067
+      },
+      "long_key": {
+        "count": 0,
+        "denominator": 150,
+        "rate": 0.0
+      },
+      "short_key": {
+        "count": 1,
+        "denominator": 150,
+        "rate": 0.0067
+      },
+      "key_not_in_section_body": {
+        "count": 0,
+        "denominator": 150,
+        "rate": 0.0
+      },
+      "ngram8": {
+        "count": 0,
+        "denominator": 150,
+        "rate": 0.0
+      },
+      "distractor_mention": {
+        "count": 10,
+        "denominator": 150,
+        "rate": 0.0667
+      },
+      "leaks_by_scenario_run": [
+        "S47#0"
+      ]
+    },
+    "identical_text_repeat": {
+      "pairs": {
+        "count": 0,
+        "denominator": 136,
+        "rate": 0.0
+      },
+      "groups_all_identical": {
+        "count": 0,
+        "denominator": 50,
+        "rate": 0.0
+      },
+      "distinct_text_ratio": 1.0
+    },
+    "latency": {
+      "llm_call": {
+        "n": 150,
+        "p50_ms": 1309.7,
+        "p95_ms": 2491.4,
+        "mean_ms": 1477.2,
+        "max_ms": 3269.4
+      },
+      "node": {
+        "n": 180,
+        "p50_ms": 1179.2,
+        "p95_ms": 2458.7,
+        "mean_ms": 1231.2,
+        "max_ms": 3269.7
+      }
+    }
+  },
+  "definitions": {
+    "valid_json": "Over pedagogical calls that returned a response: the node's own extraction (text from the first '{' to the last '}') json-parses to an object. valid_json_strict additionally requires the WHOLE stripped response to be that object (no prose, no code fences).",
+    "in_vocabulary": "Over valid-JSON responses: action_type is one of fallbacks.ACTION_TYPES. parse_accepted = pedagogical._parse_strategy(raw) is not None (the node's own verdict).",
+    "fallback": "strategy.fallback is True; fallback_reason is the node's own: timeout (asyncio.wait_for expired), vllm_error (client/API exception), parse_error (invalid JSON or out-of-vocabulary action_type).",
+    "override": "Over decisions where the model's choice was accepted (no fallback): the node set escalation_enforced. no_action_on_request = model_action_type == 'no_action' on a learner-request scenario (_honour_request); repeated_rung = any other enforced override, i.e. the model picked a ladder rung already spent (_enforce_escalation).",
+    "ladder_adherence": "The action is on fallbacks.ladder_actions(state) at an index >= the scenario's rung. 'model' uses the model's own choice (model_action_type when overridden) over accepted decisions; 'final' uses the delivered action_type over all decisions.",
+    "no_action": "Share of decisions whose action_type is no_action ('model' and 'final' as above).",
+    "word_count": "len(text.split()) on the adapter's final text (after its markdown strip); compliant when <= 80. Primary population: LLM-generated texts (metadata.generated).",
+    "answer_leakage": "Keyed answers of the bound section = text of every correct quiz option plus every non-empty exercise answer. A generated text LEAKS when any keyed answer appears in it either (exact) case-insensitively after NFKC, with word boundaries on alphanumeric ends, or (normalized) as a whole-token sequence after NFKC + casefold + every run of non-word characters -> one space. long_key / short_key split leaks by whether the matched key has >= 3 normalized tokens (short keys such as 'int' or '9' can occur innocently; review them by hand). ngram8 (secondary, not part of 'any') = the text shares a 8-token normalized shingle with a keyed answer of >= 8 tokens. distractor_mention (informational) = same exact/normalized rule against the incorrect quiz options. key_not_in_section_body = a leak whose matched key the rendered section body (the model's context) does not itself contain under the same rule; a key the body states can be echoed without answering anything.",
+    "identical_text_repeat": "LLM-generated texts grouped by (scenario, action_type) across runs, compared after content_adapter._normalise (lowercase, collapsed whitespace): identical pairs / pairs, and groups of >= 2 whose texts are all identical. distinct_text_ratio = unique normalized generated texts / generated texts, over the whole run.",
+    "latency": "llm_call = wall time of client.ainvoke inside the node, for calls that returned; node = wall time of the whole node call (timeouts included). p50/p95 by linear interpolation.",
+    "model_snapshot": "response_metadata['model_name'] reported by the API on each response."
+  },
+  "stubs": [
+    "content_context_service.build (Postgres) -> seeded course content built in memory, body rendered by the real content_context_service._render_body (same quiz/exercise masking); section_id = uuid5 of the section path; lesson/module/course ids None.",
+    "learner_activity.attach (Redis) -> scenario counters placed on content_context['learner_activity'], the shape attach() returns.",
+    "learner profiler (Postgres/Redis) -> profile_service.default_profile() with affect_history of the scenario state; ladder_rung set on the state from the scenario.",
+    "state['db'] = None -> content_adapter._authored_variant returns None (LLM path always taken) and _previously_shown returns [] (no 'already shown' history in the adapter prompt).",
+    "research_logger.emit (Redis) -> in-memory capture on both nodes' emit_research_event, restored after the run.",
+    "llm._CLIENT singleton -> recording proxy around llm.get_chat_client() (live) or FakeLLM (dry-run); records latency, raw text, model snapshot, token usage; never alters traffic."
+  ],
+  "raw_output": {
+    "written": true,
+    "path": "eval_llm_offline_raw_live.jsonl",
+    "reason": null,
+    "records": 180
+  }
+}
