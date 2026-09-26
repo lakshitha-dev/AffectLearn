@@ -40,7 +40,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.course import ContentBlock, Course, Lesson, Module, Section
@@ -405,7 +405,11 @@ async def section_detail(db: AsyncSession, section_id: uuid.UUID) -> dict[str, A
         "frustrated_pct": pct["frustrated"],
     }
 
-    # Scope research_events to this section's learners (events are NOT section-keyed).
+    # Scope research_events to this section's learners AND to this section. Events carry the
+    # section they happened in (migration 021); scoping by learner alone counted each learner's
+    # readings from every OTHER section they visited too, so one section's chart described the
+    # learners' whole course. Events recorded before the column existed have no section and keep
+    # the learner-only scoping, which is the best that can be said about them.
     learner_ids = await _section_learner_ids(db, section_id)
 
     # Best-effort temporal distribution from this section's learners' affect events. If no
@@ -416,6 +420,7 @@ async def section_detail(db: AsyncSession, section_id: uuid.UUID) -> dict[str, A
             .where(
                 ResearchEvent.event_type.in_(_AFFECT_EVENT_TYPES),
                 ResearchEvent.learner_id.in_(learner_ids),
+                _in_section(section_id),
             )
             .order_by(
                 ResearchEvent.session_id.asc(),
@@ -444,6 +449,14 @@ async def section_detail(db: AsyncSession, section_id: uuid.UUID) -> dict[str, A
     }
 
 
+def _in_section(section_id: Any):
+    """Events that happened in this section, or that predate section tagging (no section)."""
+    return or_(
+        ResearchEvent.section_id == str(section_id),
+        ResearchEvent.section_id.is_(None),
+    )
+
+
 async def _section_insights(
     db: AsyncSession, section_id: uuid.UUID, learner_ids: list[str]
 ) -> dict[str, Any]:
@@ -458,6 +471,7 @@ async def _section_insights(
         adapt_stmt = select(ResearchEvent.payload).where(
             ResearchEvent.event_type.in_(_ADAPTATION_EVENT_TYPES),
             ResearchEvent.learner_id.in_(learner_ids),
+            _in_section(section_id),
         )
         adapt_payloads = (await db.execute(adapt_stmt)).scalars().all()
         adaptation_counter: Counter = Counter()
@@ -466,6 +480,7 @@ async def _section_insights(
                 continue
             action = (
                 payload.get("action")
+                or payload.get("action_type")
                 or payload.get("strategy")
                 or payload.get("adaptation_type")
             )

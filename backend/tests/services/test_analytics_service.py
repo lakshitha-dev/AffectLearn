@@ -394,3 +394,59 @@ async def test_confidence_bands():
     high = analytics_service._confidence(100)
     assert high["confidence"] == "high"
     assert high["insufficient_data"] is False
+
+
+async def test_section_detail_counts_only_this_sections_events(db):
+    """One learner, two sections of the same course: each section's page shows only its own.
+
+    Scoping by learner alone counted a learner's help and affect from every other section they
+    visited. Events carry their section (migration 021), so a section's detail is filtered by it.
+    """
+    course, sections = await _build_course(db, n_sections=2)
+    sec_a, sec_b = sections
+    learner = await _make_user(db, "twosections@t.com")
+    enrollment = await _enroll(db, learner, course)
+    await _progress(db, learner, enrollment, sec_a, ["confused"], time_spent=60)
+    await _progress(db, learner, enrollment, sec_b, ["bored"], time_spent=60)
+
+    def event(event_type, section, payload, ts):
+        return ResearchEvent(
+            event_type=event_type, learner_id=str(learner.id), session_id="s",
+            cycle_number=ts, timestamp=ts, section_id=str(section.id), payload=payload,
+        )
+
+    db.add_all([
+        event("facial_affect_detected", sec_a, {"affect_state": "confused"}, 1),
+        event("adaptation_delivered", sec_a, {"action": "show_hint"}, 2),
+        event("facial_affect_detected", sec_b, {"affect_state": "bored"}, 3),
+        event("adaptation_delivered", sec_b, {"action": "increase_difficulty"}, 4),
+        event("adaptation_delivered", sec_b, {"action": "increase_difficulty"}, 5),
+    ])
+    await db.commit()
+
+    detail_a = await analytics_service.section_detail(db, sec_a.id)
+    detail_b = await analytics_service.section_detail(db, sec_b.id)
+
+    # Before the fix both sections reported increase_difficulty (two deliveries beat one).
+    assert detail_a["key_insights"]["most_triggered_adaptation_type"] == "show_hint"
+    assert detail_b["key_insights"]["most_triggered_adaptation_type"] == "increase_difficulty"
+    # Section A saw confusion and no boredom; section B the reverse.
+    assert any(b["confused_pct"] > 0 for b in detail_a["temporal_distribution"])
+    assert all(b.get("bored_pct", 0) == 0 for b in detail_a["temporal_distribution"])
+    assert all(b["confused_pct"] == 0 for b in detail_b["temporal_distribution"])
+
+
+async def test_triggered_events_name_their_action_as_action_type(db):
+    """`adaptation_triggered` payloads carry `action_type`, not `action`."""
+    course, sections = await _build_course(db, n_sections=1)
+    learner = await _make_user(db, "actiontype@t.com")
+    enrollment = await _enroll(db, learner, course)
+    await _progress(db, learner, enrollment, sections[0], ["confused"], time_spent=30)
+    db.add(ResearchEvent(
+        event_type="adaptation_triggered", learner_id=str(learner.id), session_id="s",
+        cycle_number=1, timestamp=1, section_id=str(sections[0].id),
+        payload={"action_type": "show_video"},
+    ))
+    await db.commit()
+    detail = await analytics_service.section_detail(db, sections[0].id)
+    assert detail["key_insights"]["most_triggered_adaptation_type"] == "show_video"
