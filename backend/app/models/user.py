@@ -28,6 +28,9 @@ class User(BaseModel):
     email_verified = Column(Boolean, nullable=False, default=False)
     consent_given_at = Column(DateTime(timezone=True), nullable=True)
     webcam_enabled = Column(Boolean, nullable=False, default=False)
+    #: A seeded demonstration account (migration 029, `app/db/seed_demo.py`). Excluded from every
+    #: research surface — see `services/demo_scope.py`.
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
 
     enrollments = relationship(
         "Enrollment", back_populates="user", cascade="all, delete-orphan"

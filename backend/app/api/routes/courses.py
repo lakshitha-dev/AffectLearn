@@ -71,6 +71,10 @@ async def list_courses(
         published_only=is_learner,
         search=search,
         learner_id=current_user.id if is_learner else None,
+        # Seeded demo courses are for the demo accounts; a real participant never sees one.
+        exclude_demo=is_learner and not getattr(current_user, "is_demo", False),
+        # A designer's own courses first, so their dashboard opens on their own work.
+        owner_first=current_user.id if current_user.role == Role.course_designer else None,
     )
     response_items = []
     for item in items:

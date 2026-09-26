@@ -51,7 +51,7 @@ from app.agents.edges import (
     GATE_STATE_NOT_ACTIONABLE,
 )
 from app.models.research_event import ResearchEvent
-from app.services import config_service
+from app.services import config_service, demo_scope
 
 logger = structlog.get_logger(__name__)
 
@@ -244,6 +244,10 @@ async def _load_sessions(
         stmt = stmt.where(ResearchEvent.phase == phase)
     if group:
         stmt = stmt.where(ResearchEvent.group == group)
+    # The sweep informs the gate's thresholds in the write-up: seeded demo readings never count.
+    stmt = demo_scope.exclude_learners(
+        stmt, ResearchEvent.learner_id, await demo_scope.demo_learner_id_strings(db)
+    )
     stmt = stmt.order_by(
         ResearchEvent.session_id.asc(),
         ResearchEvent.cycle_number.asc(),

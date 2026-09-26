@@ -39,6 +39,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.assistance_event import AssistanceEvent
+from app.models.user import User
 from app.models.decision_review import (
     RATING_MAX,
     RATING_MIN,
@@ -59,17 +60,27 @@ class ValidationError(ValueError):
     """A submitted rating that cannot be stored as given."""
 
 
+def _reviewable():
+    """Decisions an educator can judge, from real learners only.
+
+    Seeded demo accounts (`services/demo_scope.py`) are excluded: their hints were written for a
+    demonstration, and rating them would put invented decisions into the agreement figures.
+    """
+    return (
+        # Something a person can judge...
+        AssistanceEvent.hint_text.isnot(None),
+        AssistanceEvent.hint_text != "",
+        # ...that actually reached a learner.
+        AssistanceEvent.delivered_at.isnot(None),
+        AssistanceEvent.learner_id.notin_(select(User.id).where(User.is_demo.is_(True))),
+    )
+
+
 def _sample_stmt(sample_size: int):
     """The deterministic review sample. See the module docstring for why it is not random."""
     return (
         select(AssistanceEvent)
-        .where(
-            # Something a person can judge...
-            AssistanceEvent.hint_text.isnot(None),
-            AssistanceEvent.hint_text != "",
-            # ...that actually reached a learner.
-            AssistanceEvent.delivered_at.isnot(None),
-        )
+        .where(*_reviewable())
         .order_by(AssistanceEvent.created_at.asc(), AssistanceEvent.id.asc())
         .limit(sample_size)
     )
@@ -331,11 +342,7 @@ async def reviewable_total(db: AsyncSession) -> int:
     return int(
         (
             await db.execute(
-                select(func.count(AssistanceEvent.id)).where(
-                    AssistanceEvent.hint_text.isnot(None),
-                    AssistanceEvent.hint_text != "",
-                    AssistanceEvent.delivered_at.isnot(None),
-                )
+                select(func.count(AssistanceEvent.id)).where(*_reviewable())
             )
         ).scalar_one()
         or 0
