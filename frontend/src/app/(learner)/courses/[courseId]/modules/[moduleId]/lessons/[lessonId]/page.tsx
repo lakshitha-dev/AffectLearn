@@ -25,6 +25,7 @@ import { useCourse, useEnrollmentStatus, useLessonDetail } from "@/hooks/use-cou
 import { useBehavioralSignals } from "@/hooks/use-behavioral-signals";
 import { useSectionSignals } from "@/hooks/use-section-signals";
 import { usePerformanceWindow } from "@/hooks/use-performance-window";
+import { useQuizActivity } from "@/hooks/use-quiz-activity";
 import { useSectionVisits, type SectionEntrySource } from "@/hooks/use-section-visits";
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
@@ -179,27 +180,8 @@ export default function LessonPage({ params }: PageProps) {
     return () => document.removeEventListener("visibilitychange", report);
   }, [send]);
 
-  // Answering a question: tapping an option, focusing or typing inside a `[data-quiz]` block.
-  // Throttled: the server holds help for 45 s after the latest report, so one every 10 s is plenty.
-  const lastQuizReport = useRef(0);
-  useEffect(() => {
-    const onActivity = (e: Event) => {
-      const target = e.target as Element | null;
-      if (!target?.closest?.("[data-quiz]")) return;
-      const now = Date.now();
-      if (now - lastQuizReport.current < 10_000) return;
-      lastQuizReport.current = now;
-      send({ type: "ui_event", ts: now, data: { event: "quiz_activity" } });
-    };
-    document.addEventListener("pointerdown", onActivity, true);
-    document.addEventListener("focusin", onActivity, true);
-    document.addEventListener("keydown", onActivity, true);
-    return () => {
-      document.removeEventListener("pointerdown", onActivity, true);
-      document.removeEventListener("focusin", onActivity, true);
-      document.removeEventListener("keydown", onActivity, true);
-    };
-  }, [send]);
+  // Answering a question inside a `[data-quiz]` block holds automatic help (`quiz_active`).
+  useQuizActivity(send);
 
   // Declared AFTER `sectionSignals` deliberately: a useCallback dependency array is evaluated
   // during render, so referencing a `const` declared further down would throw a TDZ error.
