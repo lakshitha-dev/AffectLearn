@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.research_event import ResearchEvent
-from app.services import research_event_service
+from app.services import demo_scope, research_event_service
 
 # Phase A training-dataset event types: behavioral feature windows + self-report labels.
 PHASE_A_EVENT_TYPES = ("behavioral_affect_detected", "self_report")
@@ -38,8 +38,14 @@ def _apply_filters(
     end_ts: int | None,
     course_id: str | None = None,
     section_id: str | None = None,
+    exclude_learner_ids: Sequence[str] | None = None,
 ):
-    """Apply the common research-event filters to a select/aggregate statement."""
+    """Apply the common research-event filters to a select/aggregate statement.
+
+    `exclude_learner_ids` drops the seeded demo accounts (`services/demo_scope.py`): every
+    caller here produces research data, and demo rows must never reach it.
+    """
+    stmt = demo_scope.exclude_learners(stmt, ResearchEvent.learner_id, exclude_learner_ids)
     if learner_id is not None:
         stmt = stmt.where(ResearchEvent.learner_id == learner_id)
     if session_id is not None:
@@ -117,12 +123,13 @@ async def query_events(
     """
     page = max(1, page)
     page_size = max(1, page_size)
+    demo_ids = await demo_scope.demo_learner_id_strings(db)
 
     count_stmt = _apply_filters(
         select(func.count(ResearchEvent.id)),
         learner_id=learner_id, session_id=session_id, phase=phase, group=group,
         event_types=event_types, start_ts=start_ts, end_ts=end_ts,
-        course_id=course_id, section_id=section_id,
+        course_id=course_id, section_id=section_id, exclude_learner_ids=demo_ids,
     )
     total = (await db.execute(count_stmt)).scalar_one()
 
@@ -130,7 +137,7 @@ async def query_events(
         select(ResearchEvent),
         learner_id=learner_id, session_id=session_id, phase=phase, group=group,
         event_types=event_types, start_ts=start_ts, end_ts=end_ts,
-        course_id=course_id, section_id=section_id,
+        course_id=course_id, section_id=section_id, exclude_learner_ids=demo_ids,
     )
     stmt = _ordered(stmt).offset((page - 1) * page_size).limit(page_size)
     rows = (await db.execute(stmt)).scalars().all()
@@ -163,6 +170,7 @@ async def gaps(
         select(ResearchEvent),
         learner_id=learner_id, session_id=session_id, phase=phase, group=group,
         event_types=event_types, start_ts=start_ts, end_ts=end_ts,
+        exclude_learner_ids=await demo_scope.demo_learner_id_strings(db),
     )
     rows = (await db.execute(_ordered(stmt))).scalars().all()
     return research_event_service.detect_gaps([_to_dict(r) for r in rows])

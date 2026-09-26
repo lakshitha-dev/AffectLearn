@@ -34,6 +34,7 @@ from app.models.assistance_event import AssistanceEvent
 from app.models.research_event import ResearchEvent
 from app.models.study_group import StudyGroup
 from app.models.user import Role, User
+from app.services import demo_scope
 
 #: Event type written by `study_service.set_phase` on a real phase change.
 PHASE_TRANSITION = "phase_transition"
@@ -95,13 +96,21 @@ async def audit(db: AsyncSession) -> list[dict[str, Any]]:
     """
     checks: list[dict[str, Any]] = []
 
+    # Seeded demo accounts (`services/demo_scope.py`) are not study participants. Every check
+    # leaves them out, consistently: excluding them from one set but not another would make a
+    # check count them as, say, unassigned learners with data.
+    demo = set(await demo_scope.demo_user_ids(db))
+
+    def real(stmt, column):
+        return stmt.where(column.notin_(demo)) if demo else stmt
+
     # 1. A learner in two groups. Prevented by a UNIQUE constraint; checked anyway — see module
     #    docstring for why a check that can only pass is not worth having.
     duplicate_rows = (
         await db.execute(
             select(func.count())
             .select_from(
-                select(StudyGroup.user_id)
+                real(select(StudyGroup.user_id), StudyGroup.user_id)
                 .group_by(StudyGroup.user_id)
                 .having(func.count(StudyGroup.id) > 1)
                 .subquery()
@@ -132,7 +141,7 @@ async def audit(db: AsyncSession) -> list[dict[str, Any]]:
         )
         .scalars()
         .all()
-    )
+    ) - demo
     contaminated = 0
     if control_ids:
         contaminated = (
@@ -165,8 +174,9 @@ async def audit(db: AsyncSession) -> list[dict[str, Any]]:
     assigned_ids = set(
         (await db.execute(select(StudyGroup.user_id))).scalars().all()
     )
-    unassigned_active_stmt = select(
-        func.count(func.distinct(AssistanceEvent.learner_id))
+    unassigned_active_stmt = real(
+        select(func.count(func.distinct(AssistanceEvent.learner_id))),
+        AssistanceEvent.learner_id,
     )
     if assigned_ids:
         unassigned_active_stmt = unassigned_active_stmt.where(
@@ -197,15 +207,16 @@ async def audit(db: AsyncSession) -> list[dict[str, Any]]:
     # (learner count - assignment count): the two sets are not the same population, because an
     # assignment can exist against a non-learner account. Subtracting the totals would cancel a
     # designer's assignment against an unassigned learner and report a clean study.
-    unassigned_stmt = select(func.count()).select_from(User).where(User.role == Role.learner)
+    unassigned_stmt = real(
+        select(func.count()).select_from(User).where(User.role == Role.learner), User.id
+    )
     if assigned_ids:
         unassigned_stmt = unassigned_stmt.where(User.id.notin_(assigned_ids))
     unassigned = int((await db.execute(unassigned_stmt)).scalar_one() or 0)
 
     locked = (
         await db.execute(
-            select(func.count())
-            .select_from(StudyGroup)
+            real(select(func.count()).select_from(StudyGroup), StudyGroup.user_id)
             .where(StudyGroup.locked_at.isnot(None))
         )
     ).scalar_one()
