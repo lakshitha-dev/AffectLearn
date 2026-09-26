@@ -4,7 +4,9 @@ import pytest
 import pytest_asyncio
 from collections.abc import AsyncGenerator
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.compiler import compiles
 
 from app.core.deps import get_db
 from app.core.security import create_access_token, hash_password
@@ -23,6 +25,19 @@ from app.models.questionnaire_response import QuestionnaireResponse  # noqa: F40
 from app.models.survey_response import SurveyResponse  # noqa: F401  (Story 6.4)
 
 DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+# The models declare `postgresql.UUID`, which SQLite renders as a column of type `UUID` — a name
+# SQLite does not recognise, so the column gets NUMERIC affinity. A UUID's hex text is then
+# converted to a number whenever it happens to look like one ("4721e9038..." is 4721 x 10^9038,
+# stored as `inf`), and reading the row back fails. Roughly one UUID in a million looks like
+# that: invisible in small tests, and a periodic CI failure once a test writes a few thousand
+# rows (`test_seed_demo.py`). CHAR(32) is what SQLAlchemy's own generic UUID type uses here,
+# and TEXT affinity stores the value as written. Postgres has a native UUID and is unaffected.
+@compiles(PG_UUID, "sqlite")
+def _uuid_as_text_on_sqlite(type_, compiler, **kw):
+    return "CHAR(32)"
+
 
 _engine = create_async_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 _TestSession = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
