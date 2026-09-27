@@ -55,3 +55,9 @@ deploy/azure/DEPLOYMENT_STATUS.md
 # which is where the thesis reads them from.
 frontend/playwright-report/
 frontend/test-results/
+
+# Offline LLM evaluation (backend/scripts/eval_llm_offline.py). Per-run raw model outputs stay
+# local, and so do the dry-run's numbers: they come from a fake client and describe the harness,
+# not the model. The scenario set and the live aggregate results are committed.
+backend/scripts/eval_llm_offline_raw*.jsonl
+backend/scripts/eval_llm_offline_results_dryrun.json
