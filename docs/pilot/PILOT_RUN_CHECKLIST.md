@@ -3,6 +3,30 @@
 This replaces `deploy/azure/PHASE_A_RUN_CHECKLIST.md` for the pilot. That file still describes the
 Azure deployment and some retired settings: the Bi-LSTM, and 20% prompt omission.
 
+## Quick way: `pilot.ps1` (Windows PowerShell)
+
+Every step below has a one-line command in `pilot.ps1`, at the repository root. If scripts are
+blocked, run it as `powershell -ExecutionPolicy Bypass -File .\pilot.ps1 <command>`.
+
+| Step | Command |
+|---|---|
+| First time, all in one: secrets, start, 4 dry-run accounts, status, readiness | `.\pilot.ps1 all` |
+| Secrets file (`.env.pilot`, generated) | `.\pilot.ps1 setup` |
+| Start, wait until healthy, seed the course | `.\pilot.ps1 start` |
+| Real accounts, locked | `.\pilot.ps1 accounts -Count 30 -Seed <SEED> -Lock` |
+| Health and frozen configuration | `.\pilot.ps1 status` |
+| Freeze the configuration | `.\pilot.ps1 lock` |
+| Pre-session readiness check (§B) | `.\pilot.ps1 check` |
+| Participant sat down (§C.3) | `.\pilot.ps1 session-start -Code P007 -Device "Chrome 140, laptop camera"` |
+| Participant left (§C.7) | `.\pilot.ps1 session-end -Code P007 -Reason completed -Notes "none"` |
+| Erase a participant | `.\pilot.ps1 withdraw -Code P007` |
+| Export / backup (§D) | `.\pilot.ps1 export` · `.\pilot.ps1 backup` |
+| Stop (keep data) / delete everything | `.\pilot.ps1 stop` · `.\pilot.ps1 reset` |
+
+The rest of this checklist gives the underlying commands.
+
+## Underlying commands
+
 In the commands below, the compose invocation is abbreviated. It stands for:
 
 ```

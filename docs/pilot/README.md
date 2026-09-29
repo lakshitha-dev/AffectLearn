@@ -10,7 +10,7 @@ own real webcam, mouse and keyboard in a normal Chrome window.
 | [information-sheet.md](information-sheet.md) | participants (given ≥ 24 h ahead) | Plain-language description of the study and the data |
 | [consent-form.md](consent-form.md) | participants (signed on paper) | The consent statements, one per scope |
 | [facilitator-script.md](facilitator-script.md) | facilitator | The words said in every session, in order |
-| [PILOT_RUN_CHECKLIST.md](PILOT_RUN_CHECKLIST.md) | facilitator | Stack setup, pre-session checks, per-participant steps, after-session steps |
+| [PILOT_RUN_CHECKLIST.md](PILOT_RUN_CHECKLIST.md) | facilitator | Stack setup, pre-session checks, per-participant steps, after-session steps. Each step is also a one-line `..\..\pilot.ps1` command. |
 | [data-management-plan.md](data-management-plan.md) | researcher, supervisor, ethics review | What data is held, where, who can see it, retention and deletion |
 | [analysis-plan.md](analysis-plan.md) | researcher, supervisor | The pre-registered analysis: fix it before the first participant |
 | [data-dictionary.md](data-dictionary.md) | analyst | Every exported file and field, and the research event types |
