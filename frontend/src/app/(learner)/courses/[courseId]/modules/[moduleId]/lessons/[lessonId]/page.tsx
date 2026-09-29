@@ -41,7 +41,11 @@ import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { captureConsent } from "@/lib/consent";
 import type { SectionDetail } from "@/types/course";
-import type { AdaptationAction, HelpRequestKind } from "@/types/ws-messages";
+import type {
+  AdaptationAction,
+  AdaptationLifecycleEvent,
+  HelpRequestKind,
+} from "@/types/ws-messages";
 
 const AFFECT_DEBUG_ENABLED = process.env.NEXT_PUBLIC_AFFECT_DEBUG === "1";
 
@@ -257,6 +261,47 @@ export default function LessonPage({ params }: PageProps) {
       });
     },
     [send, currentSectionId],
+  );
+
+  // What happened to a delivered card that is not the learner's verdict on it (first visible,
+  // re-opened, expanded, probe shown or left unanswered, how a suggested break went). Research
+  // events only: the ledger and the delivery guard are driven by `adaptation_interaction`.
+  const logAdaptationEvent = useCallback(
+    (payload: {
+      adaptation_id: string;
+      action: AdaptationAction;
+      event: AdaptationLifecycleEvent;
+      since_received_ms?: number;
+      seconds_away?: number;
+    }) => {
+      send({
+        type: "adaptation_event",
+        ts: Date.now(),
+        data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
+      });
+    },
+    [send, currentSectionId],
+  );
+
+  // A suggested break is answered like any other card: taking it is "accepted" and declining is
+  // "dismissed", so the ledger and the delivery guard see it; the detail goes to the lifecycle.
+  const logBreak = useCallback(
+    (payload: {
+      adaptation_id: string;
+      event: "break_taken" | "break_declined" | "break_returned_early" | "break_completed";
+      seconds_away?: number;
+      since_received_ms: number;
+    }) => {
+      logAdaptationEvent({ ...payload, action: "suggest_break" });
+      if (payload.event === "break_taken" || payload.event === "break_declined") {
+        logHintInteraction({
+          adaptation_id: payload.adaptation_id,
+          action: "suggest_break",
+          interaction: payload.event === "break_taken" ? "accepted" : "dismissed",
+        });
+      }
+    },
+    [logAdaptationEvent, logHintInteraction],
   );
 
   // "Still stuck" / "I'd rather move on" from the card on screen. The server runs the same agents
@@ -500,6 +545,20 @@ export default function LessonPage({ params }: PageProps) {
               onPrev={() => handleSectionNav(idx - 1)}
               isSaving={markComplete.isPending}
               onShowAnswer={(sectionId) => sectionSignals.recordShowAnswer(sectionId)}
+              onExerciseAnswered={(sectionId, blockId, answer, isCorrect, responseTimeMs) => {
+                sectionSignals.recordExerciseAttempt(sectionId);
+                // Same endpoint as a quiz answer. The server grades it from the block's answer key
+                // and keeps it out of the per-quiz summary (see `record_quiz_response`).
+                recordQuiz.mutate({
+                  contentBlockId: blockId,
+                  selectedAnswers: [answer],
+                  isCorrect,
+                  responseTimeMs,
+                  sectionId,
+                  assistanceId:
+                    activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue)?.id,
+                });
+              }}
               onQuizAnswered={(sectionId, blockId, selectedIds, isCorrect, responseTimeMs) => {
                 sectionSignals.recordQuizAttempt(sectionId, isCorrect, responseTimeMs);
                 recordQuiz.mutate({
@@ -525,18 +584,19 @@ export default function LessonPage({ params }: PageProps) {
           queue for Stories 5.5–5.7. */}
       <InlineAdaptations
         onInteraction={logHintInteraction}
+        onLifecycle={logAdaptationEvent}
         onRequest={requestHelp}
         sectionId={currentSectionId ?? undefined}
       />
       {/* Asked once, 30s after a content intervention is delivered — long enough that the answer
           is about the help rather than about being interrupted. Inline, never blocking. */}
-      <AdaptationProbe onRespond={logAdaptationProbe} />
+      <AdaptationProbe onRespond={logAdaptationProbe} onLifecycle={logAdaptationEvent} />
       {/* Break suggestion overlay (Story 5.5) — renders the latest suggest_break
           adaptation as a fixed-position, semi-transparent overlay card (not a true
           modal; content stays visible, no scroll-lock). Non-suggest_break actions are
           left in the queue for 5.4/5.6/5.7. Its JSX position is not layout-sensitive
           since it is a fixed overlay. */}
-      <BreakSuggestion />
+      <BreakSuggestion onLifecycle={logBreak} />
       {/* Skip-ahead suggestion (Story 5.6) — renders the latest skip_ahead adaptation as an
           accept/dismiss inline suggestion. Accept advances to the next section via the same
           scroll-based nav as the prev/next buttons; accept/dismiss are logged upstream (FR22).

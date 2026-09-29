@@ -39,6 +39,7 @@ MESSAGE_SCOPES: dict[str, str | None] = {
     "performance_window": SCOPE_BEHAVIOURAL,
     "self_report": None,
     "adaptation_probe": None,
+    "adaptation_event": None,
 }
 
 

@@ -1238,6 +1238,63 @@ async def _handle_self_report(
 _PROBE_RESPONSES = {"helped", "did_not_help", "unsure"}
 
 
+#: Card lifecycle facts the browser reports (`AdaptationLifecycleEvent` in `ws-messages.ts`).
+_ADAPTATION_LIFECYCLE_EVENTS = frozenset({
+    "rendered", "reopened", "expanded", "collapsed",
+    "probe_shown", "probe_unanswered",
+    "break_taken", "break_declined", "break_returned_early", "break_completed",
+})
+
+
+async def _handle_adaptation_event(
+    envelope: dict,
+    user_id: str,
+    session_id: str,
+    phase: str | None = None,
+    group: str | None = None,
+) -> None:
+    """Record what happened to a delivered card that is NOT the learner's verdict on it.
+
+    Delivery is a server fact; whether the card was actually on screen, re-opened after a dismiss,
+    expanded, or how a suggested break went were not recorded at all. `rendered` in particular
+    marks when the post-intervention window can honestly start. Research event only: the ledger's
+    interaction and the delivery guard are driven by `adaptation_interaction`, so nothing here can
+    close a card or overwrite a learner's answer. Never raises.
+    """
+    data = envelope.get("data")
+    if (
+        not isinstance(data, dict)
+        or not data.get("adaptation_id")
+        or data.get("event") not in _ADAPTATION_LIFECYCLE_EVENTS
+    ):
+        logger.warning("ws_invalid_message", user_id=user_id, reason="adaptation_event_invalid")
+        return
+
+    def _int(value: Any) -> int | None:
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    await _safe_emit({
+        "event_type": "adaptation_lifecycle",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": int(data.get("cycle_number", 0) or 0),
+        "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
+        **({"section_id": str(data["section_id"])} if data.get("section_id") else {}),
+        "payload": {
+            "adaptation_id": data.get("adaptation_id"),
+            "action": data.get("action"),
+            "event": data["event"],
+            "since_received_ms": _int(data.get("since_received_ms")),
+            "seconds_away": _int(data.get("seconds_away")),
+        },
+    })
+
+
 async def _handle_adaptation_probe(
     envelope: dict,
     user_id: str,
@@ -1507,6 +1564,12 @@ async def websocket_endpoint(
                 # server-issued adaptation_id. The only ground truth that can speak to whether
                 # an intervention helped. Never raises.
                 await _handle_adaptation_probe(envelope, user_id, session_id, phase, group)
+                continue
+
+            if msg_type == "adaptation_event":
+                # Card lifecycle (first visible, re-opened, probe shown/unanswered, break outcome).
+                # Research event only; never changes the ledger or the delivery guard.
+                await _handle_adaptation_event(envelope, user_id, session_id, phase, group)
                 continue
 
             # Unknown but well-formed types: log + drop (forward-compat).

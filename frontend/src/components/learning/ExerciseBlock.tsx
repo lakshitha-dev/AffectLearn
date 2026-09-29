@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -15,7 +15,7 @@ interface ExerciseContent {
 interface ExerciseBlockProps {
   blockId: string;
   content: ExerciseContent;
-  onSubmit?: (blockId: string, answer: string, isCorrect: boolean) => void;
+  onSubmit?: (blockId: string, answer: string, isCorrect: boolean, responseTimeMs: number) => void;
   /**
    * Fired when the learner reveals the answer. A learner giving up is probably the single
    * clearest confusion signal this UI produces, and until now it was discarded entirely — the
@@ -36,12 +36,14 @@ export function ExerciseBlock({
   const [input, setInput] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  // Time from first seeing the exercise to submitting, as QuizBlock records it.
+  const shownAtRef = useRef(Date.now());
 
   function handleSubmit() {
     const correct = input.trim().toLowerCase() === content.answer.trim().toLowerCase();
     setIsCorrect(correct);
     setSubmitted(true);
-    onSubmit?.(blockId, input, correct);
+    onSubmit?.(blockId, input, correct, Date.now() - shownAtRef.current);
   }
 
   return (
