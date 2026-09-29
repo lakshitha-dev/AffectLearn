@@ -42,6 +42,7 @@ from app.models.assistance_event import AssistanceEvent
 from app.models.enrollment import Enrollment
 from app.models.questionnaire_response import QuestionnaireResponse
 from app.models.quiz_attempt import QuizAttempt
+from app.models.raw_interaction_window import RawInteractionWindow
 from app.models.research_event import ResearchEvent
 from app.models.section_progress import SectionProgress
 from app.models.section_visit import SectionVisit
@@ -66,6 +67,13 @@ async def erase_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, int]:
         delete(ResearchEvent).where(ResearchEvent.learner_id == str(user_id))
     )
     counts["research_events"] = result.rowcount or 0
+
+    # The raw interaction record, explicitly too: it is the most detailed thing held about a
+    # learner, so its removal must not depend on the database enforcing the cascade.
+    result = await db.execute(
+        delete(RawInteractionWindow).where(RawInteractionWindow.learner_id == user_id)
+    )
+    counts["raw_interaction_windows"] = result.rowcount or 0
 
     # Everything below cascades from the user row. They are counted before deletion so the
     # receipt can say what was removed; the cascade then does the removal.
@@ -92,8 +100,36 @@ async def erase_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, int]:
     await db.delete(user)
     await db.commit()
 
+    counts["redis_keys"] = await forget_in_redis(user_id)
     logger.info("learner_erased", user_id=str(user_id), **counts)
     return counts
+
+
+#: Marks a learner as erased for the research worker. Kept long enough to outlast anything still
+#: queued in the stream (it drains every second; a Redis outage is the long case).
+ERASED_KEY = "research:erased:{user_id}"
+_ERASED_TTL_S = 7 * 24 * 3600
+
+
+async def forget_in_redis(user_id: uuid.UUID | str) -> int:
+    """Remove what Redis holds about a learner, and stop queued events reaching Postgres.
+
+    The Postgres cascade does not reach Redis, which kept the learner's affect profile
+    (`profile:learner:*`, no TTL), their session and screen state, and their per-section activity
+    counters after erasure. And events still waiting in the research stream would have been
+    written to `research_events` by the worker AFTER the erasure deleted the learner's rows -- the
+    erased learner reappearing in the dataset. The `ERASED_KEY` marker is what the worker checks
+    to drop them (`research_worker.drain_once`). Best-effort: returns the number of keys removed.
+    """
+    from app.services import redis_service
+
+    uid = str(user_id)
+    removed = await redis_service.delete_keys(
+        f"profile:learner:{uid}", f"session:learner:{uid}", f"ui:learner:{uid}",
+    )
+    removed += await redis_service.delete_matching(f"activity:{uid}:*")
+    await redis_service.set_str(ERASED_KEY.format(user_id=uid), "1", _ERASED_TTL_S)
+    return removed
 
 
 async def export_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
@@ -130,6 +166,9 @@ async def export_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]
             "degree_program": user.degree_program,
             "role": user.role.value,
             "consent_given_at": _iso(user.consent_given_at),
+            "consent_version": user.consent_version,
+            "consent_scopes": user.consent_scopes,
+            "consent_withdrawn_at": _iso(user.consent_withdrawn_at),
             "webcam_enabled": user.webcam_enabled,
             "created_at": _iso(user.created_at),
         },
@@ -143,6 +182,9 @@ async def export_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]
             QuestionnaireResponse, QuestionnaireResponse.user_id
         ),
         "survey_responses": await rows(SurveyResponse, SurveyResponse.user_id),
+        "raw_interaction_windows": await rows(
+            RawInteractionWindow, RawInteractionWindow.learner_id
+        ),
         "research_events": [_as_dict(row) for row in research],
     }
 

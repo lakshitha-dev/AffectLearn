@@ -51,6 +51,7 @@ export function ExerciseBlock({
 
       <div className="flex gap-3 items-center">
         <input
+          data-track={`exercise-${blockId}-input`}
           type={content.type === "number" ? "number" : "text"}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -66,7 +67,12 @@ export function ExerciseBlock({
           }}
         />
         {!submitted && !previewMode && (
-          <Button size="sm" disabled={!input.trim()} onClick={handleSubmit}>
+          <Button
+            size="sm"
+            data-track={`exercise-${blockId}-submit`}
+            disabled={!input.trim()}
+            onClick={handleSubmit}
+          >
             Submit
           </Button>
         )}
@@ -85,6 +91,7 @@ export function ExerciseBlock({
 
       {!submitted && (
         <button
+          data-track={`exercise-${blockId}-show-answer`}
           className="text-xs text-muted-foreground hover:text-foreground underline"
           onClick={() => {
             setInput(content.answer);

@@ -37,7 +37,9 @@ import {
 } from "@/hooks/use-self-report-trigger";
 import { useAdaptationStore } from "@/stores/adaptation-store";
 import { useConnectionStore } from "@/stores/connection-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { captureConsent } from "@/lib/consent";
 import type { SectionDetail } from "@/types/course";
 import type { AdaptationAction, HelpRequestKind } from "@/types/ws-messages";
 
@@ -116,13 +118,21 @@ export default function LessonPage({ params }: PageProps) {
   // ever saw `content_topic: unknown` and could only produce generic study advice.
   const currentSectionId = sections[currentIndex]?.id;
 
-  const { debug: affectDebug } = useMediaPipe({ send, sectionId: currentSectionId });
+  // Capture only what the learner consented to. The server refuses anything else anyway; not
+  // starting it here means no camera light and no listeners for a withdrawn participant.
+  const consent = captureConsent(useSessionStore((s) => s.user));
+  const { debug: affectDebug } = useMediaPipe({
+    send,
+    sectionId: currentSectionId,
+    enabled: consent.participating,
+  });
   // Behavioral signals run in ALL non-error modes (incl. webcam-denied), so this
   // is mounted unconditionally alongside the facial hook (Story 4.3). The debug
   // ref surfaces NFR9 data-loss metrics in the dev overlay (AC #10).
   const { debug: behavioralDebug, cycleNumber } = useBehavioralSignals({
     send,
     sectionId: currentSectionId,
+    enabled: consent.behavioural,
   });
 
   // Per-section interaction counters for confusion detection (dark-shipped: logged for future
@@ -138,6 +148,7 @@ export default function LessonPage({ params }: PageProps) {
     send,
     sectionId: currentSectionId,
     snapshot: sectionSignals.snapshot,
+    enabled: consent.behavioural,
   });
   useEffect(() => {
     sectionSignals.enterSection(currentSectionId);
@@ -596,6 +607,7 @@ function StuckButton({ onRequest }: { onRequest: () => void }) {
   return (
     <button
       type="button"
+      data-track="stuck-button"
       disabled={waiting}
       onClick={() => {
         setWaiting(true);

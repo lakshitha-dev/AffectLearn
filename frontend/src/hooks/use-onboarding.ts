@@ -2,18 +2,34 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
+import { CONSENT_VERSION, DEFAULT_SCOPES } from "@/lib/consent";
 import { useSessionStore } from "@/stores/session-store";
+import type { ConsentScopes } from "@/types/api-responses";
 
 export function useGiveConsent() {
   const queryClient = useQueryClient();
   const setUser = useSessionStore((s) => s.setUser);
 
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (scopes: ConsentScopes = DEFAULT_SCOPES) =>
       apiFetch("/auth/consent", {
         method: "POST",
-        body: JSON.stringify({ consentGiven: true }),
+        body: JSON.stringify({ consentGiven: true, consentVersion: CONSENT_VERSION, scopes }),
       }),
+    onSuccess: (data) => {
+      setUser(data as Parameters<typeof setUser>[0]);
+      queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/** Stop all research capture now, keeping the account (`POST /auth/consent/withdraw`). */
+export function useWithdrawConsent() {
+  const queryClient = useQueryClient();
+  const setUser = useSessionStore((s) => s.setUser);
+
+  return useMutation({
+    mutationFn: () => apiFetch("/auth/consent/withdraw", { method: "POST" }),
     onSuccess: (data) => {
       setUser(data as Parameters<typeof setUser>[0]);
       queryClient.invalidateQueries({ queryKey: ["me"] });

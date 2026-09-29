@@ -137,6 +137,7 @@ export function AdaptationProbe({
         <button
           key={o.value}
           type="button"
+          data-track={`probe-${o.value}`}
           onClick={() => close(o.value)}
           className={cn(
             "rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium",
@@ -149,6 +150,7 @@ export function AdaptationProbe({
       ))}
       <button
         type="button"
+        data-track="probe-dismiss"
         onClick={() => close(null)}
         aria-label="Dismiss this question"
         className={cn(

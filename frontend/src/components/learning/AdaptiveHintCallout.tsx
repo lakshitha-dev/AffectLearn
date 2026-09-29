@@ -203,6 +203,7 @@ export function AdaptiveHintCallout({
       <div role="complementary" aria-label="Learning hint" className="my-6">
         <button
           type="button"
+          data-track="adaptation-restore"
           onClick={handleRestore}
           className="text-sm text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
         >
@@ -243,6 +244,7 @@ export function AdaptiveHintCallout({
   return (
     <div
       ref={containerRef}
+      data-track="adaptation-card"
       role="complementary"
       aria-label="Learning hint"
       tabIndex={0}
@@ -264,6 +266,7 @@ export function AdaptiveHintCallout({
         <div className="pr-6">
           <button
             type="button"
+            data-track="adaptation-expand"
             aria-expanded={expanded}
             onClick={() => setExpanded((prev) => !prev)}
             className="flex items-center gap-1.5 text-sm font-medium text-primary"
@@ -350,6 +353,7 @@ function ResponseButtons({
     <div className="mt-3 flex flex-wrap gap-2 pr-6">
       <button
         type="button"
+        data-track="adaptation-primary"
         onClick={onPrimary}
         className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
       >
@@ -357,6 +361,7 @@ function ResponseButtons({
       </button>
       <button
         type="button"
+        data-track="adaptation-secondary"
         onClick={onSecondary}
         className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-border"
       >
@@ -370,6 +375,7 @@ function DismissButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
+      data-track="adaptation-dismiss"
       onClick={onClick}
       aria-label="Dismiss hint"
       className="absolute right-3 top-3 rounded p-1 text-muted-foreground transition-colors hover:bg-border"
