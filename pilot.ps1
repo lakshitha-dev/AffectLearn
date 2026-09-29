@@ -19,6 +19,8 @@
       .\pilot.ps1 withdraw -Code P007       # erase a participant who asked for deletion
       .\pilot.ps1 export                    # pseudonymised dataset -> .\pilot_export-<time>
       .\pilot.ps1 backup                    # database dump -> .\backup-<time>.sql (encrypt it!)
+      .\pilot.ps1 simulate -Learners 8 -Minutes 15   # SYSTEM SIMULATION with scripted learners
+      .\pilot.ps1 simulate-clean            # erase the simulated accounts
       .\pilot.ps1 stop                      # stop, keep data
       .\pilot.ps1 reset                     # stop and DELETE ALL DATA (after dry runs)
 
@@ -29,7 +31,8 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet("help", "all", "setup", "start", "accounts", "status", "lock", "check",
-                 "session-start", "session-end", "withdraw", "export", "backup", "stop", "reset")]
+                 "session-start", "session-end", "withdraw", "export", "backup", "stop", "reset",
+                 "simulate", "simulate-clean")]
     [string]$Command = "help",
 
     # accounts
@@ -47,7 +50,11 @@ param(
     [string]$ProtocolVersion = "pilot-1.0",
 
     # setup
-    [string]$OpenAIKey = ""
+    [string]$OpenAIKey = "",
+
+    # simulation
+    [int]$Learners = 8,
+    [double]$Minutes = 15
 )
 
 $ErrorActionPreference = "Stop"
@@ -369,6 +376,26 @@ function Do-Backup {
     Warn "This file holds all research data in plain text: encrypt it (e.g. 7-Zip AES-256), store it off the laptop, delete the plain copy."
 }
 
+function Do-Simulate {
+    Assert-Docker
+    Assert-EnvFile
+    Say "SYSTEM SIMULATION: $Learners scripted learners for $Minutes min, in real time."
+    Warn "Simulated data is NOT participant data. The accounts are demo-flagged and never enter the pilot export."
+    Invoke-Compose exec -T api python -m scripts.simulate_learners --learners $Learners --minutes $Minutes --out /app/sim_report
+    $stamp = Get-Date -Format "yyyyMMdd-HHmm"
+    $target = Join-Path $Root "simulation_report-$stamp"
+    Invoke-Compose cp "api:/app/sim_report" $target
+    Invoke-Compose exec -T api rm -rf /app/sim_report
+    Ok "report: $target\SIMULATION_REPORT.md  (label it a system simulation wherever you use it)"
+}
+
+function Do-SimulateClean {
+    Assert-Docker
+    Assert-EnvFile
+    Invoke-Compose exec -T api python -m scripts.simulate_learners --cleanup
+    Ok "simulated accounts erased"
+}
+
 function Do-Stop {
     Assert-Docker
     Say "Stopping the stack (data is kept)"
@@ -410,4 +437,6 @@ switch ($Command) {
     "backup"        { Do-Backup }
     "stop"          { Do-Stop }
     "reset"         { Do-Reset }
+    "simulate"      { Do-Simulate }
+    "simulate-clean" { Do-SimulateClean }
 }

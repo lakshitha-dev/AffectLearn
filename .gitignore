@@ -18,6 +18,8 @@ __pycache__/
 .env.pilot
 pilot_accounts*.csv
 pilot_export*/
+simulation_report*/
+backup-*.sql
 
 # IDE
 .vscode/
