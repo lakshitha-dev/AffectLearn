@@ -12,6 +12,7 @@ background worker (`research_worker`) drains the stream into PostgreSQL. Emit NE
 
 from __future__ import annotations
 
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -84,16 +85,34 @@ def is_synthetic_run() -> bool:
     return _synthetic.get()
 
 
-# Monotonic per-session sequence counters (in-process). One WS connection per learner on
-# one server makes this monotonic per session; multi-worker would use Redis INCR (forward).
+# Monotonic per-session sequence counters.
+#
+# Redis INCR first, in-process counter as the fallback. The in-process counter alone restarted at
+# 1 whenever the API restarted, while the session id it numbers is restored from Redis (12 h TTL,
+# `ws.py`) and survives the restart -- so the same (session_id, sequence_number) pair was issued
+# twice and `detect_gaps` could no longer tell a lost event from a restart. The Redis key outlives
+# the session state it numbers, so the counter never rewinds while the session can still resume.
 _sequences: dict[str, int] = {}
+_SEQ_KEY = "research_seq:{session_id}"
+_SEQ_TTL_S = 7 * 24 * 3600
 
 
 def _next_sequence(session_id: Any) -> int:
+    """In-process fallback counter (also the path taken when Redis is unavailable)."""
     key = str(session_id or "")
     nxt = _sequences.get(key, 0) + 1
     _sequences[key] = nxt
     return nxt
+
+
+async def _next_sequence_durable(session_id: Any) -> int:
+    key = str(session_id or "")
+    if key:
+        value = await redis_service.incr(_SEQ_KEY.format(session_id=key), _SEQ_TTL_S)
+        if value is not None:
+            _sequences[key] = value  # keep the fallback in step, so a Redis blip continues upward
+            return value
+    return _next_sequence(session_id)
 
 
 async def emit(event: dict[str, Any]) -> None:
@@ -131,7 +150,12 @@ async def emit(event: dict[str, Any]) -> None:
         event = {
             **event,
             "payload": payload,
-            "sequence_number": _next_sequence(event.get("session_id")),
+            # IDENTITY OF THIS ROW. The worker hands events from the Redis stream to Postgres
+            # at-least-once, so a restart can re-read a batch it already committed; the unique
+            # `event_id` makes that re-read a no-op instead of a duplicate row. An id already on
+            # the event wins, so a replay keeps the identity of the row it reproduces.
+            "event_id": event.get("event_id") or str(uuid.uuid4()),
+            "sequence_number": await _next_sequence_durable(event.get("session_id")),
             # An explicit value already on the event wins, so a replay or a backfill can state
             # the version the row ORIGINALLY ran under rather than today's.
             "config_version": event.get("config_version", config_version),

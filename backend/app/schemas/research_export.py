@@ -18,6 +18,8 @@ class ResearchEventOut(CamelModel):
     """One persisted research event, full envelope + payload (camelCase on the wire)."""
 
     id: str
+    # Idempotency key assigned at emit (migration 030). Null on rows written before it.
+    event_id: str | None = None
     event_type: str
     learner_id: str | None = None
     session_id: str | None = None
@@ -31,6 +33,7 @@ class ResearchEventOut(CamelModel):
     course_id: str | None = None
     section_id: str | None = None
     block_id: str | None = None
+    config_version: int | None = None
     payload: dict[str, Any] | None = None
 
 
