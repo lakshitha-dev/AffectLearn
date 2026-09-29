@@ -43,7 +43,9 @@ from app.services.connection_manager import (
     WS_CLOSE_AUTH_FAILED,
     connection_manager,
 )
+from app.services.consent import ConsentState
 from app.services.research_logger import content_coords as _coords
+from app.services.research_logger import current_decision_id, decision_scope
 from app.services.research_logger import emit as emit_research_event
 # `behavioral_inference` was referenced by the feature-salvage path below but never
 # imported, so that path raised NameError, was swallowed by its own `except Exception`,
@@ -54,6 +56,7 @@ from app.services import (
     content_context_service,
     fusion_buffer,
     learner_activity,
+    model_report,
     redis_service,
     study_service,
     ui_state as ui_state_service,
@@ -78,6 +81,24 @@ _MAX_RAW_LOG_LEN = 200  # truncate inbound payload in warning logs
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _timing(received_at_ms: int, graph_started: float | None,
+            client_start: Any, client_end: Any) -> dict[str, Any]:
+    """When this cycle happened, on both clocks.
+
+    The event's `timestamp` is taken at emit, which is AFTER the graph -- and on the adaptive path
+    after one or two LLM calls, so it can trail the reading it describes by several seconds.
+    `received_at_ms` is when the window reached the server, `client_window` is the capture interval
+    the browser reported (wall clock), and `graph_ms` is how long the run took. Together they place
+    the reading in time rather than the moment its paperwork was filed.
+    """
+    out: dict[str, Any] = {"received_at_ms": received_at_ms}
+    if graph_started is not None:
+        out["graph_ms"] = int((time.monotonic() - graph_started) * 1000)
+    if isinstance(client_start, (int, float)) and isinstance(client_end, (int, float)):
+        out["client_window"] = [int(client_start), int(client_end)]
+    return out
 
 
 def _system_message(action: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -173,6 +194,57 @@ def _session_state_key(user_id: str) -> str:
     return f"session:learner:{user_id}"
 
 
+#: How stale the connection's copy of the learner's consent may get. The learner can switch the
+#: camera off or withdraw from the profile page while the lesson socket stays open, so consent is
+#: re-read rather than fixed at handshake -- at most once per this many seconds, because capture
+#: messages arrive every 30 s per channel and a query per message would be wasted work.
+_CONSENT_REFRESH_S = 10.0
+
+
+class _ConsentGate:
+    """Server-side enforcement of what this learner consented to (see `services/consent.py`).
+
+    The browser only opens the camera and starts the listeners after consent, but a stale tab, a
+    second device or a hand-built client can send capture anyway, and until this existed the server
+    processed it like any other. A refused message is dropped before it reaches the agents, and is
+    logged -- not written to the research record, which is exactly what the learner did not agree
+    to.
+    """
+
+    def __init__(self, user: Any, db: AsyncSession | None) -> None:
+        self._user = user
+        self._db = db
+        self._state = ConsentState.of(user)
+        self._read_at = time.monotonic()
+        self._refused: set[tuple[str, str]] = set()
+
+    async def _refresh(self) -> None:
+        if self._db is None or time.monotonic() - self._read_at < _CONSENT_REFRESH_S:
+            return
+        self._read_at = time.monotonic()
+        try:
+            await self._db.refresh(self._user, attribute_names=[
+                "consent_given_at", "consent_withdrawn_at", "consent_scopes", "webcam_enabled",
+            ])
+            self._state = ConsentState.of(self._user)
+        except Exception:  # noqa: BLE001 — keep the last known consent rather than fail open
+            logger.warning("consent_refresh_failed", user_id=str(self._user.id), exc_info=True)
+
+    async def refusal(self, msg_type: str) -> str | None:
+        await self._refresh()
+        reason = self._state.refusal(msg_type)
+        if reason and (msg_type, reason) not in self._refused:
+            # Once per (type, reason) per connection: a refused channel sends every 30 s.
+            self._refused.add((msg_type, reason))
+            logger.info("ws_capture_refused", user_id=str(self._user.id),
+                        msg_type=msg_type, reason=reason)
+        return reason
+
+    @property
+    def state(self) -> ConsentState:
+        return self._state
+
+
 async def _load_session_state(user_id: str) -> dict[str, Any] | None:
     """Look up session state for restoration on reconnect.
 
@@ -249,6 +321,7 @@ async def _handle_facial_features(
     WebSocket. An empty cycle (no face detected the whole window) is recorded so
     downstream can fall back to behavioural-only weighting.
     """
+    received_at_ms = _now_ms()
     data = envelope.get("data") or {}
     cycle = int(data.get("cycle_number", 0) or 0)
     frames_captured = int(data.get("frames_captured", 0) or 0)
@@ -264,6 +337,7 @@ async def _handle_facial_features(
 
     result_state = None
     error = None
+    graph_started = time.monotonic()
     try:
         initial_state = make_initial_state(
             learner_id=user_id,
@@ -287,7 +361,11 @@ async def _handle_facial_features(
         error = "inference_error"
         logger.exception("affect_inference_failed", user_id=user_id, cycle=cycle)
 
-    payload: dict[str, Any] = {"frames_captured": frames_captured, "dropped_frames": dropped}
+    payload: dict[str, Any] = {
+        "frames_captured": frames_captured, "dropped_frames": dropped,
+        **_timing(received_at_ms, graph_started,
+                  data.get("capture_started_at"), data.get("capture_ended_at")),
+    }
     # The browser sends a per-reason breakdown, and it was being discarded here -- so the monitor
     # rendered "no face: 0 / low confidence: 0" permanently, a fake zero rather than a measurement.
     # It is the diagnostic that tells you whether the facial channel is even seeing a face.
@@ -325,6 +403,11 @@ async def _handle_facial_features(
             p_confused=result_state.get("p_confused"),
             p_disengaged=result_state.get("p_disengaged"),
             engagement_label=result_state.get("engagement_label"),
+            # The 20 aggregate values the geometry model scored, named. Without them the pilot's
+            # facial readings could be counted but never re-scored, recalibrated or used to test a
+            # successor model on the platform's own learners. Aggregates only; per-frame geometry
+            # is not kept.
+            geometry_features=inference.get("features"),
         )
     elif error:
         payload["error"] = error
@@ -377,6 +460,7 @@ async def _handle_behavioral_window(
     trainable (train/serve parity, ml-training-guide-behavioral §7) while honouring the
     consent's "only aggregate features".
     """
+    received_at_ms = _now_ms()
     data = envelope.get("data") or {}
     cycle = int(data.get("cycle_number", 0) or 0)
     summary = data.get("summary") or {}
@@ -390,6 +474,7 @@ async def _handle_behavioral_window(
 
     result_state = None
     error = None
+    graph_started = time.monotonic()
     try:
         initial_state = make_initial_state(
             learner_id=user_id,
@@ -422,6 +507,8 @@ async def _handle_behavioral_window(
             "scroll_event_count": summary.get("scroll_event_count"),
         },
         "idle": bool(summary.get("idle", False)),
+        **_timing(received_at_ms, graph_started,
+                  data.get("capture_started_at_wall"), data.get("capture_ended_at_wall")),
     }
     if result_state is not None and result_state.get("affect_state"):
         inference = result_state.get("behavioral_inference") or {}
@@ -759,6 +846,8 @@ async def _record_assistance(
         section_id=coords.get("section_id"),
         phase=phase,
         group=group,
+        # The graph run that produced this card (see `research_logger.decision_scope`).
+        decision_id=current_decision_id(),
     )
 
 
@@ -785,6 +874,7 @@ async def _handle_performance_window(
     Runs the same graph, through the same gate, with the same sustain and cooldown discipline.
     Nothing here bypasses the machinery the other channels earned.
     """
+    received_at_ms = _now_ms()
     data = envelope.get("data") or {}
     cycle = int(data.get("cycle_number", 0) or 0)
 
@@ -842,6 +932,7 @@ async def _handle_performance_window(
             "breakdown": result_state.get("performance_breakdown"),
             "counts": result_state.get("performance_counts"),
             "heuristic": True,
+            "received_at_ms": received_at_ms,
         },
     })
 
@@ -1214,6 +1305,7 @@ async def websocket_endpoint(
     await websocket.accept()
     user_id = str(user.id)
     accept_ms = _now_ms()
+    consent_gate = _ConsentGate(user, db)
 
     # The learner's session survives a server restart: the id is kept with the session state, so a
     # redeploy mid-lesson does not reset the ladder and repeat the first hint.
@@ -1274,6 +1366,22 @@ async def websocket_endpoint(
         "group": group,
         "payload": {"superseded_prior": superseded},
     })
+    # What produced this session's readings: model hashes, the effective gate configuration, the
+    # LLM, the browser. One row per connection, so each session carries its own provenance rather
+    # than relying on the deployment being remembered correctly later.
+    await _safe_emit({
+        "event_type": "session_provenance",
+        "learner_id": user_id,
+        "session_id": session_id,
+        "cycle_number": 0,
+        "timestamp": _now_ms(),
+        "phase": phase,
+        "group": group,
+        "payload": {
+            **model_report.provenance(),
+            "user_agent": (websocket.headers.get("user-agent") or "")[:300] or None,
+        },
+    })
 
     close_reason = "normal"
     try:
@@ -1320,28 +1428,38 @@ async def websocket_endpoint(
                 await websocket.send_json(_handle_heartbeat(envelope))
                 continue
 
+            # Capture the learner has not consented to is dropped here, before any handler runs.
+            if await consent_gate.refusal(msg_type):
+                continue
+
             if msg_type == "client_hello":
                 # Reserved for future use; ack via a system.connected refresh is not required.
                 continue
 
             if msg_type == "facial_features":
-                await _handle_facial_features(
-                    envelope, user_id, session_id, db, phase, group
-                )
+                # One graph run: every event it writes shares a decision_id.
+                with decision_scope():
+                    await _handle_facial_features(
+                        envelope, user_id, session_id, db, phase, group
+                    )
                 continue
 
             if msg_type == "behavioral_window":
-                await _handle_behavioral_window(
-                    envelope, user_id, session_id, db, phase, group
-                )
+                # One graph run: every event it writes shares a decision_id.
+                with decision_scope():
+                    await _handle_behavioral_window(
+                        envelope, user_id, session_id, db, phase, group
+                    )
                 continue
 
             if msg_type == "performance_window":
                 # The behaviour-driven channel. Same graph, same gate, same cooldown as the
                 # models — it is the SIGNAL that differs, not the discipline applied to it.
-                await _handle_performance_window(
-                    envelope, user_id, session_id, db, phase, group
-                )
+                # One graph run: every event it writes shares a decision_id.
+                with decision_scope():
+                    await _handle_performance_window(
+                        envelope, user_id, session_id, db, phase, group
+                    )
                 continue
 
             if msg_type == "adaptation_interaction":
@@ -1361,7 +1479,8 @@ async def websocket_endpoint(
             if msg_type == "help_request":
                 # The learner asked for the next step from a card on screen. Same agents, same
                 # ladder; the gate passes it because the learner, not a detector, is the source.
-                await _handle_help_request(envelope, user_id, session_id, db, phase, group)
+                with decision_scope():
+                    await _handle_help_request(envelope, user_id, session_id, db, phase, group)
                 continue
 
             if msg_type == "self_report":

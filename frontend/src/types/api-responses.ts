@@ -17,6 +17,16 @@ export interface UserResponse {
   degreeProgram?: string | null;
   consentGivenAt?: string | null;
   webcamEnabled?: boolean;
+  // Which consent text was agreed to, its optional scopes, and whether it was withdrawn.
+  consentVersion?: string | null;
+  consentScopes?: ConsentScopes | null;
+  consentWithdrawnAt?: string | null;
+}
+
+/** Optional parts of the consent. Webcam consent is `webcamEnabled`. */
+export interface ConsentScopes {
+  behavioural: boolean;
+  rawInteraction: boolean;
 }
 
 export interface MessageResponse {

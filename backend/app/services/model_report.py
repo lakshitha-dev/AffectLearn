@@ -179,3 +179,80 @@ def model_report() -> dict[str, Any]:
         "facial": facial_report(),
         "decision": decision_report(),
     }
+
+
+# ── per-session provenance ────────────────────────────────────────────────────────────
+#
+# Stamped once per learner connection as a `session_provenance` research event, so every
+# session in the dataset carries the exact artifacts and settings that produced its readings.
+# The deployed configuration has drifted from the code defaults more than once (model paths, the
+# global floor, the LLM), and a snapshot taken by hand on one day says nothing about the session
+# recorded the day after. Cheap by construction: file hashes are cached per (path, mtime, size) and
+# no ONNX session is built, so it is safe on the connect path.
+
+_HASH_CACHE: dict[tuple[str, float, int], str] = {}
+
+
+def _sha256(path: str) -> str | None:
+    import hashlib
+
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st.st_mtime, st.st_size)
+    if key not in _HASH_CACHE:
+        digest = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(chunk)
+        _HASH_CACHE[key] = digest.hexdigest()
+    return _HASH_CACHE[key]
+
+
+def provenance() -> dict[str, Any]:
+    """Artifacts, effective gate configuration and LLM settings in force right now. Never raises."""
+    out: dict[str, Any] = {}
+    try:
+        from app.agents.affect_mapping import _model_kind
+        from app.services.behavioral_inference import _DEFAULT_MODEL_PATH
+
+        facial_kind = _model_kind()
+        facial_path = (
+            os.getenv("GEOMETRY_MODEL_PATH", "models/engagenet_lean_gbdt.onnx")
+            if facial_kind == "geometry"
+            else os.getenv("AFFECT_MODEL_PATH", "models/cnn_lstm_confusion_anycut.onnx")
+        )
+        behavioral_path = os.getenv("BEHAVIORAL_MODEL_PATH", _DEFAULT_MODEL_PATH)
+        out["models"] = {
+            "facial": {"kind": facial_kind, "path": facial_path, "sha256": _sha256(facial_path)},
+            "behavioral": {"path": behavioral_path, "sha256": _sha256(behavioral_path)},
+        }
+    except Exception as exc:
+        out["models"] = {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        from dataclasses import asdict
+
+        from app.services.config_service import get_config
+
+        cfg = asdict(get_config())
+        out["gate"] = {k: (list(v) if isinstance(v, tuple) else v) for k, v in cfg.items()}
+    except Exception as exc:
+        out["gate"] = {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        from urllib.parse import urlparse
+
+        from app.core.config import settings
+
+        out["llm"] = {
+            # Host only: the endpoint path is not informative and a URL can carry credentials.
+            "endpoint_host": urlparse(settings.VLLM_ENDPOINT).hostname,
+            "model": settings.VLLM_MODEL,
+            "timeout_s": settings.VLLM_TIMEOUT_SECONDS,
+            "max_tokens": settings.VLLM_MAX_TOKENS,
+        }
+    except Exception as exc:
+        out["llm"] = {"error": f"{type(exc).__name__}: {exc}"}
+    # Set by the deploy or the pilot compose file; absent in development.
+    out["app_commit"] = os.getenv("APP_COMMIT") or None
+    return out
