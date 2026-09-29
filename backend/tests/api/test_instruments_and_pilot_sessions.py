@@ -160,3 +160,22 @@ class TestPilotSessions:
         resp = await client.post("/api/v1/admin/pilot/sessions", headers=auth_headers, json={
             "userId": str(uuid.uuid4()), "participantCode": "P009"})
         assert resp.status_code == 403
+
+
+async def test_a_sitting_can_be_started_from_the_code_alone(client: AsyncClient, db, admin_headers):
+    from datetime import datetime, timezone
+
+    from app.core.security import hash_password
+    from app.models.user import Role, User
+
+    db.add(User(email_address="p011@pilot.invalid", password_hash=hash_password("x" * 12),
+                first_name="P011", last_name="Pilot", role=Role.learner, email_verified=True,
+                consent_given_at=datetime.now(timezone.utc)))
+    await db.commit()
+    resp = await client.post("/api/v1/admin/pilot/sessions", headers=admin_headers,
+                             json={"participantCode": "P011", "protocolVersion": "pilot-1.0"})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["participantCode"] == "P011"
+    missing = await client.post("/api/v1/admin/pilot/sessions", headers=admin_headers,
+                                json={"participantCode": "P404"})
+    assert missing.status_code == 404

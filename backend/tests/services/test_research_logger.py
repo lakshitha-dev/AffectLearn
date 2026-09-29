@@ -220,3 +220,22 @@ async def test_sequence_falls_back_upward_when_redis_drops(monkeypatch):
     state["up"] = False
     await research_logger.emit({"event_type": "a", "session_id": "s1"})
     assert [e["sequence_number"] for e in published] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_payloads_can_be_kept_out_of_the_log_line(monkeypatch):
+    """The pilot runs with RESEARCH_LOG_PAYLOADS=0: container logs keep the envelope only."""
+    logged: list[dict] = []
+
+    async def fake_stream_add(stream, value):
+        return "1-0"
+
+    monkeypatch.setattr(research_logger.redis_service, "stream_add", fake_stream_add)
+    monkeypatch.setattr(research_logger, "_LOG_PAYLOADS", False)
+    monkeypatch.setattr(research_logger.logger, "info",
+                        lambda name, **kw: logged.append({"name": name, **kw}))
+    await research_logger.emit({"event_type": "self_report", "session_id": "s1",
+                                "learner_id": "u1", "payload": {"affect": "bored"}})
+    (line,) = [entry for entry in logged if entry["name"] == "research_event"]
+    assert line["event_type"] == "self_report" and line["event_id"]
+    assert "payload" not in line and "learner_id" not in line

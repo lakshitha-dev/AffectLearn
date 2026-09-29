@@ -30,7 +30,10 @@ router = APIRouter()
 
 
 class PilotSessionStart(CamelModel):
-    user_id: uuid.UUID
+    #: Optional: when omitted, the account created for this code by
+    #: `scripts/create_pilot_participants.py` (`<code>@pilot.invalid`) is used, so the facilitator
+    #: can start a sitting from the code on the linking sheet alone.
+    user_id: uuid.UUID | None = None
     participant_code: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9_-]+$")
     protocol_version: str | None = Field(default=None, max_length=32)
     device: dict[str, Any] | None = None
@@ -92,7 +95,12 @@ async def start_pilot_session(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.admin)),
 ):
-    participant = await db.get(User, body.user_id)
+    if body.user_id is not None:
+        participant = await db.get(User, body.user_id)
+    else:
+        participant = (await db.execute(select(User).where(
+            User.email_address == f"{body.participant_code.lower()}@pilot.invalid"
+        ))).scalar_one_or_none()
     if participant is None or participant.role != Role.learner:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={
             "error": {"code": "NOT_FOUND", "message": "No such learner"}})

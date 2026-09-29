@@ -14,6 +14,10 @@ __pycache__/
 # Environment
 .env
 !.env.example
+# Pilot: secrets, participant credentials and exported data never enter the repository.
+.env.pilot
+pilot_accounts*.csv
+pilot_export*/
 
 # IDE
 .vscode/

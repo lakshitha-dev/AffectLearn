@@ -1,0 +1,88 @@
+# In-person pilot: the whole stack on the researcher's laptop, reachable only from that laptop.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.pilot.yml --env-file .env.pilot up -d --build
+#
+# Layered over docker-compose.yml. What it changes, and why:
+#   * the detection and gate settings are the DEPLOYED configuration (docs/paper/V3/live-config-
+#     2026-09-25.json), with ADAPT_WITHHOLD_RATE=0 for the between-group design and the global
+#     floor at 0.70 as in thesis Table 4.20 -- change them only before the first participant, then
+#     lock them (POST /api/v1/admin/config/lock); every research event carries config_version;
+#   * the LLM is gpt-4o on the OpenAI API, as deployed. The base file points at `http://vllm:8080`,
+#     a service that does not exist, so without this every card would be pre-written fallback text;
+#   * Postgres and Redis are not published at all, and the app ports bind to 127.0.0.1 only;
+#   * production-style runtime: migrations on start, no reload, no /dev routes, no dev credentials
+#     endpoint, no analytics, no debug overlay, and research payloads kept out of container logs;
+#   * APP_COMMIT is stamped on every session_provenance event (pass it from `git rev-parse`).
+#
+# Requires Docker Compose >= 2.24 (for `!reset`). See docs/pilot/PILOT_RUN_CHECKLIST.md.
+
+services:
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.pilot
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        NEXT_PUBLIC_WS_URL: ws://localhost:8000
+        NEXT_PUBLIC_GA_ID: ""
+        NEXT_PUBLIC_AFFECT_DEBUG: ""
+    ports: !reset
+      - "127.0.0.1:3000:3000"
+    volumes: !reset []
+
+  api:
+    command: >-
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+    ports: !reset
+      - "127.0.0.1:8000:8000"
+    volumes: !reset
+      - ./backend/models:/app/models:ro
+    environment:
+      - ENVIRONMENT=production
+      - EXPOSE_DEV_CREDENTIALS=false
+      - CORS_ORIGINS=http://localhost:3000
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env.pilot}
+      - CONFIG_SECRET_KEY=${CONFIG_SECRET_KEY:?set CONFIG_SECRET_KEY in .env.pilot}
+      # Seeds the three pre-registered accounts; only the admin is used in the pilot, and every
+      # password comes from .env.pilot. Course content is seeded separately (checklist).
+      - SEED_ON_STARTUP=true
+      - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD:?set SEED_ADMIN_PASSWORD in .env.pilot}
+      - SEED_LEARNER_PASSWORD=${SEED_LEARNER_PASSWORD:?set SEED_LEARNER_PASSWORD in .env.pilot}
+      - SEED_DESIGNER_PASSWORD=${SEED_DESIGNER_PASSWORD:?set SEED_DESIGNER_PASSWORD in .env.pilot}
+      - APP_COMMIT=${APP_COMMIT:-unknown}
+      # ── LLM: gpt-4o via OpenAI, as deployed ──
+      - VLLM_ENDPOINT=https://api.openai.com
+      - VLLM_MODEL=gpt-4o
+      - VLLM_API_KEY=${OPENAI_API_KEY:?set OPENAI_API_KEY in .env.pilot}
+      - VLLM_TIMEOUT_SECONDS=15
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      # ── detection (deployed) ──
+      - AFFECT_MODEL_KIND=geometry
+      - GEOMETRY_MODEL_PATH=models/engagenet_lean_gbdt.onnx
+      - BEHAVIORAL_MODEL_PATH=models/behavioral_confusion_gbdt.onnx
+      - BEHAVIORAL_STATS_PATH=models/behavioral_feature_stats.json
+      - AFFECT_DETECTION_MODE=auto
+      - FUSION_DRIVES_DECISION=false
+      - DECISIVE_AFFECT_SOURCES=behavioral_model,fusion,facial_geometry
+      # ── gate (deployed; global floor 0.70 per thesis Table 4.20) ──
+      - ADAPT_STATES=bored,confused
+      - ADAPT_MIN_CONFIDENCE=0.70
+      - ADAPT_MIN_CONFIDENCE_GEOMETRY=0.70
+      - ADAPT_MIN_CONFIDENCE_BEHAVIORAL=0.70
+      - ADAPT_MIN_CONSECUTIVE=2
+      - ADAPT_COOLDOWN_CYCLES=3
+      - ADAPT_MAX_PER_SESSION=6
+      # Between-group design: the adaptive arm receives every eligible offer.
+      - ADAPT_WITHHOLD_RATE=0
+      # ── research data handling ──
+      # Deletion follows the protocol's schedule, not an automatic purge (which would also delete
+      # the phase and configuration audit events). Export before deleting anything.
+      - RESEARCH_RETENTION_DAYS=0
+      - RESEARCH_LOG_PAYLOADS=0
+
+  db:
+    ports: !reset []
+
+  redis:
+    ports: !reset []

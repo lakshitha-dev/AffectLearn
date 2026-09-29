@@ -12,6 +12,7 @@ background worker (`research_worker`) drains the stream into PostgreSQL. Emit NE
 
 from __future__ import annotations
 
+import os
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -25,6 +26,15 @@ from app.services.monitor_bus import monitor_bus
 logger = structlog.get_logger(__name__)
 
 _STREAM = "research_events"
+
+#: Whether the structlog backstop line carries the full event. On by default (the long-standing
+#: behaviour, and the only copy when Redis is down). The pilot turns it off: every event then also
+#: lands in the container log, including hint text and the learner's answers, and container logs
+#: are neither erased with the learner nor covered by the retention period. Off, the line keeps the
+#: envelope -- enough to see the pipeline working and to count events -- without the payload.
+_LOG_PAYLOADS = os.getenv("RESEARCH_LOG_PAYLOADS", "1").strip().lower() not in ("0", "false", "no")
+_ENVELOPE_KEYS = ("event_type", "event_id", "decision_id", "session_id", "sequence_number",
+                  "cycle_number", "timestamp", "phase", "group", "config_version")
 
 #: Content-coordinate keys lifted from a resolved section context onto the event envelope
 #: (migration 021). `block_id` is absent by design: an affect cycle happens on a SECTION, and
@@ -198,7 +208,10 @@ async def emit(event: dict[str, Any]) -> None:
         # dashboard sees the event even when Redis is down. Best-effort, never raises.
         monitor_bus.publish({**event, "category": "domain"})
         await redis_service.stream_add(_STREAM, event)  # best-effort durable path
-        logger.info("research_event", **event)
+        if _LOG_PAYLOADS:
+            logger.info("research_event", **event)
+        else:
+            logger.info("research_event", **{k: event.get(k) for k in _ENVELOPE_KEYS})
     except Exception:
         # Same shape as `trace.emit_trace`: the handler must not be able to raise either, or the
         # "never raises (NFR22)" in the docstring above is not true. A console encoding that
