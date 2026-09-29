@@ -14,7 +14,8 @@
 #     endpoint, no analytics, no debug overlay, and research payloads kept out of container logs;
 #   * APP_COMMIT is stamped on every session_provenance event (pass it from `git rev-parse`).
 #
-# Requires Docker Compose >= 2.24 (for `!reset`). See docs/pilot/PILOT_RUN_CHECKLIST.md.
+# Requires Docker Compose >= 2.24.4 (for `!reset` and `!override`). `!reset []` removes a setting; `!override` replaces a
+# list instead of appending to the base file's. See docs/pilot/PILOT_RUN_CHECKLIST.md.
 
 services:
   web:
@@ -26,7 +27,7 @@ services:
         NEXT_PUBLIC_WS_URL: ws://localhost:8000
         NEXT_PUBLIC_GA_ID: ""
         NEXT_PUBLIC_AFFECT_DEBUG: ""
-    ports: !reset
+    ports: !override
       - "127.0.0.1:3000:3000"
     volumes: !reset []
 
@@ -34,9 +35,9 @@ services:
     command: >-
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
-    ports: !reset
+    ports: !override
       - "127.0.0.1:8000:8000"
-    volumes: !reset
+    volumes: !override
       - ./backend/models:/app/models:ro
     environment:
       - ENVIRONMENT=production

@@ -158,6 +158,13 @@ function Invoke-Admin([string]$Method, [string]$Path, $Body = $null) {
     }
 }
 
+function Get-Sittings {
+    # Windows PowerShell 5.1 returns a JSON array as ONE object: counting or filtering it directly
+    # sees a single item. Assigning it first and piping the variable enumerates the elements.
+    $list = Invoke-Admin Get "/admin/pilot/sessions"
+    return @($list | Where-Object { $null -ne $_ })
+}
+
 function Wait-Healthy([int]$TimeoutSeconds = 420) {
     Say "Waiting for the API to report healthy (first start can take a few minutes)..."
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -266,7 +273,7 @@ function Do-Status {
     "    minConsecutive={0} cooldownCycles={1} maxPerSession={2} states={3} fusionDrives={4}" -f $v.minConsecutive, $v.cooldownCycles, $v.maxPerSession, ($v.adaptStates -join ","), $v.fusionDrivesDecision
     if ($v.withholdRate -ne 0) { Warn "withholdRate is not 0 (the between-group design needs 0)" }
     if (-not $cfg.locked) { Warn "configuration is not locked. Before participant 1: .\pilot.ps1 lock" }
-    $sessions = @(Invoke-Admin Get "/admin/pilot/sessions")
+    $sessions = @(Get-Sittings)
     Say "Sittings: $($sessions.Count) recorded, $(@($sessions | Where-Object { -not $_.endedAt }).Count) open"
 }
 
@@ -314,7 +321,7 @@ function Do-SessionStart {
 
 function Do-SessionEnd {
     $c = Require-Code
-    $open = @(Invoke-Admin Get "/admin/pilot/sessions" | Where-Object { $_.participantCode -eq $c -and -not $_.endedAt })
+    $open = @(Get-Sittings | Where-Object { $_.participantCode -eq $c -and -not $_.endedAt })
     if ($open.Count -eq 0) { Fail "No open sitting for $c" }
     $s = Invoke-Admin Post "/admin/pilot/sessions/$($open[-1].id)/end" @{ endReason = $Reason; deviationNotes = $Notes }
     Ok "sitting ended for $c  reason=$($s.endReason)  at=$($s.endedAt)"
