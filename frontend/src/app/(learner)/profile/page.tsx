@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { AccountDataControls } from "@/components/learning/AccountDataControls";
+import { StopTakingPart } from "@/components/learning/StopTakingPart";
 import { ChangePasswordForm } from "@/components/shared/ChangePasswordForm";
 import { ProfileForm } from "@/components/shared/ProfileForm";
 import { useSessionStore } from "@/stores/session-store";
@@ -146,6 +147,7 @@ export default function ProfilePage() {
           Export and erasure. The privacy policy tells participants they can do both "from your
           profile", so this is what makes that sentence true rather than aspirational.
         */}
+        <StopTakingPart />
         <AccountDataControls />
       </div>
     </div>

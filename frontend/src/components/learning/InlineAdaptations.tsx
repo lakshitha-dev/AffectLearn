@@ -128,6 +128,7 @@ function latestMatching(
 export function InlineAdaptations({
   onInteraction,
   onRequest,
+  onLifecycle,
   sectionId,
 }: {
   /**
@@ -150,6 +151,13 @@ export function InlineAdaptations({
   }) => void;
   /** The section on screen; enables "Watch a video explanation" on confusion cards. */
   sectionId?: string;
+  /** Card lifecycle (first visible, re-opened, expanded) for the research record. */
+  onLifecycle?: (payload: {
+    adaptation_id: string;
+    action: AdaptationAction;
+    event: "rendered" | "reopened" | "expanded" | "collapsed";
+    since_received_ms: number;
+  }) => void;
 } = {}) {
   const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
 
@@ -181,6 +189,14 @@ export function InlineAdaptations({
               onRequest({ request, adaptation_id: active.id, action: active.action })
           : undefined
       }
+      onLifecycle={(event) =>
+        onLifecycle?.({
+          adaptation_id: active.id,
+          action: active.action,
+          event,
+          since_received_ms: Date.now() - active.receivedAt,
+        })
+      }
     />
   );
 }
@@ -208,6 +224,7 @@ function CenteredHint({
   onGotIt,
   onRequest,
   sectionId,
+  onLifecycle,
 }: {
   adaptation: Parameters<typeof AdaptiveHintCallout>[0]["adaptation"];
   /** Reports the dismissal upstream; the callout still owns its own local dismissed state. */
@@ -215,6 +232,7 @@ function CenteredHint({
   onGotIt?: () => void;
   onRequest?: (kind: HelpRequestKind) => void;
   sectionId?: string;
+  onLifecycle?: Parameters<typeof AdaptiveHintCallout>[0]["onLifecycle"];
 }) {
   // Deferred by one frame so the browser paints the "before" state first; without this the
   // element mounts already-visible and the transition never runs.
@@ -248,6 +266,7 @@ function CenteredHint({
             onGotIt={onGotIt}
             onRequest={onRequest}
             sectionId={sectionId}
+            onLifecycle={onLifecycle}
             onDismiss={() => {
               // Queue ownership is unchanged: the callout still owns its own dismissed/re-access
               // state and the item stays in the queue. What is new is that the dismissal is

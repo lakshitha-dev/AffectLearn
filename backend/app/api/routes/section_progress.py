@@ -85,6 +85,38 @@ class QuizResponseCreate(CamelModel):
     assistance_id: str | None = None
 
 
+def grade_answer(block_type: str, content: dict | None, selected_answers: list[str]) -> bool | None:
+    """Correctness from the block's own answer key, or None when the block has none.
+
+    The browser used to be the only grader: `is_correct` arrived in the request and was stored as
+    sent. That is the learning outcome the between-group comparison rests on, so it is computed
+    here from the stored key -- the same rules the browser applies (`QuizBlock` / `ExerciseBlock`)
+    -- and the client's value is kept only to detect disagreement.
+    """
+    content = content or {}
+    if block_type == "quiz":
+        options = content.get("options") or []
+        correct = {str(o.get("id")) for o in options if isinstance(o, dict) and o.get("isCorrect")}
+        if not correct:
+            return None
+        return {str(a) for a in selected_answers} == correct
+    if block_type == "exercise":
+        answer = str(content.get("answer") or "").strip().lower()
+        if not answer:
+            return None  # a reflection prompt: there is no right answer to grade against
+        given = str(selected_answers[0] if selected_answers else "").strip().lower()
+        return given == answer
+    return None
+
+
+async def _block_for_grading(db: AsyncSession, content_block_id: uuid.UUID):
+    from app.models.course import ContentBlock
+
+    return (
+        await db.execute(select(ContentBlock).where(ContentBlock.id == content_block_id))
+    ).scalar_one_or_none()
+
+
 class QuizResponseOut(CamelModel):
     id: uuid.UUID
     content_block_id: uuid.UUID
@@ -323,6 +355,50 @@ async def record_quiz_response(
     """
     await _assert_enrolled_for_block(db, current_user.id, body.content_block_id)
 
+    # Graded HERE, from the block's answer key; the client's verdict is kept only for comparison.
+    block = await _block_for_grading(db, body.content_block_id)
+    block_type = getattr(getattr(block, "block_type", None), "value", None)
+    client_is_correct = body.is_correct
+    graded = grade_answer(block_type or "", getattr(block, "content", None), body.selected_answers)
+    if graded is not None:
+        if graded != client_is_correct:
+            logger.warning("quiz_grade_mismatch", block_id=str(body.content_block_id),
+                           client=client_is_correct, server=graded)
+        body = body.model_copy(update={"is_correct": graded})
+    grading = {
+        "graded_by": "server" if graded is not None else "client",
+        "client_is_correct": client_is_correct,
+        "block_type": block_type,
+    }
+
+    if block_type == "exercise":
+        # An exercise answer goes to the attempt history and the research record only. The
+        # per-block summary (`quiz_responses`) is what "quizzes answered / correct" counts, and
+        # exercise answers were never submitted before this, so adding them there would move
+        # every learner's reported quiz accuracy mid-study.
+        attempt = await attempt_service.record_quiz_attempt(
+            db,
+            user_id=current_user.id,
+            content_block_id=body.content_block_id,
+            selected_answers=body.selected_answers,
+            is_correct=body.is_correct,
+            section_id=body.section_id,
+            response_time_ms=body.response_time_ms,
+            assistance_id=body.assistance_id,
+        )
+        await _resolve_assistance_outcome(db, body, attempt)
+        await db.commit()
+        _log_attempt(attempt, current_user.id, body.content_block_id)
+        await _emit_quiz_submitted(db, current_user, body, attempt, grading)
+        if attempt is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"error": {"code": "NOT_SAVED", "message": "Answer was not saved"}},
+            )
+        return QuizResponseOut(
+            id=attempt.id, content_block_id=body.content_block_id, is_correct=body.is_correct
+        )
+
     existing = (
         await db.execute(
             select(QuizBlockResponse).where(
@@ -350,7 +426,7 @@ async def record_quiz_response(
         await db.commit()
         response.status_code = status.HTTP_200_OK
         _log_attempt(attempt, current_user.id, body.content_block_id)
-        await _emit_quiz_submitted(db, current_user, body, attempt)
+        await _emit_quiz_submitted(db, current_user, body, attempt, grading)
         return existing
 
     record = QuizBlockResponse(
@@ -388,11 +464,11 @@ async def record_quiz_response(
         await _resolve_assistance_outcome(db, body, attempt)
         await db.commit()
         response.status_code = status.HTTP_200_OK
-        await _emit_quiz_submitted(db, current_user, body, attempt)
+        await _emit_quiz_submitted(db, current_user, body, attempt, grading)
         return existing
     await db.refresh(record)
     _log_attempt(attempt, current_user.id, body.content_block_id)
-    await _emit_quiz_submitted(db, current_user, body, attempt)
+    await _emit_quiz_submitted(db, current_user, body, attempt, grading)
     return record
 
 
@@ -426,7 +502,7 @@ def _log_attempt(attempt, user_id, content_block_id) -> None:
         )
 
 
-async def _emit_quiz_submitted(db, current_user, body, attempt) -> None:
+async def _emit_quiz_submitted(db, current_user, body, attempt, grading=None) -> None:
     """Best-effort `quiz_submitted` research event. Never blocks or fails the response."""
     # Story 6.5: research-safe fields only — the content-block id + correctness, never the raw
     # selected answers.
@@ -453,6 +529,9 @@ async def _emit_quiz_submitted(db, current_user, body, attempt) -> None:
             # one reached after three tries -- indistinguishable in the record until now.
             "attempt_number": getattr(attempt, "attempt_number", None),
             "assistance_id": getattr(attempt, "assistance_id", None),
+            # Who decided correctness (server from the answer key, or the client where the block
+            # has none), what the client said, and whether this was a quiz or an exercise.
+            **(grading or {}),
         },
     })
 

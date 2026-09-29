@@ -652,6 +652,63 @@ def adaptation_decision(
     return True, GATE_OK
 
 
+# ── the control arm's shadow gate ─────────────────────────────────────────────────────
+#
+# WHERE THE CONTROL ARM WOULD HAVE BEEN HELPED.
+#
+# A between-group comparison of "what happened after the system offered help" needs the same
+# moments in the control arm, where by design nothing is offered. `should_adapt` sends every
+# control cycle straight to `log_only`, so the record said only `not_eligible` and those moments
+# could not be found. This evaluates, for a Phase B CONTROL cycle, the verdict the ADAPTIVE arm's
+# gate would have reached -- same floors, persistence, cooldown, screen holds and cap -- without
+# changing anything the learner experiences: no strategist, no LLM call, no card.
+#
+# The shadow spends its OWN counters (`profile["shadow_gate"]`), exactly as a delivered card would
+# spend the real ones, so its cooldown and cap pace it like the adaptive arm is paced. It assumes a
+# passing cycle's card would have been delivered, which slightly overstates the adaptive arm (whose
+# strategist can choose `no_action` and whose cards can be dropped as stale); analysis should say so.
+_GATE_SPENT_KEYS = (
+    "last_adaptation_ms", "last_adaptation_session",
+    "adaptation_session_id", "eligible_this_session", "ladder_rungs",
+)
+SHADOW_KEY = "shadow_gate"
+
+
+def shadow_decision(
+    state: AgentState, profile: dict, config: "GateConfigLike | None", now_ms: int
+) -> str | None:
+    """For a Phase B control cycle: the adaptive arm's gate verdict, spending shadow counters.
+
+    Returns the gate reason (`ok` means "would have offered help here"), or None for any cycle that
+    is not Phase B control. Mutates `profile[SHADOW_KEY]` only; the real counters are never read or
+    written.
+    """
+    import copy
+
+    if state.get("phase") != "phase_b" or state.get("group") != "control":
+        return None
+    if state.get("affect_source") == AFFECT_SOURCE_LEARNER_REQUEST:
+        return None
+    store = profile.get(SHADOW_KEY) if isinstance(profile.get(SHADOW_KEY), dict) else {}
+    view = {k: v for k, v in profile.items() if k not in _GATE_SPENT_KEYS and k != SHADOW_KEY}
+    view.update(copy.deepcopy({k: store[k] for k in _GATE_SPENT_KEYS if k in store}))
+    session_id = state.get("session_id")
+    _, reason = adaptation_decision(
+        {**state, "group": "adaptive"}, view, None, config,
+        cycles_since_last_offer=cycles_since_offer(view, session_id, now_ms),
+    )
+    if reason in (GATE_OK, GATE_WITHHELD_RANDOM):
+        stamp_offer(view, session_id, now_ms)
+        record_eligible_cycle(view, session_id)
+        if reason == GATE_OK:
+            record_delivered_rung(
+                view, session_id,
+                (state.get("content_context") or {}).get("section_id"), state.get("affect_state"),
+            )
+        profile[SHADOW_KEY] = {k: view[k] for k in _GATE_SPENT_KEYS if k in view}
+    return reason
+
+
 def _screen_hold(state: AgentState, profile: dict) -> str | None:
     """The delivery guard's verdict for this cycle, with the ladder position it needs."""
     import time

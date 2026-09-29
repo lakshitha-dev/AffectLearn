@@ -360,6 +360,7 @@ async def _generate(
                 )
             ),
         ]
+        started = time.monotonic()
         resp = await asyncio.wait_for(
             client.ainvoke(messages), timeout=settings.VLLM_TIMEOUT_SECONDS
         )
@@ -369,16 +370,20 @@ async def _generate(
     except Exception as exc:  # noqa: BLE001 — degrade on any vLLM/client error (NFR22)
         logger.warning("content_adapter_vllm_error", action_type=action_type, error=str(exc))
         return _fallback("vllm_error")
+    llm_ms = int((time.monotonic() - started) * 1000)
 
     text = _strip_markdown(_content_text(getattr(resp, "content", resp)))
     if not text:
         logger.warning("content_adapter_parse_error", action_type=action_type)
-        return _fallback("parse_error")
+        content = _fallback("parse_error")
+        content["metadata"]["llm_ms"] = llm_ms
+        return content
 
     return {
         "text": text,
         "variant": action_type,
-        "metadata": {"action_type": action_type, "generated": True, "fallback": False},
+        "metadata": {"action_type": action_type, "generated": True, "fallback": False,
+                     "llm_ms": llm_ms},
     }
 
 
@@ -477,6 +482,9 @@ async def content_adapter_node(state: AgentState) -> dict[str, Any]:
             "generated": bool(md.get("generated")),
             "fallback": bool(md.get("fallback")),
             "fallback_reason": md.get("fallback_reason"),
+            # Which model wrote the text and how long it took (None when no call was made).
+            "llm_model": settings.VLLM_MODEL if md.get("llm_ms") is not None else None,
+            "llm_ms": md.get("llm_ms"),
             # Whether the learner saw designer-authored content or machine-written prose. Without
             # this the record cannot separate the two, and "did the adaptation help" is a
             # different question for each.

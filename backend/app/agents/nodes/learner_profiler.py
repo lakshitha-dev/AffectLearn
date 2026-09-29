@@ -26,6 +26,7 @@ from app.agents.edges import (
     is_decisive,
     pending_offer,
     record_eligible_cycle,
+    shadow_decision,
     stamp_offer,
 )
 from app.agents import delivery_guard
@@ -133,6 +134,9 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
         stamp_offer(profile, session_id, now_ms)
         record_eligible_cycle(profile, session_id)
     offer = pending_offer(state, gate_reason)
+    # Phase B control only: where the adaptive arm's gate WOULD have offered help. Spends its own
+    # counters in `profile["shadow_gate"]`; nothing is generated or shown (see `edges.shadow_decision`).
+    shadow_gate = shadow_decision(state, profile, config, now_ms)
 
     # Write-through: Redis hot (best-effort) + Postgres cold (best-effort)
     try:
@@ -193,6 +197,11 @@ async def learner_profiler_node(state: AgentState) -> dict[str, Any]:
             "withhold_rate": config.withhold_rate,
             # Which configuration produced this decision, so an analysis can split on a change.
             "config_version": config.version,
+            # CONTROL ARM ONLY: the adaptive arm's verdict for this same cycle ("ok" = help would
+            # have been offered here). Null on every other cycle. `shadow_would_offer` is the
+            # filter for the control-arm comparison moments.
+            "shadow_gate": shadow_gate,
+            "shadow_would_offer": (shadow_gate == "ok") if shadow_gate is not None else None,
         },
     })
 

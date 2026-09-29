@@ -28,6 +28,14 @@ interface SectionViewProps {
   ) => void;
   /** Fired when the learner reveals an exercise answer in this section — a giving-up signal. */
   onShowAnswer?: (sectionId: string, blockId: string) => void;
+  /** Fired when an exercise in this section is answered. */
+  onExerciseAnswered?: (
+    sectionId: string,
+    blockId: string,
+    answer: string,
+    isCorrect: boolean,
+    responseTimeMs: number,
+  ) => void;
 }
 
 export function SectionView({
@@ -42,6 +50,7 @@ export function SectionView({
   isSaving,
   onQuizAnswered,
   onShowAnswer,
+  onExerciseAnswered,
 }: SectionViewProps) {
   const sortedBlocks = useMemo(
     () => section.contentBlocks.slice().sort((a, b) => a.sortOrder - b.sortOrder),
@@ -79,12 +88,18 @@ export function SectionView({
 
       <div className="space-y-6">
         {sortedBlocks.map((block) => (
-          <ContentBlockRenderer
-            key={block.id}
-            block={block}
-            onQuizSubmit={handleQuizSubmit}
-            onShowAnswer={(blockId) => onShowAnswer?.(section.id, blockId)}
-          />
+          // `data-track` names the block for the research record (hover dwell, clicks) without
+          // reading its content -- see `lib/track-target.ts`.
+          <div key={block.id} data-track={`block-${block.id}`}>
+            <ContentBlockRenderer
+              block={block}
+              onQuizSubmit={handleQuizSubmit}
+              onExerciseSubmit={(blockId, answer, isCorrect, responseTimeMs) =>
+                onExerciseAnswered?.(section.id, blockId, answer, isCorrect, responseTimeMs)
+              }
+              onShowAnswer={(blockId) => onShowAnswer?.(section.id, blockId)}
+            />
+          </div>
         ))}
       </div>
 
@@ -97,6 +112,7 @@ export function SectionView({
         ) : (
           <div className="flex flex-col gap-1.5">
             <Button
+              data-track="section-complete"
               onClick={() => onMarkComplete(section.id)}
               disabled={isSaving || !allQuizzesAnswered}
               aria-label={`Mark section ${section.title} as complete`}
@@ -120,12 +136,12 @@ export function SectionView({
 
         <div className="ml-auto flex gap-2">
           {hasPrev && (
-            <Button variant="outline" size="sm" onClick={onPrev}>
+            <Button variant="outline" size="sm" onClick={onPrev} data-track="nav-prev">
               Previous
             </Button>
           )}
           {isCompleted && (
-            <Button size="sm" onClick={onNext}>
+            <Button size="sm" onClick={onNext} data-track="nav-next">
               {isLast ? lastSectionCta : "Next"}
             </Button>
           )}

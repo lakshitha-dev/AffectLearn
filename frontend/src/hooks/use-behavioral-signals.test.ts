@@ -142,7 +142,7 @@ describe("useBehavioralSignals", () => {
     expect(first.data.summary.mouse_click_count).toBe(1);
     expect(first.data.window_duration_ms).toBe(30_000);
     expect(first.data.sampling_rate_hz).toBe(10);
-    expect(first.data.schema_version).toBe(1);
+    expect(first.data.schema_version).toBe(2);
 
     // Next cycle with no input — buffer was cleared, cycle_number incremented.
     act(() => vi.advanceTimersByTime(1000));

@@ -19,7 +19,7 @@ export default function DataAndConsentPage() {
   return (
     <>
       <h1>Data &amp; consent</h1>
-      <p className="!text-slate-500 !text-[14px]">Last updated 6 September 2026</p>
+      <p className="!text-slate-500 !text-[14px]">Last updated 29 September 2026</p>
 
       <p>
         AffectLearn is a research platform as well as a learning one. It exists to test whether a
@@ -39,9 +39,7 @@ export default function DataAndConsentPage() {
       <ul>
         <li>Working through course material as you normally would.</li>
         <li>
-          Occasionally being asked how a section felt. You can skip any of these, and some are
-          deliberately not shown at all so we can tell whether being asked changes how people
-          behave.
+          Every couple of sections, being asked how the material felt. You can skip any of these.
         </li>
         <li>A short questionnaire before you start and a short survey at the end.</li>
         <li>Optionally, having the camera on. Declining changes nothing about your access.</li>
@@ -68,10 +66,10 @@ export default function DataAndConsentPage() {
           before acting, and why it stays quiet when it is unsure.
         </li>
         <li>
-          <strong>The reasoning behind a hint is currently a set of rules.</strong> A fine-tuned
-          language model was trained for this role and evaluated offline, but the production
-          service runs without the hardware to host it, so a deterministic rule map chooses the
-          response instead.
+          <strong>Help is written by a general-purpose language model.</strong> OpenAI&apos;s
+          GPT-4o chooses and writes each help message, within fixed rules about which kind of help
+          may come next; if it does not answer in time, a pre-written message is used instead. A
+          model fine-tuned for this role was trained and evaluated offline but is not used.
         </li>
         <li>
           <strong>Whether any of this improves learning is unmeasured.</strong> The trial that
