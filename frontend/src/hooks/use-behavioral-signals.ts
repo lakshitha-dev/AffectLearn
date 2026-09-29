@@ -27,11 +27,13 @@ import { useEffect, useRef } from "react";
 import { useConnectionStore } from "@/stores/connection-store";
 import { useWebcamStore } from "@/stores/webcam-store";
 import { categoriseKey } from "@/lib/key-category";
+import { isPrivateTarget, trackTarget } from "@/lib/track-target";
 import {
   assertNever,
   type BehavioralDebug,
   type BehavioralEvent,
   type BehavioralWindowSummary,
+  type UiEvent,
 } from "@/types/behavioral-events";
 import type {
   BehavioralWindowMessage,
@@ -43,8 +45,12 @@ const SAMPLE_INTERVAL_MS = 100; // 10 Hz aggregator cadence (AC #2)
 const SAMPLING_RATE_HZ = 10;
 const DEFAULT_CYCLE_MS = 30_000; // 30s window boundary (AC #4)
 const WINDOW_DURATION_MS = 30_000;
-const SCHEMA_VERSION = 1;
+// v2 adds click `target`, `ui_events`, `viewport` and `page_instance_id` -- all additive, and none
+// of them read by the server's feature extraction, so the model's input is unchanged.
+const SCHEMA_VERSION = 2;
 const BUFFER_CAP = 10_000; // hard per-cycle cap (AC #9)
+const UI_EVENT_CAP = 2_000; // per-cycle cap for the non-model `ui_events`
+const MIN_HOVER_MS = 100; // shorter rests are the pointer passing over, not attention
 const WHEEL_SCROLL_DEDUPE_MS = 50; // wheel→scroll de-dupe window (AC #7)
 
 const IS_DEV =
@@ -102,6 +108,13 @@ interface MousePos {
   t_wall: number;
 }
 
+function newPageInstanceId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "pi-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+
 export function useBehavioralSignals(
   options: UseBehavioralSignalsOptions = {},
 ): UseBehavioralSignalsReturn {
@@ -133,6 +146,10 @@ export function useBehavioralSignals(
   // when the component itself remounts — i.e. on lesson navigation (AC #11) — so
   // the backend never sees a duplicate `cycle_number: 1` within one session.
   const cycleNumberRef = useRef(1);
+  // One id per mount. Cycle numbers restart on every lesson page, so (session, cycle) alone cannot
+  // tell two visits to a page apart; this can.
+  const pageInstanceIdRef = useRef<string | null>(null);
+  if (pageInstanceIdRef.current === null) pageInstanceIdRef.current = newPageInstanceId();
 
   // M1: monotonic baseline captured once per component mount, so `t_mono` is truly
   // "milliseconds since hook mount" (AC #3 / behavioral-events.ts), not raw
@@ -157,6 +174,9 @@ export function useBehavioralSignals(
     // --- Per-activation state (closed over by the handlers) ---
     let buffer: BehavioralEvent[] = [];
     let dropped = 0;
+    // Research context that is not a model input (hover dwell, clipboard actions).
+    let uiEvents: UiEvent[] = [];
+    let hovered: { target: string; enterWall: number } | null = null;
     let lastMousePos: MousePos | null = null;
     // H1: only emit a mouse_sample when the cursor actually moved since the last
     // aggregator tick. A motionless window therefore produces mouse_samples: [].
@@ -204,20 +224,65 @@ export function useBehavioralSignals(
     }
 
     function handleMouseDown(e: MouseEvent): void {
+      if (isPrivateTarget(e.target)) return; // PRIVACY: not even the timing of a private field
       const button = (e.button === 0 || e.button === 1 || e.button === 2
         ? e.button
         : 0) as 0 | 1 | 2;
+      const target = trackTarget(e.target);
       pushEvent({
         kind: "mouse_click",
         x: e.clientX,
         y: e.clientY,
         button,
+        ...(target ? { target } : {}),
         t_mono: monoNow(),
         t_wall: Date.now(),
       });
     }
 
+    function pushUiEvent(e: UiEvent): void {
+      if (uiEvents.length < UI_EVENT_CAP) uiEvents.push(e);
+    }
+
+    /** Close the current hover (if any) at `endWall`, recording it when it lasted long enough. */
+    function closeHover(endWall: number): void {
+      if (hovered === null) return;
+      const dwell = endWall - hovered.enterWall;
+      if (dwell >= MIN_HOVER_MS) {
+        pushUiEvent({
+          kind: "hover",
+          target: hovered.target,
+          enter_t_wall: hovered.enterWall,
+          dwell_ms: dwell,
+        });
+      }
+      hovered = null;
+    }
+
+    function handleMouseOver(e: MouseEvent): void {
+      const target = trackTarget(e.target);
+      if (target === hovered?.target) return; // moved within the same tracked element
+      const now = Date.now();
+      closeHover(now);
+      if (target) hovered = { target, enterWall: now };
+    }
+
+    function handleClipboard(e: ClipboardEvent): void {
+      // PRIVACY: the clipboard's content is never read -- only that the action happened, and where.
+      if (isPrivateTarget(e.target)) return;
+      const target = trackTarget(e.target);
+      pushUiEvent({
+        kind: "clipboard",
+        action: e.type as "copy" | "cut" | "paste",
+        ...(target ? { target } : {}),
+        t_wall: Date.now(),
+      });
+    }
+
     function handleKeyDown(e: KeyboardEvent): void {
+      // PRIVACY: a password field or `data-private` element records nothing, not even the key
+      // category or timing.
+      if (isPrivateTarget(e.target)) return;
       // PRIVACY: categoriseKey consumes e.key and discards it. The raw character
       // is never stored on the event object we buffer.
       pushEvent({
@@ -365,6 +430,11 @@ export function useBehavioralSignals(
       const summary = summarise(buffer, hiddenMs);
       const cycleNumber = cycleNumberRef.current;
 
+      // A hover that spans the boundary is split: this window gets its part, the next starts now.
+      const stillHovered = hovered?.target;
+      closeHover(endWall);
+      if (stillHovered) hovered = { target: stillHovered, enterWall: endWall };
+
       const message: BehavioralWindowMessage = {
         type: "behavioral_window",
         ts: endWall,
@@ -381,6 +451,14 @@ export function useBehavioralSignals(
           summary,
           dropped_events: dropped,
           section_id: windowSectionRef.current ?? sectionIdRef.current,
+          page_instance_id: pageInstanceIdRef.current ?? undefined,
+          viewport: {
+            w: window.innerWidth,
+            h: window.innerHeight,
+            doc_h: document.documentElement?.scrollHeight ?? 0,
+            dpr: window.devicePixelRatio || 1,
+          },
+          ui_events: uiEvents,
         },
       };
       // The next window starts now, on whatever section is on screen now.
@@ -420,6 +498,7 @@ export function useBehavioralSignals(
       // it only returns to 1 when the component remounts (AC #11 / H2).
       cycleNumberRef.current += 1;
       buffer = [];
+      uiEvents = [];
       dropped = 0;
       visibilityHiddenAccumMs = 0;
       cycleStartMono = endMono;
@@ -438,6 +517,10 @@ export function useBehavioralSignals(
     // Catches switching to another APPLICATION, which visibilitychange does not fire for.
     window.addEventListener("blur", handleBlur);
     window.addEventListener("focus", handleFocus);
+    document.addEventListener("mouseover", handleMouseOver);
+    document.addEventListener("copy", handleClipboard);
+    document.addEventListener("cut", handleClipboard);
+    document.addEventListener("paste", handleClipboard);
 
     const aggregatorId = setInterval(
       aggregatorTick,
@@ -455,9 +538,15 @@ export function useBehavioralSignals(
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("blur", handleBlur);
       window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("mouseover", handleMouseOver);
+      document.removeEventListener("copy", handleClipboard);
+      document.removeEventListener("cut", handleClipboard);
+      document.removeEventListener("paste", handleClipboard);
       clearInterval(aggregatorId);
       clearInterval(cycleId);
       buffer = [];
+      uiEvents = [];
+      hovered = null;
       lastMousePos = null;
     };
   }, [enabled, mode, sampleMs, cycleMs]);
