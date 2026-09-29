@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, require_role
-from app.models.pilot_session import END_REASONS, PilotSession
+from app.models.pilot_session import END_REASONS, PilotSession, pilot_email
 from app.models.user import Role, User
 from app.schemas.base import CamelModel
 from app.services import config_service, study_service
@@ -31,7 +31,7 @@ router = APIRouter()
 
 class PilotSessionStart(CamelModel):
     #: Optional: when omitted, the account created for this code by
-    #: `scripts/create_pilot_participants.py` (`<code>@pilot.invalid`) is used, so the facilitator
+    #: `scripts/create_pilot_participants.py` (`pilot_email(code)`) is used, so the facilitator
     #: can start a sitting from the code on the linking sheet alone.
     user_id: uuid.UUID | None = None
     participant_code: str = Field(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9_-]+$")
@@ -99,7 +99,7 @@ async def start_pilot_session(
         participant = await db.get(User, body.user_id)
     else:
         participant = (await db.execute(select(User).where(
-            User.email_address == f"{body.participant_code.lower()}@pilot.invalid"
+            User.email_address == pilot_email(body.participant_code)
         ))).scalar_one_or_none()
     if participant is None or participant.role != Role.learner:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={

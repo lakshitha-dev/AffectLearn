@@ -5,7 +5,7 @@
 | Data | Where it is stored | Personal? | Notes |
 |---|---|---|---|
 | Name, signature | Paper consent form, paper linking sheet | Yes | Never entered on the laptop. |
-| Study account | `users`: code-derived e-mail `p007@pilot.invalid`, first name "P007", consent version and scopes, webcam choice | Pseudonymous | No real e-mail or name. |
+| Study account | `users`: code-derived e-mail `p007@pilot.affectlearn.io`, first name "P007", consent version and scopes, webcam choice | Pseudonymous | No real e-mail or name. |
 | Facial geometry inferences | `research_events` (`facial_affect_detected`): label, probabilities, 20 aggregate geometry features, face presence | Pseudonymous | **No images, video or per-frame geometry are stored.** Frames exist only in browser memory. |
 | Behavioural features | `research_events` (`behavioral_affect_detected`): 30×16 feature window | Pseudonymous | |
 | Raw interaction windows | `raw_interaction_windows`: pointer positions, clicks with element ids, scrolls, key **categories** with timing, hover dwell, clipboard actions (no content) | Pseudonymous | **Opt-in only** (`raw_interaction` consent scope). Never key values, typed text, clipboard content or password fields. |

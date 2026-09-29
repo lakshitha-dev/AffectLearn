@@ -39,7 +39,7 @@ async def test_creates_pseudonymous_accounts_and_assigns_arms(db, tmp_path):
 
     assert [r["code"] for r in rows] == [f"P00{i}" for i in range(1, 9)]
     users = (await db.execute(select(User).order_by(User.email_address))).scalars().all()
-    assert all(u.email_address.endswith("@pilot.invalid") for u in users)
+    assert all(u.email_address.endswith("@pilot.affectlearn.io") for u in users)
     assert all(u.first_name.startswith("P0") and u.last_name == "Pilot" for u in users)
     assert all(u.email_verified and not u.is_demo for u in users)
 
@@ -74,3 +74,17 @@ async def test_readiness_account_is_demo_consented_and_adaptive(db, tmp_path):
     assert user.consent_scopes == {"behavioural": True, "raw_interaction": True}
     assert await study_service.get_group(db, user.id) == "adaptive"
     assert await create_readiness_account(db, out) is None      # idempotent
+
+
+@pytest.mark.asyncio
+async def test_created_accounts_can_sign_in(db, client, tmp_path):
+    """The login schema validates e-mail addresses: a reserved domain (`.invalid`) made every pilot
+    account impossible to sign in to, which only the first real start of the stack revealed."""
+    from scripts.create_pilot_participants import create_readiness_account
+
+    rows = await create(db, 1, seed=3, block=4, out=tmp_path / "a.csv")
+    ready = await create_readiness_account(db, tmp_path / "a.csv")
+    for row in (rows[0], ready):
+        resp = await client.post("/api/v1/auth/login", json={
+            "emailAddress": row["email"], "password": row["password"]})
+        assert resp.status_code == 200, (row["email"], resp.text)

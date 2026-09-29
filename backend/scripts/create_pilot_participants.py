@@ -1,9 +1,9 @@
 """Create pseudonymous pilot accounts and assign them to arms by seeded block randomisation.
 
 WHAT IT DOES
-    * creates learner accounts P001..PNNN with an e-mail of `p001@pilot.invalid` and first name
-      "P001" -- no real names or e-mail addresses ever enter the database. `.invalid` is reserved
-      (RFC 2606), so nothing can ever be sent to one;
+    * creates learner accounts P001..PNNN with an e-mail of `p001@pilot.affectlearn.io` and first
+      name "P001" -- no real names or e-mail addresses ever enter the database (see
+      `app.models.pilot_session.PILOT_EMAIL_DOMAIN`);
     * marks them e-mail-verified (no mail is sent) and not demo;
     * assigns each to `control` or `adaptive` from a pre-generated allocation: blocks of `--block`
       (default 4) with equal arms per block, shuffled by a seeded RNG. The same seed always gives the
@@ -36,6 +36,7 @@ from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.db.session import async_session
+from app.models.pilot_session import PILOT_EMAIL_DOMAIN, pilot_email
 from app.models.user import Role, User
 from app.services import study_service
 from app.services.consent import CURRENT_CONSENT_VERSION
@@ -60,7 +61,7 @@ def code_for(n: int, prefix: str = "P") -> str:
     return f"{prefix}{n:03d}"
 
 
-READINESS_EMAIL = "readiness@pilot.invalid"
+READINESS_EMAIL = f"readiness@{PILOT_EMAIL_DOMAIN}"
 
 
 async def create_readiness_account(db, out: Path) -> dict | None:
@@ -110,7 +111,7 @@ async def create(db, count: int, seed: int, block: int, out: Path, start: int = 
     rows: list[dict] = []
     for offset, arm in enumerate(arms):
         code = code_for(start + offset, prefix)
-        email = f"{code.lower()}@pilot.invalid"
+        email = pilot_email(code)
         existing = (await db.execute(
             select(User).where(User.email_address == email)
         )).scalar_one_or_none()

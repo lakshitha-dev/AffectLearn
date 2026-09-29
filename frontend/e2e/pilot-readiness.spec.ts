@@ -14,7 +14,7 @@
  *      alongside a `session_provenance` event and a raw interaction window.
  *
  *   PILOT_READINESS=1 \
- *   PILOT_READINESS_EMAIL=readiness@pilot.invalid PILOT_READINESS_PASSWORD=... \
+ *   PILOT_READINESS_EMAIL=readiness@pilot.affectlearn.io PILOT_READINESS_PASSWORD=... \
  *   PILOT_ADMIN_PASSWORD=... \
  *   npx playwright test e2e/pilot-readiness.spec.ts
  */
@@ -33,7 +33,7 @@ import {
 
 const ENABLED = process.env.PILOT_READINESS === "1";
 const READY = {
-  email: process.env.PILOT_READINESS_EMAIL ?? "readiness@pilot.invalid",
+  email: process.env.PILOT_READINESS_EMAIL ?? "readiness@pilot.affectlearn.io",
   password: process.env.PILOT_READINESS_PASSWORD ?? "",
 };
 const ADMIN = {
@@ -74,8 +74,14 @@ test("the pipeline runs the frozen pilot configuration", async ({ request }) => 
   const config = await authed(request, admin.accessToken, "/admin/config");
   expect(config.values.withholdRate).toBe(0);
   expect(config.values.minConfidence).toBe(0.7);
-  // Locking is the last step before the first participant: warn, do not fail, before then.
-  expect.soft(config.locked, "config is not locked yet (POST /admin/config/lock)").toBe(true);
+  // Locking is the last step before the first participant, so an unlocked config is reported,
+  // not failed (`expect.soft` would still fail the test). `pilot.ps1 status` flags it too.
+  if (!config.locked) {
+    test.info().annotations.push({
+      type: "warning", description: "config is not locked yet: run .\\pilot.ps1 lock before participant 1",
+    });
+    console.warn("WARNING: config is not locked yet -- run .\\pilot.ps1 lock before participant 1");
+  }
 });
 
 test("a lesson's windows reach the research record with their identities", async ({

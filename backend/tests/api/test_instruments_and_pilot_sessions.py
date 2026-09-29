@@ -168,7 +168,7 @@ async def test_a_sitting_can_be_started_from_the_code_alone(client: AsyncClient,
     from app.core.security import hash_password
     from app.models.user import Role, User
 
-    db.add(User(email_address="p011@pilot.invalid", password_hash=hash_password("x" * 12),
+    db.add(User(email_address="p011@pilot.affectlearn.io", password_hash=hash_password("x" * 12),
                 first_name="P011", last_name="Pilot", role=Role.learner, email_verified=True,
                 consent_given_at=datetime.now(timezone.utc)))
     await db.commit()

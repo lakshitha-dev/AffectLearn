@@ -329,7 +329,7 @@ function Do-SessionEnd {
 
 function Do-Withdraw {
     $c = Require-Code
-    $email = "$($c.ToLower())@pilot.invalid"
+    $email = "$($c.ToLower())@pilot.affectlearn.io"
     $page = Invoke-Admin Get "/admin/users?search=$([uri]::EscapeDataString($email))"
     $user = @($page.items | Where-Object { $_.emailAddress -eq $email }) | Select-Object -First 1
     if (-not $user) { Fail "No account for $c" }
@@ -391,7 +391,7 @@ function Do-All {
     Do-Accounts
     Do-Status
     Do-Check
-    Say "Ready for a dry run. Open a Chrome Guest window at http://localhost:3000 and sign in as p001@pilot.invalid (password in pilot_accounts.csv)."
+    Say "Ready for a dry run. Open a Chrome Guest window at http://localhost:3000 and sign in as p001@pilot.affectlearn.io (password in pilot_accounts.csv)."
 }
 
 switch ($Command) {

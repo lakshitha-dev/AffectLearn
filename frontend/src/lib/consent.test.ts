@@ -4,7 +4,7 @@ import { captureConsent } from "./consent";
 import type { UserResponse } from "@/types/api-responses";
 
 const base: UserResponse = {
-  id: "u", emailAddress: "p001@pilot.invalid", firstName: "P001", lastName: "-",
+  id: "u", emailAddress: "p001@pilot.affectlearn.io", firstName: "P001", lastName: "-",
   role: "learner", consentGivenAt: "2026-10-01T09:00:00Z",
 };
 

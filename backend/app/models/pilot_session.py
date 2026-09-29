@@ -16,6 +16,18 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from app.models.base import BaseModel
 
+#: Domain of the pseudonymous pilot accounts (`p007@pilot.affectlearn.io`). A subdomain of the
+#: platform's own seeded-account domain, so no participant's real address is ever stored and no
+#: third party's domain is used. Not `.invalid`: the login schema's e-mail validator rejects reserved
+#: names, which made every pilot account impossible to sign in to.
+PILOT_EMAIL_DOMAIN = "pilot.affectlearn.io"
+
+
+def pilot_email(code: str) -> str:
+    """The login e-mail of the pilot account for a participant code (P007 -> p007@...)."""
+    return f"{code.lower()}@{PILOT_EMAIL_DOMAIN}"
+
+
 #: Why a sitting ended. Anything else is refused, so the counts in the participant-flow diagram
 #: are counts of known categories.
 END_REASONS = ("completed", "withdrawn", "technical", "other")

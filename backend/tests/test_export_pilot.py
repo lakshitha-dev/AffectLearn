@@ -40,9 +40,9 @@ def _rows(path):
 
 @pytest.mark.asyncio
 async def test_export_is_pseudonymised_and_joined(db, tmp_path):
-    pilot = await _learner(db, "p001@pilot.invalid")
+    pilot = await _learner(db, "p001@pilot.affectlearn.io")
     outsider = await _learner(db, "someone@example.com")        # no sitting: not in the pilot
-    demo = await _learner(db, "p999@pilot.invalid", demo=True)
+    demo = await _learner(db, "p999@pilot.affectlearn.io", demo=True)
     db.add(PilotSession(user_id=pilot.id, participant_code="P001", group="adaptive",
                         phase="phase_b", started_at=datetime.now(timezone.utc)))
     db.add(PilotSession(user_id=demo.id, participant_code="P999", group="control",
@@ -74,7 +74,7 @@ async def test_export_is_pseudonymised_and_joined(db, tmp_path):
 
     assert counts["participants"] == 1                     # demo and outsider excluded
     everything = "".join(p.read_text(encoding="utf-8") for p in tmp_path.iterdir())
-    for secret in (str(pilot.id), "pilot.invalid", "example.com", str(outsider.id)):
+    for secret in (str(pilot.id), "pilot.affectlearn.io", "example.com", str(outsider.id)):
         assert secret not in everything, secret
 
     timeline = _rows(tmp_path / "timeline.csv")
