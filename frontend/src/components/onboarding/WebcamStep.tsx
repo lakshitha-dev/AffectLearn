@@ -21,8 +21,8 @@ const PRIVACY_ITEMS = [
   "Your camera images are analysed on your device",
   "No photos or video are ever sent or stored",
   "Only measurements are sent — eye, mouth and head position",
-  "You can turn this off anytime in settings",
-  "All data deleted within 90 days after study",
+  "You can turn this off anytime from your profile",
+  "Retention is set out in the information sheet",
 ];
 
 export function WebcamStep({ onDecision, currentStep, totalSteps }: WebcamStepProps) {

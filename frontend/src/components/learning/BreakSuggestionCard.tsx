@@ -73,6 +73,14 @@ interface BreakSuggestionCardProps {
   onDismiss: () => void;
   /** Break duration in seconds; defaults to 300 (5 minutes). */
   breakSeconds?: number;
+  /**
+   * How the break went, for the research record: taken, declined, returned from early (with the
+   * seconds away), or completed. Before this the card reported nothing at all.
+   */
+  onLifecycle?: (
+    event: "break_taken" | "break_declined" | "break_returned_early" | "break_completed",
+    detail?: { seconds_away?: number },
+  ) => void;
 }
 
 function formatTime(totalSeconds: number): string {
@@ -86,6 +94,7 @@ export function BreakSuggestionCard({
   adaptation,
   onDismiss,
   breakSeconds = DEFAULT_BREAK_SECONDS,
+  onLifecycle,
 }: BreakSuggestionCardProps) {
   const reducedMotion = useReducedMotion();
 
@@ -130,6 +139,7 @@ export function BreakSuggestionCard({
           if (intervalRef.current) clearInterval(intervalRef.current);
           intervalRef.current = null;
           setPhase("welcome-back");
+          onLifecycle?.("break_completed", { seconds_away: breakSeconds });
           return 0;
         }
         return prev - 1;
@@ -170,6 +180,7 @@ export function BreakSuggestionCard({
   };
 
   const handleEarlyReturn = () => {
+    onLifecycle?.("break_returned_early", { seconds_away: breakSeconds - remaining });
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -259,10 +270,24 @@ export function BreakSuggestionCard({
               You&apos;ve been working hard. A short break can help things click.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <Button ref={primaryButtonRef} onClick={() => setPhase("timer")}>
+              <Button
+                ref={primaryButtonRef}
+                data-track="break-take"
+                onClick={() => {
+                  onLifecycle?.("break_taken");
+                  setPhase("timer");
+                }}
+              >
                 Take a break
               </Button>
-              <Button variant="outline" onClick={handleDismiss}>
+              <Button
+                variant="outline"
+                data-track="break-decline"
+                onClick={() => {
+                  onLifecycle?.("break_declined");
+                  handleDismiss();
+                }}
+              >
                 I&apos;m good, continue
               </Button>
             </div>
@@ -318,7 +343,12 @@ export function BreakSuggestionCard({
               Take your time. We&apos;ll pick up right where you left off.
             </p>
             <div className="mt-6">
-              <Button ref={primaryButtonRef} variant="outline" onClick={handleEarlyReturn}>
+              <Button
+                ref={primaryButtonRef}
+                variant="outline"
+                data-track="break-return-early"
+                onClick={handleEarlyReturn}
+              >
                 I&apos;m ready, continue
               </Button>
             </div>

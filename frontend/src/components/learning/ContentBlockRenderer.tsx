@@ -10,6 +10,11 @@ import type { ContentBlock } from "@/types/course";
 interface ContentBlockRendererProps {
   block: ContentBlock;
   onQuizSubmit?: (blockId: string, selectedIds: string[], isCorrect: boolean, responseTimeMs: number) => void;
+  /**
+   * An exercise answer. Its submit handler was never connected, so exercise answers and their
+   * correctness were never recorded -- only "Show answer" was.
+   */
+  onExerciseSubmit?: (blockId: string, answer: string, isCorrect: boolean, responseTimeMs: number) => void;
   /** Learner revealed an exercise answer — a confusion signal, logged for future training. */
   onShowAnswer?: (blockId: string) => void;
   previewMode?: boolean;
@@ -20,7 +25,13 @@ type CodeContent = { code: string; language?: string };
 type ImageContent = { url: string; alt?: string; caption?: string };
 type CalloutContent = { text: string; variant?: "info" | "warning" | "tip" };
 
-export function ContentBlockRenderer({ block, onQuizSubmit, onShowAnswer, previewMode }: ContentBlockRendererProps) {
+export function ContentBlockRenderer({
+  block,
+  onQuizSubmit,
+  onExerciseSubmit,
+  onShowAnswer,
+  previewMode,
+}: ContentBlockRendererProps) {
   try {
     switch (block.blockType) {
       case "text": {
@@ -95,6 +106,7 @@ export function ContentBlockRenderer({ block, onQuizSubmit, onShowAnswer, previe
           <ExerciseBlock
             blockId={block.id}
             content={block.content as unknown as Parameters<typeof ExerciseBlock>[0]["content"]}
+            onSubmit={onExerciseSubmit}
             onShowAnswer={onShowAnswer}
             previewMode={previewMode}
           />

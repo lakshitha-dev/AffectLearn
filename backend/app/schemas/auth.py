@@ -64,6 +64,10 @@ class UserResponse(CamelModel):
     degree_program: str | None = None
     consent_given_at: str | None = None
     webcam_enabled: bool = False
+    # Migration 032: which consent text, which optional scopes, and whether it was withdrawn.
+    consent_version: str | None = None
+    consent_scopes: "ConsentScopes | None" = None
+    consent_withdrawn_at: str | None = None
 
 
 class ProfileUpdateRequest(CamelModel):
@@ -84,8 +88,19 @@ class ProfileUpdateRequest(CamelModel):
     degree_program: str | None = Field(default=None, max_length=200)
 
 
+class ConsentScopes(CamelModel):
+    """Optional parts of the consent (see `services/consent.py`). Webcam is `webcamEnabled`."""
+
+    behavioural: bool = True
+    raw_interaction: bool = False
+
+
 class ConsentRequest(CamelModel):
     consent_given: Literal[True]
+    # Which consent text the learner saw. Omitted by older clients; the server then records its
+    # current version, since that is the text the onboarding wizard shows.
+    consent_version: str | None = Field(default=None, max_length=32)
+    scopes: ConsentScopes | None = None
 
 
 class WebcamModeRequest(CamelModel):
@@ -186,3 +201,6 @@ class ErasureReceipt(CamelModel):
     """
 
     deleted: dict[str, int]
+
+
+UserResponse.model_rebuild()

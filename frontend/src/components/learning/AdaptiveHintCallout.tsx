@@ -87,6 +87,11 @@ interface AdaptiveHintCalloutProps {
    * explanation" (the Video Resource Agent); when absent, no video button is shown.
    */
   sectionId?: string;
+  /**
+   * Card lifecycle for the research record: first visible on screen, re-opened after a dismiss,
+   * breakdown expanded / collapsed. Never the learner's verdict -- that is `onDismiss` / `onGotIt`.
+   */
+  onLifecycle?: (event: "rendered" | "reopened" | "expanded" | "collapsed") => void;
 }
 
 /** Cards about NOT understanding something, where a video explanation is a sensible next step. */
@@ -131,6 +136,7 @@ export function AdaptiveHintCallout({
   onRequest,
   onGotIt,
   sectionId,
+  onLifecycle,
 }: AdaptiveHintCalloutProps) {
   const reducedMotion = useReducedMotion();
   const variant = VARIANT_BY_ACTION[adaptation.action] ?? "hint";
@@ -162,6 +168,37 @@ export function AdaptiveHintCallout({
     };
   }, []);
 
+  // WHEN THE CARD WAS ACTUALLY SEEN. Delivery is a server fact; a card delivered below the fold is
+  // not on screen until the learner scrolls to it, and the post-intervention window should start
+  // when it could have been read. Reported once per card, when at least half of it is visible.
+  const lifecycleRef = useRef(onLifecycle);
+  lifecycleRef.current = onLifecycle;
+  const renderedRef = useRef(false);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (renderedRef.current || !el) return;
+    const report = () => {
+      if (renderedRef.current) return;
+      renderedRef.current = true;
+      lifecycleRef.current?.("rendered");
+    };
+    if (typeof IntersectionObserver === "undefined") {
+      report(); // no observer (tests, very old browsers): mounted is the best available signal
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting && e.intersectionRatio >= 0.5)) {
+          report();
+          observer.disconnect();
+        }
+      },
+      { threshold: [0.5] },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [dismissed]);
+
   const handleDismiss = () => {
     // Guard: if already leaving or dismissed, ignore (prevents double-dismiss race
     // where a rapid second click would set a second timer and call onDismiss twice).
@@ -180,6 +217,7 @@ export function AdaptiveHintCallout({
   };
 
   const handleRestore = () => {
+    onLifecycle?.("reopened");
     setDismissed(false);
     setLeaving(false);
     // Re-trigger the enter animation when the callout is restored.
@@ -203,6 +241,7 @@ export function AdaptiveHintCallout({
       <div role="complementary" aria-label="Learning hint" className="my-6">
         <button
           type="button"
+          data-track="adaptation-restore"
           onClick={handleRestore}
           className="text-sm text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
         >
@@ -243,6 +282,7 @@ export function AdaptiveHintCallout({
   return (
     <div
       ref={containerRef}
+      data-track="adaptation-card"
       role="complementary"
       aria-label="Learning hint"
       tabIndex={0}
@@ -264,8 +304,12 @@ export function AdaptiveHintCallout({
         <div className="pr-6">
           <button
             type="button"
+            data-track="adaptation-expand"
             aria-expanded={expanded}
-            onClick={() => setExpanded((prev) => !prev)}
+            onClick={() => {
+              onLifecycle?.(expanded ? "collapsed" : "expanded");
+              setExpanded((prev) => !prev);
+            }}
             className="flex items-center gap-1.5 text-sm font-medium text-primary"
           >
             <ChevronDown
@@ -350,6 +394,7 @@ function ResponseButtons({
     <div className="mt-3 flex flex-wrap gap-2 pr-6">
       <button
         type="button"
+        data-track="adaptation-primary"
         onClick={onPrimary}
         className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
       >
@@ -357,6 +402,7 @@ function ResponseButtons({
       </button>
       <button
         type="button"
+        data-track="adaptation-secondary"
         onClick={onSecondary}
         className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-border"
       >
@@ -370,6 +416,7 @@ function DismissButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
+      data-track="adaptation-dismiss"
       onClick={onClick}
       aria-label="Dismiss hint"
       className="absolute right-3 top-3 rounded p-1 text-muted-foreground transition-colors hover:bg-border"

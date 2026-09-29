@@ -10,6 +10,7 @@ import { WebcamStep } from "@/components/onboarding/WebcamStep";
 import { CalibrationStep } from "@/components/onboarding/CalibrationStep";
 import { QuestionnaireStep, type QuestionnaireValues } from "@/components/onboarding/QuestionnaireStep";
 import { useGiveConsent, useSetWebcamMode, useSubmitQuestionnaire } from "@/hooks/use-onboarding";
+import type { ConsentScopes } from "@/types/api-responses";
 import { useSessionStore } from "@/stores/session-store";
 import { useWebcamStore } from "@/stores/webcam-store";
 import { AuthGuard } from "@/components/shared/auth-guard";
@@ -39,9 +40,9 @@ export default function OnboardingPage() {
     }
   }, [router]);
 
-  async function handleConsentAgree() {
+  async function handleConsentAgree(scopes: ConsentScopes) {
     try {
-      await consentMutation.mutateAsync(undefined);
+      await consentMutation.mutateAsync(scopes);
       setStep("webcam");
     } catch {
       toast.error("Could not save consent. Please try again.");
