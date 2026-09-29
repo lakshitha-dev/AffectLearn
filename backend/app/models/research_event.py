@@ -35,6 +35,11 @@ from app.models.base import BaseModel
 class ResearchEvent(BaseModel):
     __tablename__ = "research_events"
 
+    # IDEMPOTENCY KEY (migration 030). A UUID assigned once, at emit, so the at-least-once
+    # stream hand-off cannot write the same event twice: a worker restart that re-reads a batch it
+    # already committed is skipped on this column rather than duplicated. Nullable because rows
+    # written before the migration have none; a unique index still admits any number of NULLs.
+    event_id = Column(String(36), nullable=True, unique=True, index=True)
     event_type = Column(String(64), nullable=False, index=True)
     learner_id = Column(String(64), nullable=True, index=True)
     session_id = Column(String(64), nullable=True, index=True)
