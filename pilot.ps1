@@ -97,11 +97,21 @@ function Assert-Docker {
     # instead of producing the message below.
     $ErrorActionPreference = "Continue"
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        # A terminal opened before Docker Desktop was installed still has the old PATH.
+        foreach ($dir in "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin",
+                         "$env:ProgramFiles\Docker\Docker\resources\bin") {
+            if (Test-Path (Join-Path $dir "docker.exe")) { $env:Path = "$dir;$env:Path"; break }
+        }
+    }
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
         Fail ("Docker is not installed. Install Docker Desktop (e.g. 'winget install Docker.DockerDesktop'), " +
               "start it, then run this again.")
     }
     & docker info *> $null
-    if ($LASTEXITCODE -ne 0) { Fail "Docker is installed but not running. Start Docker Desktop and wait for 'Engine running'." }
+    if ($LASTEXITCODE -ne 0) {
+        Fail ("Docker is installed but its engine is not ready. Open Docker Desktop, wait for 'Engine running' " +
+              "(the first start can take a few minutes and may ask to enable WSL 2), then run this again.")
+    }
     $version = (& docker compose version --short) 2>$null
     if (-not $version) { Fail "'docker compose' (v2) is not available. Update Docker Desktop." }
     $parts = $version.TrimStart("v").Split(".")
@@ -185,8 +195,10 @@ function Do-Setup {
     }
     if ($text -match "(?m)^OPENAI_API_KEY=[ \t]*$") {
         $key = $OpenAIKey
-        if (-not $key -and [Environment]::UserInteractive) {
-            $key = Read-Host "OpenAI API key for gpt-4o (Enter to skip; help will use fallback text)"
+        if (-not $key) {
+            # Read-Host throws in a non-interactive shell; then the key is simply left for later.
+            try { $key = Read-Host "OpenAI API key for gpt-4o (Enter to skip; help will use fallback text)" }
+            catch { $key = "" }
         }
         if ($key) { $text = $text -replace "(?m)^OPENAI_API_KEY=[ \t]*$", "OPENAI_API_KEY=$key"; Ok "OPENAI_API_KEY set" }
         else { Warn "OPENAI_API_KEY left empty" }
