@@ -41,6 +41,8 @@ from app.models.assessment import AssessmentAttempt
 from app.models.assistance_event import AssistanceEvent
 from app.models.enrollment import Enrollment
 from app.models.questionnaire_response import QuestionnaireResponse
+from app.models.instrument_response import InstrumentResponse
+from app.models.pilot_session import PilotSession
 from app.models.quiz_attempt import QuizAttempt
 from app.models.raw_interaction_window import RawInteractionWindow
 from app.models.research_event import ResearchEvent
@@ -86,6 +88,8 @@ async def erase_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, int]:
         ("enrollments", Enrollment, Enrollment.user_id),
         ("questionnaire_responses", QuestionnaireResponse, QuestionnaireResponse.user_id),
         ("survey_responses", SurveyResponse, SurveyResponse.user_id),
+        ("instrument_responses", InstrumentResponse, InstrumentResponse.user_id),
+        ("pilot_sessions", PilotSession, PilotSession.user_id),
     ):
         counts[label] = int(
             (await db.execute(select(func.count(model.id)).where(column == user_id))).scalar_one()
@@ -185,6 +189,8 @@ async def export_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]
         "raw_interaction_windows": await rows(
             RawInteractionWindow, RawInteractionWindow.learner_id
         ),
+        "instrument_responses": await rows(InstrumentResponse, InstrumentResponse.user_id),
+        "pilot_sessions": await rows(PilotSession, PilotSession.user_id),
         "research_events": [_as_dict(row) for row in research],
     }
 

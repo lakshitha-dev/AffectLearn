@@ -30,6 +30,8 @@ import { useSectionVisits, type SectionEntrySource } from "@/hooks/use-section-v
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { useMyInstruments } from "@/hooks/use-instruments";
+import { LessonFeedbackDialog } from "@/components/study/LessonFeedbackDialog";
 import {
   useSelfReportTrigger,
   SECTIONS_PER_PROMPT,
@@ -424,6 +426,23 @@ export default function LessonPage({ params }: PageProps) {
     }
   }, [course, courseId, moduleId, currentModuleIdx, currentLessonIdx, router]);
 
+  // LEAVING THE LESSON: a participant is asked the short lesson-feedback questionnaire first,
+  // once per lesson, in both arms. Anyone not taking part -- or whose earlier answers cannot be
+  // loaded -- leaves exactly as before.
+  const lessonFeedback = useMyInstruments("lesson_feedback", consent.participating);
+  const [lessonFeedbackOpen, setLessonFeedbackOpen] = useState(false);
+  const lessonFeedbackDue =
+    consent.participating &&
+    lessonFeedback.isSuccess &&
+    !lessonFeedback.data.some((r) => r.context?.lessonId === lessonId);
+  const requestLessonExit = useCallback(() => {
+    if (lessonFeedbackDue) {
+      setLessonFeedbackOpen(true);
+      return;
+    }
+    handleLastSectionCta();
+  }, [lessonFeedbackDue, handleLastSectionCta]);
+
   // Story 5.6: move the learner on when they accept a `skip_ahead` adaptation.
   //
   // This now does EXACTLY what the Next button does, which it previously did not, in two ways
@@ -447,12 +466,12 @@ export default function LessonPage({ params }: PageProps) {
     const idx = Math.min(currentIndex, sections.length - 1);
     if (idx >= sections.length - 1) {
       // Out of sections: cross the lesson boundary exactly as Next does.
-      handleLastSectionCta();
+      requestLessonExit();
       return;
     }
     handleSectionNav(idx + 1, "skip");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex, sections.length, handleLastSectionCta]);
+  }, [currentIndex, sections.length, requestLessonExit]);
 
   if (lessonQuery.isLoading || enrollmentQuery.isLoading) return <LessonSkeleton />;
 
@@ -541,7 +560,7 @@ export default function LessonPage({ params }: PageProps) {
               hasPrev={idx > 0}
               lastSectionCta={hasNextLesson ? "Next lesson" : "Back to course"}
               onMarkComplete={handleMarkComplete}
-              onNext={() => { if (idx === sections.length - 1) handleLastSectionCta(); else handleSectionNav(idx + 1); }}
+              onNext={() => { if (idx === sections.length - 1) requestLessonExit(); else handleSectionNav(idx + 1); }}
               onPrev={() => handleSectionNav(idx - 1)}
               isSaving={markComplete.isPending}
               onShowAnswer={(sectionId) => sectionSignals.recordShowAnswer(sectionId)}
@@ -597,6 +616,15 @@ export default function LessonPage({ params }: PageProps) {
           left in the queue for 5.4/5.6/5.7. Its JSX position is not layout-sensitive
           since it is a fixed overlay. */}
       <BreakSuggestion onLifecycle={logBreak} />
+      {lessonFeedbackOpen && (
+        <LessonFeedbackDialog
+          context={{ courseId, moduleId, lessonId }}
+          onDone={() => {
+            setLessonFeedbackOpen(false);
+            handleLastSectionCta();
+          }}
+        />
+      )}
       {/* Skip-ahead suggestion (Story 5.6) — renders the latest skip_ahead adaptation as an
           accept/dismiss inline suggestion. Accept advances to the next section via the same
           scroll-based nav as the prev/next buttons; accept/dismiss are logged upstream (FR22).

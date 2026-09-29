@@ -10,7 +10,9 @@ from app.models.enrollment import Enrollment
 # alembic autogenerate, so no migration was ever produced for it. Everything that reads the model
 # registry — autogenerate, `create_all` in tests, the migration-coverage guard — needs every model
 # imported here. Do not prune this list to "what is used".
+from app.models.instrument_response import InstrumentResponse
 from app.models.learner_profile import LearnerProfile
+from app.models.pilot_session import PilotSession
 from app.models.research_event import ResearchEvent
 from app.models.section_progress import SectionProgress
 from app.models.assessment import (
@@ -37,6 +39,8 @@ __all__ = [
     "AssistanceEvent",
     "Enrollment",
     "LearnerProfile",
+    "InstrumentResponse",
+    "PilotSession",
     "ResearchEvent",
     "SectionProgress",
     "Assessment", "AssessmentQuestion", "AssessmentOption",
