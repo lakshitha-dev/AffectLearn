@@ -43,12 +43,31 @@ def is_healthy(max_age_s: float = 15.0) -> bool:
     return age is not None and age <= max_age_s
 
 
+async def _drop_erased(events: list[dict]) -> list[dict]:
+    """Events of learners erased since they were queued never reach Postgres.
+
+    `data_rights_service.forget_in_redis` marks an erased learner; without this check the worker
+    would write their queued events after the erasure had deleted everything else.
+    """
+    from app.services.data_rights_service import ERASED_KEY
+
+    learners = {str(e["learner_id"]) for e in events if e.get("learner_id")}
+    erased = {
+        lid for lid in learners
+        if await redis_service.exists(ERASED_KEY.format(user_id=lid))
+    }
+    if not erased:
+        return events
+    logger.info("research_worker_dropped_erased", learners=len(erased))
+    return [e for e in events if str(e.get("learner_id")) not in erased]
+
+
 async def drain_once(db, last_id: str = "0", count: int = 200) -> tuple[str, int]:
     """Read one batch from the stream and persist it. Returns (advanced_last_id, inserted)."""
     entries = await redis_service.stream_read(_STREAM, count=count, last_id=last_id)
     if not entries:
         return last_id, 0
-    events = [value for _entry_id, value in entries]
+    events = await _drop_erased([value for _entry_id, value in entries])
     inserted = await research_event_service.persist_batch(db, events)
     return entries[-1][0], inserted
 

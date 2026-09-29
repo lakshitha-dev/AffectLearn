@@ -92,8 +92,36 @@ async def erase_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, int]:
     await db.delete(user)
     await db.commit()
 
+    counts["redis_keys"] = await forget_in_redis(user_id)
     logger.info("learner_erased", user_id=str(user_id), **counts)
     return counts
+
+
+#: Marks a learner as erased for the research worker. Kept long enough to outlast anything still
+#: queued in the stream (it drains every second; a Redis outage is the long case).
+ERASED_KEY = "research:erased:{user_id}"
+_ERASED_TTL_S = 7 * 24 * 3600
+
+
+async def forget_in_redis(user_id: uuid.UUID | str) -> int:
+    """Remove what Redis holds about a learner, and stop queued events reaching Postgres.
+
+    The Postgres cascade does not reach Redis, which kept the learner's affect profile
+    (`profile:learner:*`, no TTL), their session and screen state, and their per-section activity
+    counters after erasure. And events still waiting in the research stream would have been
+    written to `research_events` by the worker AFTER the erasure deleted the learner's rows -- the
+    erased learner reappearing in the dataset. The `ERASED_KEY` marker is what the worker checks
+    to drop them (`research_worker.drain_once`). Best-effort: returns the number of keys removed.
+    """
+    from app.services import redis_service
+
+    uid = str(user_id)
+    removed = await redis_service.delete_keys(
+        f"profile:learner:{uid}", f"session:learner:{uid}", f"ui:learner:{uid}",
+    )
+    removed += await redis_service.delete_matching(f"activity:{uid}:*")
+    await redis_service.set_str(ERASED_KEY.format(user_id=uid), "1", _ERASED_TTL_S)
+    return removed
 
 
 async def export_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
@@ -130,6 +158,9 @@ async def export_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]
             "degree_program": user.degree_program,
             "role": user.role.value,
             "consent_given_at": _iso(user.consent_given_at),
+            "consent_version": user.consent_version,
+            "consent_scopes": user.consent_scopes,
+            "consent_withdrawn_at": _iso(user.consent_withdrawn_at),
             "webcam_enabled": user.webcam_enabled,
             "created_at": _iso(user.created_at),
         },

@@ -26,6 +26,7 @@ from app.schemas.base import camelise_keys
 from app.schemas.auth import (
     ChangePasswordRequest,
     ConsentRequest,
+    ConsentScopes,
     DeleteAccountRequest,
     ErasureReceipt,
     ForgotPasswordRequest,
@@ -42,6 +43,7 @@ from app.schemas.auth import (
     WebcamModeRequest,
 )
 from app.services import data_rights_service
+from app.services.consent import CURRENT_CONSENT_VERSION, normalise_scopes
 from app.services.email_service import (
     send_password_changed_email,
     send_password_reset_email,
@@ -95,6 +97,14 @@ def _build_user_response(user: User) -> UserResponse:
         degree_program=user.degree_program,
         consent_given_at=user.consent_given_at.isoformat() if user.consent_given_at else None,
         webcam_enabled=user.webcam_enabled or False,
+        consent_version=user.consent_version,
+        consent_scopes=(
+            ConsentScopes(**normalise_scopes(user.consent_scopes))
+            if user.consent_given_at else None
+        ),
+        consent_withdrawn_at=(
+            user.consent_withdrawn_at.isoformat() if user.consent_withdrawn_at else None
+        ),
     )
 
 
@@ -283,9 +293,40 @@ async def give_consent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Role.learner)),
 ):
-    """Record informed consent for the learner (idempotent — never overwrites once set)."""
-    if current_user.consent_given_at is None:
+    """Record informed consent: when, under which text, and for which optional scopes.
+
+    The first consent timestamp is never overwritten, except when a learner who WITHDREW consents
+    again -- that is a new agreement, and the record must not suggest capture was covered by the
+    old one throughout. Scopes may be changed at any time by consenting again with new values.
+    """
+    if current_user.consent_given_at is None or current_user.consent_withdrawn_at is not None:
         current_user.consent_given_at = func.now()
+        current_user.consent_withdrawn_at = None
+    current_user.consent_version = body.consent_version or CURRENT_CONSENT_VERSION
+    if body.scopes is not None or current_user.consent_scopes is None:
+        scopes = body.scopes or ConsentScopes()
+        current_user.consent_scopes = normalise_scopes(
+            {"behavioural": scopes.behavioural, "raw_interaction": scopes.raw_interaction}
+        )
+    await db.commit()
+    await db.refresh(current_user)
+    return _build_user_response(current_user)
+
+
+@router.post("/consent/withdraw", response_model=UserResponse)
+async def withdraw_consent(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(Role.learner)),
+):
+    """Stop all research capture now, without deleting the account or its data.
+
+    The participant's right to stop at any time. What happens to data already collected is a
+    separate decision (`POST /auth/me/delete`, or the researcher's withdraw-and-erase), so stopping
+    never forces an irreversible choice in the moment. The WebSocket re-reads consent within
+    `ws._CONSENT_REFRESH_S`, so an open lesson stops capturing without a reload.
+    """
+    if current_user.consent_withdrawn_at is None:
+        current_user.consent_withdrawn_at = func.now()
         await db.commit()
         await db.refresh(current_user)
     return _build_user_response(current_user)

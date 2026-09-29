@@ -43,6 +43,7 @@ from app.services.connection_manager import (
     WS_CLOSE_AUTH_FAILED,
     connection_manager,
 )
+from app.services.consent import ConsentState
 from app.services.research_logger import content_coords as _coords
 from app.services.research_logger import current_decision_id, decision_scope
 from app.services.research_logger import emit as emit_research_event
@@ -191,6 +192,57 @@ _SESSION_STATE_TTL_SECONDS = 12 * 60 * 60
 
 def _session_state_key(user_id: str) -> str:
     return f"session:learner:{user_id}"
+
+
+#: How stale the connection's copy of the learner's consent may get. The learner can switch the
+#: camera off or withdraw from the profile page while the lesson socket stays open, so consent is
+#: re-read rather than fixed at handshake -- at most once per this many seconds, because capture
+#: messages arrive every 30 s per channel and a query per message would be wasted work.
+_CONSENT_REFRESH_S = 10.0
+
+
+class _ConsentGate:
+    """Server-side enforcement of what this learner consented to (see `services/consent.py`).
+
+    The browser only opens the camera and starts the listeners after consent, but a stale tab, a
+    second device or a hand-built client can send capture anyway, and until this existed the server
+    processed it like any other. A refused message is dropped before it reaches the agents, and is
+    logged -- not written to the research record, which is exactly what the learner did not agree
+    to.
+    """
+
+    def __init__(self, user: Any, db: AsyncSession | None) -> None:
+        self._user = user
+        self._db = db
+        self._state = ConsentState.of(user)
+        self._read_at = time.monotonic()
+        self._refused: set[tuple[str, str]] = set()
+
+    async def _refresh(self) -> None:
+        if self._db is None or time.monotonic() - self._read_at < _CONSENT_REFRESH_S:
+            return
+        self._read_at = time.monotonic()
+        try:
+            await self._db.refresh(self._user, attribute_names=[
+                "consent_given_at", "consent_withdrawn_at", "consent_scopes", "webcam_enabled",
+            ])
+            self._state = ConsentState.of(self._user)
+        except Exception:  # noqa: BLE001 — keep the last known consent rather than fail open
+            logger.warning("consent_refresh_failed", user_id=str(self._user.id), exc_info=True)
+
+    async def refusal(self, msg_type: str) -> str | None:
+        await self._refresh()
+        reason = self._state.refusal(msg_type)
+        if reason and (msg_type, reason) not in self._refused:
+            # Once per (type, reason) per connection: a refused channel sends every 30 s.
+            self._refused.add((msg_type, reason))
+            logger.info("ws_capture_refused", user_id=str(self._user.id),
+                        msg_type=msg_type, reason=reason)
+        return reason
+
+    @property
+    def state(self) -> ConsentState:
+        return self._state
 
 
 async def _load_session_state(user_id: str) -> dict[str, Any] | None:
@@ -1253,6 +1305,7 @@ async def websocket_endpoint(
     await websocket.accept()
     user_id = str(user.id)
     accept_ms = _now_ms()
+    consent_gate = _ConsentGate(user, db)
 
     # The learner's session survives a server restart: the id is kept with the session state, so a
     # redeploy mid-lesson does not reset the ladder and repeat the first hint.
@@ -1373,6 +1426,10 @@ async def websocket_endpoint(
 
             if msg_type == "heartbeat":
                 await websocket.send_json(_handle_heartbeat(envelope))
+                continue
+
+            # Capture the learner has not consented to is dropped here, before any handler runs.
+            if await consent_gate.refusal(msg_type):
                 continue
 
             if msg_type == "client_hello":

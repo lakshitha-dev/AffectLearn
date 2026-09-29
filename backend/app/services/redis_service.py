@@ -145,6 +145,45 @@ async def incr(key: str, ttl_seconds: int | None = None) -> int | None:
         return None
 
 
+async def delete_keys(*keys: str) -> int:
+    """Delete the given keys. Returns how many existed; 0 when Redis is unavailable."""
+    client = _get_client()
+    if client is None or not keys:
+        return 0
+    try:
+        return int(await client.delete(*keys))
+    except Exception:
+        _disable("delete_failed")
+        return 0
+
+
+async def delete_matching(pattern: str) -> int:
+    """Delete every key matching a glob `pattern` (SCAN, not KEYS). 0 when unavailable."""
+    client = _get_client()
+    if client is None:
+        return 0
+    try:
+        removed = 0
+        async for key in client.scan_iter(match=pattern, count=500):
+            removed += int(await client.delete(key))
+        return removed
+    except Exception:
+        _disable("delete_matching_failed", pattern=pattern)
+        return 0
+
+
+async def exists(key: str) -> bool:
+    """Whether `key` exists. False when Redis is unavailable."""
+    client = _get_client()
+    if client is None:
+        return False
+    try:
+        return bool(await client.exists(key))
+    except Exception:
+        _disable("exists_failed", key=key)
+        return False
+
+
 # Cap the stream buffer (approximate trim) — the durable copy lives in Postgres, so the
 # Redis Stream is only a hand-off buffer and must not grow unbounded (M1).
 _STREAM_MAXLEN = int(os.getenv("RESEARCH_STREAM_MAXLEN", "100000"))

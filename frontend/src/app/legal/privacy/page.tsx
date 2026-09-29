@@ -55,9 +55,12 @@ export default function PrivacyPolicyPage() {
           the first.
         </li>
         <li>
-          <strong>Aggregate interaction signals:</strong> summary statistics over 30-second
-          windows of mouse movement, scrolling and typing rhythm — speeds, counts, pauses,
-          measures of how erratic the movement is. Not the paths, not the keys.
+          <strong>Interaction signals:</strong> while you are on a lesson page, the mouse
+          pointer&apos;s position (about ten times a second while it moves), clicks and what was
+          clicked, scrolling, whether the tab is visible, and the <em>kind</em> of each key you
+          press with its timing — never which key. These are summarised every 30 seconds into
+          speeds, counts and pauses. The detailed record itself is kept only if you opted in to
+          it when you gave consent; otherwise only the summaries are stored.
         </li>
         <li>
           <strong>Facial geometry readings</strong>, if the camera is on: the derived numbers
@@ -98,8 +101,10 @@ export default function PrivacyPolicyPage() {
         Research records are keyed to an opaque identifier rather than your name or email. This is
         pseudonymisation, not anonymisation, and the distinction matters: an administrator with
         access to both the account table and the research records could join them. Identifying
-        fields are never included in a research export. Course designers see aggregates across
-        learners, never one learner&apos;s record.
+        fields are never included in a research export. Course designers can see the name, email
+        address and progress of learners enrolled in their own courses, and only aggregate
+        statistics about detected states and interaction — never one learner&apos;s research
+        record.
       </p>
 
       <h2>How long it is kept, and how to have it deleted</h2>
@@ -117,14 +122,31 @@ export default function PrivacyPolicyPage() {
         and the research records, not just the parts that are easy to read.
       </p>
       <p>
-        <strong>Research records are automatically deleted after 90 days.</strong> This runs as a
-        scheduled job rather than as a promise someone remembers to keep. Your account and your
-        own course progress are not covered by that limit — those are yours until you delete them.
+        <strong>How long research records are kept</strong> is set by the study protocol and
+        stated in the participant information sheet you receive before taking part. Your account
+        and your own course progress are not covered by that limit — those are yours until you
+        delete them.
+      </p>
+      <p>
+        <strong>You can stop taking part at any time</strong> from your profile without deleting
+        anything: recording stops straight away, and you can decide about your data afterwards.
       </p>
       <p>
         If you would rather someone did it for you, or you have lost access to your account, email{" "}
         <a href="mailto:privacy@affectlearn.tech">privacy@affectlearn.tech</a> from the address on
-        your account and we will act within 24 hours.
+        your account and we will act as soon as we can.
+      </p>
+
+      <h2>Outside services</h2>
+      <p>
+        To write help messages, the text of the section you are reading, a description of your
+        estimated state and your recent activity in that section are sent to OpenAI. Your name,
+        email address and account are never sent. Video suggestions come from YouTube, which
+        receives a search for the topic and, if you open a video, your request for it. The
+        face-analysis software is downloaded from Google and jsDelivr servers when a lesson
+        opens; they receive no camera images. Where an operator enables it, Google Analytics
+        counts page views; it never receives your answers, camera measurements or interaction
+        events.
       </p>
 
       <h2>Security</h2>
