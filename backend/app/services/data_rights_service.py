@@ -42,6 +42,7 @@ from app.models.assistance_event import AssistanceEvent
 from app.models.enrollment import Enrollment
 from app.models.questionnaire_response import QuestionnaireResponse
 from app.models.quiz_attempt import QuizAttempt
+from app.models.raw_interaction_window import RawInteractionWindow
 from app.models.research_event import ResearchEvent
 from app.models.section_progress import SectionProgress
 from app.models.section_visit import SectionVisit
@@ -66,6 +67,13 @@ async def erase_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, int]:
         delete(ResearchEvent).where(ResearchEvent.learner_id == str(user_id))
     )
     counts["research_events"] = result.rowcount or 0
+
+    # The raw interaction record, explicitly too: it is the most detailed thing held about a
+    # learner, so its removal must not depend on the database enforcing the cascade.
+    result = await db.execute(
+        delete(RawInteractionWindow).where(RawInteractionWindow.learner_id == user_id)
+    )
+    counts["raw_interaction_windows"] = result.rowcount or 0
 
     # Everything below cascades from the user row. They are counted before deletion so the
     # receipt can say what was removed; the cascade then does the removal.
@@ -174,6 +182,9 @@ async def export_learner(db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]
             QuestionnaireResponse, QuestionnaireResponse.user_id
         ),
         "survey_responses": await rows(SurveyResponse, SurveyResponse.user_id),
+        "raw_interaction_windows": await rows(
+            RawInteractionWindow, RawInteractionWindow.learner_id
+        ),
         "research_events": [_as_dict(row) for row in research],
     }
 

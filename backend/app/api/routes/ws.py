@@ -57,6 +57,7 @@ from app.services import (
     fusion_buffer,
     learner_activity,
     model_report,
+    raw_interaction_service,
     redis_service,
     study_service,
     ui_state as ui_state_service,
@@ -445,6 +446,7 @@ async def _handle_behavioral_window(
     db: AsyncSession | None = None,
     phase: str = "phase_a",
     group: str = "control",
+    store_raw: bool = False,
 ) -> None:
     """Drive the LangGraph cycle for one `behavioral_window` message and emit an event.
 
@@ -453,17 +455,25 @@ async def _handle_behavioral_window(
     `detection_mode = "behavioral_only"`. Errors degrade to a logged, skipped cycle —
     never thrown (NFR22). An idle window (no events) still classifies the zero-window.
 
-    Privacy (NFR10): raw behavioral events ride only the transient `behavioral_payload`
-    and are dropped after the cycle. Only aggregate values enter the research event: the
-    event counts, the model result, and the (n_bins × N_FEATURES) AGGREGATE feature window
-    (entropy, velocities, counts — never raw coordinates/keys), which makes Phase A data
-    trainable (train/serve parity, ml-training-guide-behavioral §7) while honouring the
-    consent's "only aggregate features".
+    Privacy (NFR10): only aggregate values enter the research event: the event counts, the
+    model result, and the (n_bins × N_FEATURES) AGGREGATE feature window (entropy, velocities,
+    counts — never raw coordinates/keys), which makes Phase A data trainable (train/serve parity,
+    ml-training-guide-behavioral §7). The raw events are dropped after the cycle UNLESS the
+    learner opted in to the `raw_interaction` consent scope (`store_raw`), in which case they are
+    written to `raw_interaction_windows` -- never into the research event.
     """
     received_at_ms = _now_ms()
     data = envelope.get("data") or {}
     cycle = int(data.get("cycle_number", 0) or 0)
     summary = data.get("summary") or {}
+
+    # The raw events themselves, only for a learner who opted in (consent scope `raw_interaction`).
+    # Written before the graph runs, so a failed cycle still keeps what the learner did.
+    if store_raw:
+        await raw_interaction_service.record_window(
+            db, learner_id=user_id, session_id=session_id, data=data,
+            decision_id=current_decision_id(), received_at_ms=received_at_ms,
+        )
 
     # See the facial handler: resolved once, used for both prompt grounding and the event's
     # content coordinates.
@@ -523,7 +533,8 @@ async def _handle_behavioral_window(
             n_bins=inference.get("n_bins"),
             # aggregate feature window (n_bins × N_FEATURES) — the Bi-LSTM's own input,
             # persisted so Phase A data is trainable (guide §7 train/serve parity). Aggregate
-            # stats only (not raw events) → honours NFR10 / the consent's "only aggregate features".
+            # stats only (not raw events). Raw events are kept only under the `raw_interaction`
+        # consent scope, in their own table (`raw_interaction_service`), never in this payload.
             features=inference.get("features"),
             feature_schema_version=inference.get("feature_schema_version"),
             # `_infer_aggregate` already returns both of these; the update above simply never
@@ -1448,7 +1459,8 @@ async def websocket_endpoint(
                 # One graph run: every event it writes shares a decision_id.
                 with decision_scope():
                     await _handle_behavioral_window(
-                        envelope, user_id, session_id, db, phase, group
+                        envelope, user_id, session_id, db, phase, group,
+                        store_raw=consent_gate.state.raw_interaction,
                     )
                 continue
 

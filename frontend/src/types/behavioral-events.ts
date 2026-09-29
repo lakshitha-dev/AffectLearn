@@ -50,6 +50,8 @@ export interface MouseClick extends BaseEvent {
   x: number;
   y: number;
   button: 0 | 1 | 2; // left | middle | right
+  /** `data-track` id of the element clicked (see `lib/track-target.ts`). Never text. */
+  target?: string;
 }
 
 export interface KeyEvent extends BaseEvent {
@@ -76,6 +78,38 @@ export type BehavioralEvent =
   | KeyEvent
   | ScrollEvent
   | VisibilityEvent;
+
+/**
+ * Interaction context that is NOT a model input (schema v2).
+ *
+ * Kept out of `events` on purpose: the server's feature extraction reads `events` only, so these
+ * can be recorded for research without changing a single value the deployed model is given.
+ */
+export interface HoverEvent {
+  kind: "hover";
+  /** `data-track` id of the element the pointer rested on. */
+  target: string;
+  enter_t_wall: number;
+  dwell_ms: number;
+}
+
+export interface ClipboardUiEvent {
+  kind: "clipboard";
+  action: "copy" | "cut" | "paste";
+  /** Where it happened. The clipboard CONTENT is never read. */
+  target?: string;
+  t_wall: number;
+}
+
+export type UiEvent = HoverEvent | ClipboardUiEvent;
+
+/** The page geometry the coordinates in this window refer to. */
+export interface ViewportInfo {
+  w: number; // window.innerWidth (CSS px)
+  h: number; // window.innerHeight
+  doc_h: number; // document height, for scroll depth
+  dpr: number; // devicePixelRatio
+}
 
 /**
  * Cheap client-side aggregates (AC #4). NOT the Bi-LSTM input feature vector —
@@ -119,6 +153,12 @@ export interface BehavioralWindowPayload {
    * no section still runs affect detection normally, it just yields a generic hint.
    */
   section_id?: string;
+
+  // ── schema v2: research context, not model input ──
+  /** One id per lesson-page mount, so windows from two visits to a page are distinguishable. */
+  page_instance_id?: string;
+  viewport?: ViewportInfo;
+  ui_events?: UiEvent[];
 }
 
 /**

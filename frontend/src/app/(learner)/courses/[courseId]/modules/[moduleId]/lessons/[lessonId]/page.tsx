@@ -607,6 +607,7 @@ function StuckButton({ onRequest }: { onRequest: () => void }) {
   return (
     <button
       type="button"
+      data-track="stuck-button"
       disabled={waiting}
       onClick={() => {
         setWaiting(true);
