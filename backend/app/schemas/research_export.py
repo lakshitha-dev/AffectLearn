@@ -20,6 +20,8 @@ class ResearchEventOut(CamelModel):
     id: str
     # Idempotency key assigned at emit (migration 030). Null on rows written before it.
     event_id: str | None = None
+    # The graph run this event belongs to (migration 031). Null outside a run.
+    decision_id: str | None = None
     event_type: str
     learner_id: str | None = None
     session_id: str | None = None

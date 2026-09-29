@@ -226,6 +226,7 @@ async def _decide(
                 )
             ),
         ]
+        started = time.monotonic()
         resp = await asyncio.wait_for(
             client.ainvoke(messages), timeout=settings.VLLM_TIMEOUT_SECONDS
         )
@@ -237,14 +238,17 @@ async def _decide(
         logger.warning("pedagogical_vllm_error", affect_state=affect_state, error=str(exc))
         strat = fallbacks.rule_based_strategy(affect_state, profile, rung)
         return {**strat, "fallback": True, "fallback_reason": "vllm_error"}
+    # How long the model took. The learner's state is measured from delivery, so this latency
+    # sits between the reading that triggered help and the help arriving.
+    llm_ms = int((time.monotonic() - started) * 1000)
 
     parsed = _parse_strategy(_content_text(getattr(resp, "content", resp)))
     if parsed is None:
         logger.warning("pedagogical_parse_error", affect_state=affect_state)
         strat = fallbacks.rule_based_strategy(affect_state, profile, rung)
-        return {**strat, "fallback": True, "fallback_reason": "parse_error"}
+        return {**strat, "fallback": True, "fallback_reason": "parse_error", "llm_ms": llm_ms}
 
-    return {**parsed, "fallback": False}
+    return {**parsed, "fallback": False, "llm_ms": llm_ms}
 
 
 def _enforce_escalation(
@@ -383,6 +387,10 @@ async def pedagogical_node(state: AgentState) -> dict[str, Any]:
             "detection_mode": state.get("detection_mode"),
             "fallback": strategy["fallback"],
             "fallback_reason": strategy.get("fallback_reason"),
+            # Which model was asked, and how long it took (None when no call was made). The
+            # deployed model is a setting, not a constant, so each decision records its own.
+            "llm_model": settings.VLLM_MODEL if strategy.get("llm_ms") is not None else None,
+            "llm_ms": strategy.get("llm_ms"),
             # WHY the strategist chose this action.
             #
             # Already parsed and capped at 300 chars just above, then discarded -- so the research

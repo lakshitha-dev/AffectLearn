@@ -40,6 +40,11 @@ class ResearchEvent(BaseModel):
     # already committed is skipped on this column rather than duplicated. Nullable because rows
     # written before the migration have none; a unique index still admits any number of NULLs.
     event_id = Column(String(36), nullable=True, unique=True, index=True)
+    # ONE GRAPH RUN (migration 031). Every event produced while handling one inbound sensing
+    # message -- the detection, the gate verdict, the strategy, the content, the delivery -- shares
+    # this id, so a detection can be joined to the card it caused without guessing from
+    # (session_id, cycle_number). Null on events outside a run (a self-report, a page visit).
+    decision_id = Column(String(36), nullable=True, index=True)
     event_type = Column(String(64), nullable=False, index=True)
     learner_id = Column(String(64), nullable=True, index=True)
     session_id = Column(String(64), nullable=True, index=True)

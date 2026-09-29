@@ -83,6 +83,7 @@ def _to_dict(row: ResearchEvent) -> dict[str, Any]:
     return {
         "id": str(row.id),
         "event_id": row.event_id,
+        "decision_id": row.decision_id,
         "event_type": row.event_type,
         "learner_id": row.learner_id,
         "session_id": row.session_id,

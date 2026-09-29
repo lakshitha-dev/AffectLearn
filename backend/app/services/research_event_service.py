@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.research_event import ResearchEvent
 
-_FIELDS = ("event_id", "event_type", "learner_id", "session_id", "cycle_number",
+_FIELDS = ("event_id", "decision_id", "event_type", "learner_id", "session_id", "cycle_number",
            "timestamp", "sequence_number", "payload", "phase", "group",
            "course_id", "section_id", "block_id", "config_version")
 
@@ -33,6 +33,8 @@ def _row(event: dict[str, Any]) -> ResearchEvent:
     return ResearchEvent(
         # Migration 030: idempotency key assigned at emit. Nullable for rows written before it.
         event_id=(str(event["event_id"]) if event.get("event_id") else None),
+        # Migration 031: the graph run this event belongs to, when it belongs to one.
+        decision_id=(str(event["decision_id"]) if event.get("decision_id") else None),
         event_type=event.get("event_type", "unknown"),
         learner_id=(str(event["learner_id"]) if event.get("learner_id") is not None else None),
         session_id=(str(event["session_id"]) if event.get("session_id") is not None else None),

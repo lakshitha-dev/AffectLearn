@@ -85,6 +85,37 @@ def is_synthetic_run() -> bool:
     return _synthetic.get()
 
 
+# ── decision tracing ──────────────────────────────────────────────────────────────────
+#
+# One inbound sensing message runs the whole agent graph once: detection -> profile/gate ->
+# strategy -> content -> delivery. Those steps emit separate research events from separate modules,
+# and before this they could only be re-joined on (session_id, cycle_number) -- which is ambiguous,
+# because both channels share one cycle number and the client restarts its counter on every lesson
+# page. A `decision_id` minted per inbound message and stamped on every event the run produces makes
+# "which detection led to this card, and what did the learner do with it" a single equality join.
+#
+# Same mechanism as `synthetic_run`: a contextvar follows the await chain through every graph node
+# (and into the tasks LangGraph spawns for parallel branches, which copy the context), so no node has
+# to thread the id by hand and none can forget to.
+_decision: ContextVar[str | None] = ContextVar("research_decision_id", default=None)
+
+
+@contextmanager
+def decision_scope(decision_id: str | None = None):
+    """Stamp every research event emitted inside this block with one `decision_id`."""
+    value = decision_id or str(uuid.uuid4())
+    token = _decision.set(value)
+    try:
+        yield value
+    finally:
+        _decision.reset(token)
+
+
+def current_decision_id() -> str | None:
+    """The `decision_id` of the enclosing `decision_scope`, or None outside one."""
+    return _decision.get()
+
+
 # Monotonic per-session sequence counters.
 #
 # Redis INCR first, in-process counter as the fallback. The in-process counter alone restarted at
@@ -155,6 +186,9 @@ async def emit(event: dict[str, Any]) -> None:
             # `event_id` makes that re-read a no-op instead of a duplicate row. An id already on
             # the event wins, so a replay keeps the identity of the row it reproduces.
             "event_id": event.get("event_id") or str(uuid.uuid4()),
+            # Joins the event to the rest of its graph run (see `decision_scope`). Top-level, so
+            # the worker persists it as an indexed column rather than burying it in the payload.
+            "decision_id": event.get("decision_id") or _decision.get(),
             "sequence_number": await _next_sequence_durable(event.get("session_id")),
             # An explicit value already on the event wins, so a replay or a backfill can state
             # the version the row ORIGINALLY ran under rather than today's.
