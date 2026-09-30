@@ -49,7 +49,8 @@ Protocol version: **pilot-1.0**. Record it in each `pilot_sessions.protocol_vers
   - GBDT behavioural model;
   - performance channel (struggle heuristic) allowed to trigger help: a pilot-only setting,
     `[DECIDE]`, see §10;
-  - floors: facial 0.70, behavioural 0.70, performance 0.60; global floor 0.70;
+  - floors: facial 0.70, behavioural 0.70, performance 0.45 (code default 0.60); global floor
+    0.70;
   - persistence 2, cooldown 3, at most 6 offers per session;
   - actionable states: bored and confused;
   - gpt-4o via OpenAI.
@@ -180,8 +181,12 @@ See [data-management-plan.md](data-management-plan.md). No video or images are s
    confusion help would not exist. To confirm:
    - promoting an unfitted heuristic before any pilot data. The alternative is to keep it
      advisory, so that the gate only records `channel_advisory` when it would have helped;
-   - the 0.60 floor. The smallest combinations that reach it are 3 wrong answers plus a revealed
-     answer, or 2 wrong answers plus a revealed answer plus 2 re-reads;
+   - the 0.45 floor, which is the channel's own reporting score (the code default is 0.60). Each
+     quiz takes one answer and most sections have at most one quiz, so a wrong answer adds 0.12.
+     At 0.60 the channel could fire on only 14 of the 56 sections, and only with three re-reads
+     and very slow reading. At 0.45 it needs at least two indicators together, for example a
+     revealed answer plus 3 re-reads, or 1 wrong answer plus 2 re-reads plus slow reading. It is
+     reachable on 38 of the 56 sections;
    - the counters are cumulative for a section. Once a section crosses the floor it stays over
      it, and only the help ladder, "Got it" (resolved) and the card holds limit repeat offers
      there.

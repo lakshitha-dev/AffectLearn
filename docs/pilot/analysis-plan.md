@@ -75,7 +75,8 @@ Pre-set criteria. Each is reported as met or not met:
 3. **Performance channel.**
    - The distribution of struggle scores and their breakdown (wrong answers, revealed answer,
      re-reads, slow pace), per participant.
-   - Agreement of readings at or above 0.60 with self-reported confusion within ±60 s.
+   - Agreement of its readings (all at or above the 0.45 floor) with self-reported confusion
+     within ±60 s.
    - Its verdicts in the control arm's shadow gate, as the matched "would have helped" rate.
 4. **Triggers.**
    - Offers per hour: delivered in the adaptive arm; `shadow_would_offer` in the control arm.
