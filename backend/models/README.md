@@ -15,6 +15,8 @@ the old 4-level engagement artifact produces confident nonsense rather than an e
 |---|---|---|
 | `behavioral_confusion_gbdt.onnx` | Behavioural confusion GBDT. `features (B,80)` → `probabilities (B,2)` | **wired** — committed (53 KB) |
 | `behavioral_confusion_gbdt.json` | Provenance + honest metrics card for the above | committed |
+| `behavioral_confusion_gbdt_platform.onnx` | The same GBDT refitted on DUX rebuilt as platform-like input (100 ms pointer, one click per press). Same `features (B,80)` contract | **not wired**: select with `BEHAVIORAL_MODEL_PATH`; parity test `tests/services/test_platform_gbdt_parity.py` |
+| `behavioral_confusion_gbdt_platform.json` | Its card: LOSO AUC 0.703 [0.675, 0.731] on platform-like DUX; gate sweep; no floor meets the pre-specified 2x-lift rule | committed |
 | `cnn_lstm_confusion_anycut.onnx` | Facial confusion CNN-LSTM. `clip (B,16,3,96,96)` → `logits (B,2)` | **wired** — **gitignored** (48 MB), fetched from Blob at deploy |
 | `behavioral_bilstm.onnx` | Behavioural Bi-LSTM. `window (B,30,16)` → `logits (B,4)` | **rollback only** — see warning below |
 | `behavioral_feature_stats.json` | z-score mean/std for the 16 behavioural features | used by the Bi-LSTM path only |
