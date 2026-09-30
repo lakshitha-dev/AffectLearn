@@ -30,6 +30,8 @@ import { useSectionVisits, type SectionEntrySource } from "@/hooks/use-section-v
 import { useMediaPipe } from "@/hooks/use-media-pipe";
 import { useLessonProgress, useMarkSectionComplete, useRecordQuizResponse } from "@/hooks/use-progress";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { useMyInstruments } from "@/hooks/use-instruments";
+import { LessonFeedbackDialog } from "@/components/study/LessonFeedbackDialog";
 import {
   useSelfReportTrigger,
   SECTIONS_PER_PROMPT,
@@ -37,9 +39,15 @@ import {
 } from "@/hooks/use-self-report-trigger";
 import { useAdaptationStore } from "@/stores/adaptation-store";
 import { useConnectionStore } from "@/stores/connection-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { captureConsent } from "@/lib/consent";
 import type { SectionDetail } from "@/types/course";
-import type { AdaptationAction, HelpRequestKind } from "@/types/ws-messages";
+import type {
+  AdaptationAction,
+  AdaptationLifecycleEvent,
+  HelpRequestKind,
+} from "@/types/ws-messages";
 
 const AFFECT_DEBUG_ENABLED = process.env.NEXT_PUBLIC_AFFECT_DEBUG === "1";
 
@@ -116,13 +124,21 @@ export default function LessonPage({ params }: PageProps) {
   // ever saw `content_topic: unknown` and could only produce generic study advice.
   const currentSectionId = sections[currentIndex]?.id;
 
-  const { debug: affectDebug } = useMediaPipe({ send, sectionId: currentSectionId });
+  // Capture only what the learner consented to. The server refuses anything else anyway; not
+  // starting it here means no camera light and no listeners for a withdrawn participant.
+  const consent = captureConsent(useSessionStore((s) => s.user));
+  const { debug: affectDebug } = useMediaPipe({
+    send,
+    sectionId: currentSectionId,
+    enabled: consent.participating,
+  });
   // Behavioral signals run in ALL non-error modes (incl. webcam-denied), so this
   // is mounted unconditionally alongside the facial hook (Story 4.3). The debug
   // ref surfaces NFR9 data-loss metrics in the dev overlay (AC #10).
   const { debug: behavioralDebug, cycleNumber } = useBehavioralSignals({
     send,
     sectionId: currentSectionId,
+    enabled: consent.behavioural,
   });
 
   // Per-section interaction counters for confusion detection (dark-shipped: logged for future
@@ -138,6 +154,7 @@ export default function LessonPage({ params }: PageProps) {
     send,
     sectionId: currentSectionId,
     snapshot: sectionSignals.snapshot,
+    enabled: consent.behavioural,
   });
   useEffect(() => {
     sectionSignals.enterSection(currentSectionId);
@@ -246,6 +263,47 @@ export default function LessonPage({ params }: PageProps) {
       });
     },
     [send, currentSectionId],
+  );
+
+  // What happened to a delivered card that is not the learner's verdict on it (first visible,
+  // re-opened, expanded, probe shown or left unanswered, how a suggested break went). Research
+  // events only: the ledger and the delivery guard are driven by `adaptation_interaction`.
+  const logAdaptationEvent = useCallback(
+    (payload: {
+      adaptation_id: string;
+      action: AdaptationAction;
+      event: AdaptationLifecycleEvent;
+      since_received_ms?: number;
+      seconds_away?: number;
+    }) => {
+      send({
+        type: "adaptation_event",
+        ts: Date.now(),
+        data: { ...payload, section_id: currentSectionId, cycle_number: cycleNumber.current },
+      });
+    },
+    [send, currentSectionId],
+  );
+
+  // A suggested break is answered like any other card: taking it is "accepted" and declining is
+  // "dismissed", so the ledger and the delivery guard see it; the detail goes to the lifecycle.
+  const logBreak = useCallback(
+    (payload: {
+      adaptation_id: string;
+      event: "break_taken" | "break_declined" | "break_returned_early" | "break_completed";
+      seconds_away?: number;
+      since_received_ms: number;
+    }) => {
+      logAdaptationEvent({ ...payload, action: "suggest_break" });
+      if (payload.event === "break_taken" || payload.event === "break_declined") {
+        logHintInteraction({
+          adaptation_id: payload.adaptation_id,
+          action: "suggest_break",
+          interaction: payload.event === "break_taken" ? "accepted" : "dismissed",
+        });
+      }
+    },
+    [logAdaptationEvent, logHintInteraction],
   );
 
   // "Still stuck" / "I'd rather move on" from the card on screen. The server runs the same agents
@@ -368,6 +426,23 @@ export default function LessonPage({ params }: PageProps) {
     }
   }, [course, courseId, moduleId, currentModuleIdx, currentLessonIdx, router]);
 
+  // LEAVING THE LESSON: a participant is asked the short lesson-feedback questionnaire first,
+  // once per lesson, in both arms. Anyone not taking part -- or whose earlier answers cannot be
+  // loaded -- leaves exactly as before.
+  const lessonFeedback = useMyInstruments("lesson_feedback", consent.participating);
+  const [lessonFeedbackOpen, setLessonFeedbackOpen] = useState(false);
+  const lessonFeedbackDue =
+    consent.participating &&
+    lessonFeedback.isSuccess &&
+    !lessonFeedback.data.some((r) => r.context?.lessonId === lessonId);
+  const requestLessonExit = useCallback(() => {
+    if (lessonFeedbackDue) {
+      setLessonFeedbackOpen(true);
+      return;
+    }
+    handleLastSectionCta();
+  }, [lessonFeedbackDue, handleLastSectionCta]);
+
   // Story 5.6: move the learner on when they accept a `skip_ahead` adaptation.
   //
   // This now does EXACTLY what the Next button does, which it previously did not, in two ways
@@ -391,12 +466,12 @@ export default function LessonPage({ params }: PageProps) {
     const idx = Math.min(currentIndex, sections.length - 1);
     if (idx >= sections.length - 1) {
       // Out of sections: cross the lesson boundary exactly as Next does.
-      handleLastSectionCta();
+      requestLessonExit();
       return;
     }
     handleSectionNav(idx + 1, "skip");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex, sections.length, handleLastSectionCta]);
+  }, [currentIndex, sections.length, requestLessonExit]);
 
   if (lessonQuery.isLoading || enrollmentQuery.isLoading) return <LessonSkeleton />;
 
@@ -485,10 +560,24 @@ export default function LessonPage({ params }: PageProps) {
               hasPrev={idx > 0}
               lastSectionCta={hasNextLesson ? "Next lesson" : "Back to course"}
               onMarkComplete={handleMarkComplete}
-              onNext={() => { if (idx === sections.length - 1) handleLastSectionCta(); else handleSectionNav(idx + 1); }}
+              onNext={() => { if (idx === sections.length - 1) requestLessonExit(); else handleSectionNav(idx + 1); }}
               onPrev={() => handleSectionNav(idx - 1)}
               isSaving={markComplete.isPending}
               onShowAnswer={(sectionId) => sectionSignals.recordShowAnswer(sectionId)}
+              onExerciseAnswered={(sectionId, blockId, answer, isCorrect, responseTimeMs) => {
+                sectionSignals.recordExerciseAttempt(sectionId);
+                // Same endpoint as a quiz answer. The server grades it from the block's answer key
+                // and keeps it out of the per-quiz summary (see `record_quiz_response`).
+                recordQuiz.mutate({
+                  contentBlockId: blockId,
+                  selectedAnswers: [answer],
+                  isCorrect,
+                  responseTimeMs,
+                  sectionId,
+                  assistanceId:
+                    activeInlineAdaptation(useAdaptationStore.getState().adaptationQueue)?.id,
+                });
+              }}
               onQuizAnswered={(sectionId, blockId, selectedIds, isCorrect, responseTimeMs) => {
                 sectionSignals.recordQuizAttempt(sectionId, isCorrect, responseTimeMs);
                 recordQuiz.mutate({
@@ -514,18 +603,28 @@ export default function LessonPage({ params }: PageProps) {
           queue for Stories 5.5–5.7. */}
       <InlineAdaptations
         onInteraction={logHintInteraction}
+        onLifecycle={logAdaptationEvent}
         onRequest={requestHelp}
         sectionId={currentSectionId ?? undefined}
       />
       {/* Asked once, 30s after a content intervention is delivered — long enough that the answer
           is about the help rather than about being interrupted. Inline, never blocking. */}
-      <AdaptationProbe onRespond={logAdaptationProbe} />
+      <AdaptationProbe onRespond={logAdaptationProbe} onLifecycle={logAdaptationEvent} />
       {/* Break suggestion overlay (Story 5.5) — renders the latest suggest_break
           adaptation as a fixed-position, semi-transparent overlay card (not a true
           modal; content stays visible, no scroll-lock). Non-suggest_break actions are
           left in the queue for 5.4/5.6/5.7. Its JSX position is not layout-sensitive
           since it is a fixed overlay. */}
-      <BreakSuggestion />
+      <BreakSuggestion onLifecycle={logBreak} />
+      {lessonFeedbackOpen && (
+        <LessonFeedbackDialog
+          context={{ courseId, moduleId, lessonId }}
+          onDone={() => {
+            setLessonFeedbackOpen(false);
+            handleLastSectionCta();
+          }}
+        />
+      )}
       {/* Skip-ahead suggestion (Story 5.6) — renders the latest skip_ahead adaptation as an
           accept/dismiss inline suggestion. Accept advances to the next section via the same
           scroll-based nav as the prev/next buttons; accept/dismiss are logged upstream (FR22).
@@ -596,6 +695,7 @@ function StuckButton({ onRequest }: { onRequest: () => void }) {
   return (
     <button
       type="button"
+      data-track="stuck-button"
       disabled={waiting}
       onClick={() => {
         setWaiting(true);

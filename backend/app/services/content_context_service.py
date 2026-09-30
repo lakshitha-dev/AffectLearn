@@ -116,6 +116,16 @@ def _block_text(block: ContentBlock) -> str:
     return ""
 
 
+def word_count(blocks: list[ContentBlock]) -> int:
+    """Words on the page, counted over EVERY block with the same rendering as the prompt body.
+
+    Deliberately not `len(_render_body(...).split())`: the body stops at `_BODY_CHAR_BUDGET`, so a
+    long section would count as ~300 words and its reading pace would look slow. The performance
+    channel scores slow pace against this number, so an undercount turns length into "struggle".
+    """
+    return sum(len(_block_text(block).split()) for block in blocks)
+
+
 def _render_body(blocks: list[ContentBlock]) -> str:
     """Join blocks in author order, bounded by `_BODY_CHAR_BUDGET`.
 
@@ -141,7 +151,7 @@ def _render_body(blocks: list[ContentBlock]) -> str:
 
 
 async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
-    """Return `{topic, lesson, body, difficulty}` + content coordinates for a section id.
+    """Return `{topic, lesson, body, difficulty, n_words, n_quizzes}` + content coordinates.
 
     Coordinates are `{section_id, lesson_id, module_id, course_id}`; they are what lets an
     emitted research event say where in the course it happened. Never raises.
@@ -200,11 +210,20 @@ async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
 
     lesson: Lesson | None = getattr(section, "lesson", None)
     module = getattr(lesson, "module", None) if lesson is not None else None
+    blocks = list(section.content_blocks or [])
     context = {
         "topic": section.title or "unknown",
         "lesson": (lesson.title if lesson is not None else None) or "unknown",
-        "body": _render_body(list(section.content_blocks or [])),
+        "body": _render_body(blocks),
         "difficulty": "unknown",
+        # The performance channel's pace denominator (`affect_detection._run_performance`).
+        # Without it the slow-pace term never contributed on the live path. Prompt builders read
+        # named keys, so this never reaches a prompt.
+        "n_words": word_count(blocks),
+        # Where the performance channel's wrong-answer count saturates: each quiz takes one answer.
+        "n_quizzes": sum(
+            1 for b in blocks if getattr(b.block_type, "value", b.block_type) == "quiz"
+        ),
         # Content coordinates. Prompt-building ignores these; they exist so the WS handler and
         # the agent nodes can stamp WHERE IN THE COURSE a cycle happened onto the research event
         # without a further lookup. Before this, affect and adaptation rows carried only

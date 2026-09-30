@@ -134,6 +134,26 @@ async def test_user(db: AsyncSession) -> User:
 
 
 @pytest_asyncio.fixture
+async def consented_user(db: AsyncSession, test_user: User) -> User:
+    """`test_user` after onboarding: consented, camera on, default consent scopes.
+
+    The WebSocket drops capture from a learner who has not consented (`ws._ConsentGate`), so any
+    test that drives facial or behavioural capture through the real endpoint needs this learner.
+    """
+    from datetime import datetime, timezone
+
+    from app.services.consent import CURRENT_CONSENT_VERSION, SCOPE_DEFAULTS
+
+    test_user.consent_given_at = datetime.now(timezone.utc)
+    test_user.webcam_enabled = True
+    test_user.consent_version = CURRENT_CONSENT_VERSION
+    test_user.consent_scopes = dict(SCOPE_DEFAULTS)
+    await db.commit()
+    await db.refresh(test_user)
+    return test_user
+
+
+@pytest_asyncio.fixture
 async def test_designer(db: AsyncSession) -> User:
     user = User(
         email_address="designer@test.com",

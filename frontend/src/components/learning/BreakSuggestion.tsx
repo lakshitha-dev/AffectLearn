@@ -22,7 +22,17 @@ import { useAdaptationStore } from "@/stores/adaptation-store";
  * taken / declined"); we never `dismissAdaptation` an item this story does not own.
  */
 
-export function BreakSuggestion() {
+export function BreakSuggestion({
+  onLifecycle,
+}: {
+  /** How the suggested break went (taken / declined / returned early / completed). */
+  onLifecycle?: (payload: {
+    adaptation_id: string;
+    event: "break_taken" | "break_declined" | "break_returned_early" | "break_completed";
+    seconds_away?: number;
+    since_received_ms: number;
+  }) => void;
+} = {}) {
   const adaptationQueue = useAdaptationStore((s) => s.adaptationQueue);
 
   // Latest `suggest_break` adaptation in the queue.
@@ -41,6 +51,14 @@ export function BreakSuggestion() {
     <BreakSuggestionCard
       key={active.id}
       adaptation={active}
+      onLifecycle={(event, detail) =>
+        onLifecycle?.({
+          adaptation_id: active.id,
+          event,
+          seconds_away: detail?.seconds_away,
+          since_received_ms: Date.now() - active.receivedAt,
+        })
+      }
       onDismiss={() => {
         /* Local UI dismiss only — the card owns its lifecycle and we deliberately
            leave the item in the queue (queue-ownership decision, matches 5.4). */

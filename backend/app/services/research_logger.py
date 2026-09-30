@@ -12,6 +12,8 @@ background worker (`research_worker`) drains the stream into PostgreSQL. Emit NE
 
 from __future__ import annotations
 
+import os
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -24,6 +26,15 @@ from app.services.monitor_bus import monitor_bus
 logger = structlog.get_logger(__name__)
 
 _STREAM = "research_events"
+
+#: Whether the structlog backstop line carries the full event. On by default (the long-standing
+#: behaviour, and the only copy when Redis is down). The pilot turns it off: every event then also
+#: lands in the container log, including hint text and the learner's answers, and container logs
+#: are neither erased with the learner nor covered by the retention period. Off, the line keeps the
+#: envelope -- enough to see the pipeline working and to count events -- without the payload.
+_LOG_PAYLOADS = os.getenv("RESEARCH_LOG_PAYLOADS", "1").strip().lower() not in ("0", "false", "no")
+_ENVELOPE_KEYS = ("event_type", "event_id", "decision_id", "session_id", "sequence_number",
+                  "cycle_number", "timestamp", "phase", "group", "config_version")
 
 #: Content-coordinate keys lifted from a resolved section context onto the event envelope
 #: (migration 021). `block_id` is absent by design: an affect cycle happens on a SECTION, and
@@ -84,16 +95,65 @@ def is_synthetic_run() -> bool:
     return _synthetic.get()
 
 
-# Monotonic per-session sequence counters (in-process). One WS connection per learner on
-# one server makes this monotonic per session; multi-worker would use Redis INCR (forward).
+# ── decision tracing ──────────────────────────────────────────────────────────────────
+#
+# One inbound sensing message runs the whole agent graph once: detection -> profile/gate ->
+# strategy -> content -> delivery. Those steps emit separate research events from separate modules,
+# and before this they could only be re-joined on (session_id, cycle_number) -- which is ambiguous,
+# because both channels share one cycle number and the client restarts its counter on every lesson
+# page. A `decision_id` minted per inbound message and stamped on every event the run produces makes
+# "which detection led to this card, and what did the learner do with it" a single equality join.
+#
+# Same mechanism as `synthetic_run`: a contextvar follows the await chain through every graph node
+# (and into the tasks LangGraph spawns for parallel branches, which copy the context), so no node has
+# to thread the id by hand and none can forget to.
+_decision: ContextVar[str | None] = ContextVar("research_decision_id", default=None)
+
+
+@contextmanager
+def decision_scope(decision_id: str | None = None):
+    """Stamp every research event emitted inside this block with one `decision_id`."""
+    value = decision_id or str(uuid.uuid4())
+    token = _decision.set(value)
+    try:
+        yield value
+    finally:
+        _decision.reset(token)
+
+
+def current_decision_id() -> str | None:
+    """The `decision_id` of the enclosing `decision_scope`, or None outside one."""
+    return _decision.get()
+
+
+# Monotonic per-session sequence counters.
+#
+# Redis INCR first, in-process counter as the fallback. The in-process counter alone restarted at
+# 1 whenever the API restarted, while the session id it numbers is restored from Redis (12 h TTL,
+# `ws.py`) and survives the restart -- so the same (session_id, sequence_number) pair was issued
+# twice and `detect_gaps` could no longer tell a lost event from a restart. The Redis key outlives
+# the session state it numbers, so the counter never rewinds while the session can still resume.
 _sequences: dict[str, int] = {}
+_SEQ_KEY = "research_seq:{session_id}"
+_SEQ_TTL_S = 7 * 24 * 3600
 
 
 def _next_sequence(session_id: Any) -> int:
+    """In-process fallback counter (also the path taken when Redis is unavailable)."""
     key = str(session_id or "")
     nxt = _sequences.get(key, 0) + 1
     _sequences[key] = nxt
     return nxt
+
+
+async def _next_sequence_durable(session_id: Any) -> int:
+    key = str(session_id or "")
+    if key:
+        value = await redis_service.incr(_SEQ_KEY.format(session_id=key), _SEQ_TTL_S)
+        if value is not None:
+            _sequences[key] = value  # keep the fallback in step, so a Redis blip continues upward
+            return value
+    return _next_sequence(session_id)
 
 
 async def emit(event: dict[str, Any]) -> None:
@@ -131,7 +191,15 @@ async def emit(event: dict[str, Any]) -> None:
         event = {
             **event,
             "payload": payload,
-            "sequence_number": _next_sequence(event.get("session_id")),
+            # IDENTITY OF THIS ROW. The worker hands events from the Redis stream to Postgres
+            # at-least-once, so a restart can re-read a batch it already committed; the unique
+            # `event_id` makes that re-read a no-op instead of a duplicate row. An id already on
+            # the event wins, so a replay keeps the identity of the row it reproduces.
+            "event_id": event.get("event_id") or str(uuid.uuid4()),
+            # Joins the event to the rest of its graph run (see `decision_scope`). Top-level, so
+            # the worker persists it as an indexed column rather than burying it in the payload.
+            "decision_id": event.get("decision_id") or _decision.get(),
+            "sequence_number": await _next_sequence_durable(event.get("session_id")),
             # An explicit value already on the event wins, so a replay or a backfill can state
             # the version the row ORIGINALLY ran under rather than today's.
             "config_version": event.get("config_version", config_version),
@@ -140,7 +208,10 @@ async def emit(event: dict[str, Any]) -> None:
         # dashboard sees the event even when Redis is down. Best-effort, never raises.
         monitor_bus.publish({**event, "category": "domain"})
         await redis_service.stream_add(_STREAM, event)  # best-effort durable path
-        logger.info("research_event", **event)
+        if _LOG_PAYLOADS:
+            logger.info("research_event", **event)
+        else:
+            logger.info("research_event", **{k: event.get(k) for k in _ENVELOPE_KEYS})
     except Exception:
         # Same shape as `trace.emit_trace`: the handler must not be able to raise either, or the
         # "never raises (NFR22)" in the docstring above is not true. A console encoding that

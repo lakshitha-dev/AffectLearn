@@ -319,7 +319,9 @@ def _run_performance(state: AgentState) -> dict[str, Any]:
     # normalised by measured content rather than by the authored duration estimate -- which
     # across the seeded sections takes five distinct values and does not track content at all.
     context = state.get("content_context") or {}
-    reading = performance_signals.detect(payload, section_words=context.get("n_words"))
+    reading = performance_signals.detect(
+        payload, section_words=context.get("n_words"), section_quizzes=context.get("n_quizzes"),
+    )
     if reading is None:
         return {}
 

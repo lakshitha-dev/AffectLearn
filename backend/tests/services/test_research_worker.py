@@ -51,3 +51,67 @@ def test_heartbeat_reports_liveness(monkeypatch):
     assert research_worker.is_healthy(max_age_s=15) is True
     monkeypatch.setattr(research_worker, "_heartbeat", time.monotonic() - 60, raising=False)
     assert research_worker.is_healthy(max_age_s=15) is False
+
+
+# ── cursor persistence: a restart must not re-read the stream from "0" ─────────
+
+
+@pytest.mark.asyncio
+async def test_worker_resumes_from_saved_cursor_and_saves_progress(monkeypatch):
+    import asyncio
+
+    store: dict[str, str] = {"research_events:worker_cursor": "7-0"}
+    reads: list[str] = []
+    stop = asyncio.Event()
+
+    async def fake_ping():
+        return True
+
+    async def fake_get_str(key):
+        return store.get(key)
+
+    async def fake_set_str(key, value, ttl_seconds=None):
+        store[key] = value
+        return True
+
+    async def fake_drain_once(db, last_id="0", count=200):
+        reads.append(last_id)
+        stop.set()
+        return "9-0", 2
+
+    class _Session:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(research_worker.redis_service, "ping", fake_ping)
+    monkeypatch.setattr(research_worker.redis_service, "get_str", fake_get_str)
+    monkeypatch.setattr(research_worker.redis_service, "set_str", fake_set_str)
+    monkeypatch.setattr(research_worker, "drain_once", fake_drain_once)
+    monkeypatch.setattr(research_worker, "async_session", lambda: _Session())
+
+    await research_worker.run_worker(stop_event=stop, poll_interval=0)
+
+    assert reads == ["7-0"]                                   # resumed, not "0"
+    assert store["research_events:worker_cursor"] == "9-0"    # progress saved
+
+
+@pytest.mark.asyncio
+async def test_load_cursor_defaults_to_start_only_when_redis_answers(monkeypatch):
+    async def up():
+        return True
+
+    async def down():
+        return False
+
+    async def nothing(key):
+        return None
+
+    monkeypatch.setattr(research_worker.redis_service, "get_str", nothing)
+    monkeypatch.setattr(research_worker.redis_service, "ping", up)
+    assert await research_worker.load_cursor() == "0"
+    # An outage is not an empty cursor: the worker must retry, not restart from "0".
+    monkeypatch.setattr(research_worker.redis_service, "ping", down)
+    assert await research_worker.load_cursor() is None

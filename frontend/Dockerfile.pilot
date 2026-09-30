@@ -1,0 +1,32 @@
+# Production build of the frontend for the in-person pilot (docker-compose.pilot.yml).
+#
+# The default Dockerfile runs `next dev`: hot reload, an on-screen dev indicator, and pages that
+# compile on first visit -- a participant would see the badge and wait seconds on every new page.
+# This builds the same standalone bundle the Azure deploy ships (.github/workflows/deploy.yml) and
+# runs it with `node server.js`. NEXT_PUBLIC_* values are inlined at build time, so they are build
+# arguments here, not runtime environment.
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000
+# Deliberately empty: no analytics in the pilot, and no debug overlay in front of a participant.
+ARG NEXT_PUBLIC_GA_ID=
+ARG NEXT_PUBLIC_AFFECT_DEBUG=
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL \
+    NEXT_PUBLIC_GA_ID=$NEXT_PUBLIC_GA_ID \
+    NEXT_PUBLIC_AFFECT_DEBUG=$NEXT_PUBLIC_AFFECT_DEBUG \
+    NEXT_TELEMETRY_DISABLED=1
+RUN npm run build \
+ && cp -r .next/static .next/standalone/.next/static \
+ && if [ -d public ]; then cp -r public .next/standalone/public; fi
+
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+COPY --from=build /app/.next/standalone ./
+EXPOSE 3000
+CMD ["node", "server.js"]

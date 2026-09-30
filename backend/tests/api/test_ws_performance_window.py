@@ -11,6 +11,7 @@ import pytest
 import app.api.routes.ws as ws
 from app.agents import edges
 from app.agents.state import AFFECT_SOURCE_PERFORMANCE
+from app.services import performance_signals
 
 pytestmark = pytest.mark.asyncio
 
@@ -126,8 +127,12 @@ class TestItDoesNotBypassTheGate:
         intervene on a confidence it had not earned, and the answer was not "measure it first".
 
         Shipping advisory means the gate records `channel_advisory` every time this channel WOULD
-        have intervened — so its rate becomes a measurement before it becomes a behaviour. Promote
-        it by adding `performance` to DECISIVE_AFFECT_SOURCES once there is pilot data.
+        have intervened — so its rate becomes a measurement before it becomes a behaviour.
+
+        The local pilot stack promotes it through its own environment
+        (`docker-compose.pilot.yml` DECISIVE_AFFECT_SOURCES), because the behavioural model never
+        reaches its floor on this UI. That promotion is pilot-only; this default stays advisory
+        for every other deployment.
         """
         assert AFFECT_SOURCE_PERFORMANCE not in edges.DECISIVE_AFFECT_SOURCES
         assert edges.is_decisive(AFFECT_SOURCE_PERFORMANCE) is False
@@ -150,3 +155,61 @@ class TestItDoesNotBypassTheGate:
         )
         assert allowed is False
         assert reason == edges.GATE_CHANNEL_ADVISORY
+
+
+class TestWhenThePilotPromotesIt:
+    """`docker-compose.pilot.yml` adds `performance` to DECISIVE_AFFECT_SOURCES and sets its floor
+    to the channel's own reporting score (0.45). Promotion changes WHO may intervene and at what
+    score, nothing else: the sustain check and the cooldown still bind."""
+
+    @pytest.fixture(autouse=True)
+    def promoted(self, monkeypatch):
+        monkeypatch.setattr(
+            edges, "DECISIVE_AFFECT_SOURCES",
+            ("behavioral_model", "fusion", "facial_geometry", AFFECT_SOURCE_PERFORMANCE),
+        )
+        monkeypatch.setitem(
+            edges._CHANNEL_MIN_CONFIDENCE, AFFECT_SOURCE_PERFORMANCE,
+            performance_signals.MIN_ACTIONABLE_SCORE,
+        )
+
+    def test_a_sustained_reading_may_intervene(self):
+        """1 wrong + revealed + 2 re-reads = 0.50, on two windows running. At the code default
+        of 0.60 this is held: a section with one quiz cannot get there without slow reading."""
+        allowed, reason = edges.passes_adaptation_gate(
+            "confused", 0.50, ["confused", "confused"], 5, None, AFFECT_SOURCE_PERFORMANCE,
+        )
+        assert (allowed, reason) == (True, edges.GATE_OK)
+
+    def test_one_window_is_still_not_sustained(self):
+        allowed, reason = edges.passes_adaptation_gate(
+            "confused", 0.9, ["engaged", "confused"], 5, None, AFFECT_SOURCE_PERFORMANCE,
+        )
+        assert (allowed, reason) == (False, edges.GATE_NOT_SUSTAINED)
+
+    def test_the_cooldown_still_binds(self):
+        allowed, reason = edges.passes_adaptation_gate(
+            "confused", 0.9, ["confused", "confused"], 5, 4, AFFECT_SOURCE_PERFORMANCE,
+        )
+        assert (allowed, reason) == (False, edges.GATE_COOLDOWN)
+
+
+def test_the_code_default_floor_holds_a_moderate_reading():
+    """Everywhere but the pilot the floor stays at 0.60, and the channel stays advisory."""
+    allowed, reason = edges.passes_adaptation_gate(
+        "confused", 0.50, ["confused", "confused"], 5, None, AFFECT_SOURCE_PERFORMANCE,
+    )
+    assert (allowed, reason) == (False, edges.GATE_LOW_CONFIDENCE)
+
+
+async def test_slow_pace_counts_once_the_section_has_a_word_count(captured_events):
+    """The live context now carries `n_words`, so dwelling far past what the text warrants adds
+    to the score. Before it did, the pace term was zero on every live window."""
+    await ws._handle_performance_window(
+        # 1,200 s on 400 words = 300 s per 100 words, past the 200 s saturation point.
+        _window(quiz_incorrect_count=3, time_on_section_s=1200), "u1", "s1"
+    )
+
+    payload = captured_events[0]["payload"]
+    assert payload["breakdown"]["slow_pace"] == pytest.approx(0.20)
+    assert payload["affect_confidence"] == pytest.approx(0.55)
