@@ -47,7 +47,9 @@ Protocol version: **pilot-1.0**. Record it in each `pilot_sessions.protocol_vers
 - The deployed configuration is used (`docker-compose.pilot.yml`):
   - geometry facial model;
   - GBDT behavioural model;
-  - per-channel floors 0.70; global floor 0.70;
+  - performance channel (struggle heuristic) allowed to trigger help: a pilot-only setting,
+    `[DECIDE]`, see §10;
+  - floors: facial 0.70, behavioural 0.70, performance 0.60; global floor 0.70;
   - persistence 2, cooldown 3, at most 6 offers per session;
   - actionable states: bored and confused;
   - gpt-4o via OpenAI.
@@ -173,3 +175,13 @@ See [data-management-plan.md](data-management-plan.md). No video or images are s
    - give both arms on-demand help: this isolates the detector-triggered part, but needs a code
      change to show the button to control and route it to the same agents.
 4. Retention periods, withdrawal deadline, target n, compensation.
+5. The performance channel as a trigger. The pilot configuration lets it trigger help, because
+   the behavioural model never reaches its floor on this platform. Without it, automatic
+   confusion help would not exist. To confirm:
+   - promoting an unfitted heuristic before any pilot data. The alternative is to keep it
+     advisory, so that the gate only records `channel_advisory` when it would have helped;
+   - the 0.60 floor. The smallest combinations that reach it are 3 wrong answers plus a revealed
+     answer, or 2 wrong answers plus a revealed answer plus 2 re-reads;
+   - the counters are cumulative for a section. Once a section crosses the floor it stays over
+     it, and only the help ladder, "Got it" (resolved) and the card holds limit repeat offers
+     there.

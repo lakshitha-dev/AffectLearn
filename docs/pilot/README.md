@@ -21,16 +21,21 @@ decisions for the researcher, the supervisor or the ethics process, not for the 
 - whether the study needs formal ethics review;
 - the primary outcome;
 - whether the control arm also gets the "I'm stuck" button;
+- whether the performance channel may trigger help, and at what floor (see below);
 - the retention periods and the withdrawal deadline;
 - the target number of participants;
 - compensation.
 
 **Two things the pilot cannot show, stated up front:**
 
-- **Adaptation is driven mostly by one signal.** The facial channel detects only engaged vs
-  disengaged. The behavioural confusion model almost never reaches its 0.70 floor on this
-  platform. In practice, the adaptive arm's help will come from facial disengagement and from the
-  learner pressing "I'm stuck".
+- **Automatic confusion help comes from a heuristic, not a model.** The facial channel detects
+  only engaged vs disengaged. The behavioural confusion model almost never reaches its 0.70 floor
+  on this platform (live maximum 0.63 over 30 days). The pilot configuration therefore lets the
+  performance channel trigger help. This channel is a hand-weighted count of wrong answers, a
+  revealed answer, going back to re-read and slow reading, with a floor of 0.60. Its weights were
+  chosen for face validity and have not been fitted. The adaptive arm's help will come from three
+  sources: facial disengagement, the performance channel, and the learner pressing "I'm stuck".
+  This is a pilot-only setting; everywhere else the performance channel stays advisory.
 - **The sample is too small to test effectiveness.** With 20–30 participants split between two
   arms, only very large effects are detectable (d ≥ 1.06 at n = 30). The pilot estimates effect
   sizes and tests feasibility. It is not an effectiveness trial.

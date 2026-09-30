@@ -72,17 +72,25 @@ Pre-set criteria. Each is reported as met or not met:
    - Association with self-reported confusion.
    - For participants who opted into raw windows: exploratory re-derivation of features. No
      retraining claims are made from pilot data.
-3. **Triggers.**
+3. **Performance channel.**
+   - The distribution of struggle scores and their breakdown (wrong answers, revealed answer,
+     re-reads, slow pace), per participant.
+   - Agreement of readings at or above 0.60 with self-reported confusion within ±60 s.
+   - Its verdicts in the control arm's shadow gate, as the matched "would have helped" rate.
+4. **Triggers.**
    - Offers per hour: delivered in the adaptive arm; `shadow_would_offer` in the control arm.
    - The distribution of gate reasons per arm.
-   - The source of each offer: facial vs "I'm stuck" (`help_requested`). These are reported
-     separately throughout.
-4. **Responses to help** (adaptive arm).
+   - The source of each offer: facial (`facial_geometry`), performance heuristic
+     (`performance`, from `performance_signal_detected`) or "I'm stuck" (`help_requested`),
+     taken from the `affect_source` of the decision that produced it. These are reported
+     separately throughout. Performance-triggered help is labelled as coming from an unfitted
+     heuristic.
+5. **Responses to help** (adaptive arm).
    - Interaction outcome (accepted / dismissed / none) and probe answers (helped / did not help /
      unsure / dismissed / unanswered).
    - The next quiz attempt's correctness (`outcome_is_correct`).
    - Activity in the 120 s after `rendered_at` vs the 120 s before.
-5. **Matched moments across arms.**
+6. **Matched moments across arms.**
    - For every moment the gate would have offered help: a delivered offer in the adaptive arm, a
      `shadow_would_offer` moment in the control arm.
    - Compare the next self-report, the next quiz correctness and 120 s activity between arms.

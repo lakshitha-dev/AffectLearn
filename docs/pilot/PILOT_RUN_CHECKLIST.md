@@ -37,7 +37,8 @@ docker compose -f docker-compose.yml -f docker-compose.pilot.yml --env-file .env
 
 **Gates** (`[DECIDE]` items in [protocol.md](protocol.md) §10):
 - [ ] Ethics decision obtained and recorded in the information sheet.
-- [ ] Supervisor sign-off on the protocol, the primary outcome and the treatment definition.
+- [ ] Supervisor sign-off on the protocol, the primary outcome, the treatment definition and the
+  performance channel as a trigger (protocol §10.5).
 - [ ] Analysis plan fixed, dated and sent to the supervisor (or registered on OSF).
 
 **The laptop:**
