@@ -16,10 +16,12 @@ WHAT IT IS FOR
 
 WHAT IT IS NOT
     It cannot say whether adaptation helps anyone. The simulated learners' "true" states, their
-    facial measurements, their behaviour and their reaction to help are all SCRIPTED here (see
-    PROFILES and RESPONSE_MODEL). Agreement between the detectors and those scripted states only
-    shows the plumbing works: the facial measurements were chosen, by probing the geometry model,
-    to read as engaged or disengaged.
+    facial measurements, their behaviour, their struggle counters and their reaction to help are
+    all SCRIPTED here (see PROFILES, STRUGGLE and RESPONSE_MODEL). Agreement between the detectors
+    and those scripted states only shows the plumbing works: the facial measurements were chosen,
+    by probing the geometry model, to read as engaged or disengaged. The behavioural windows were
+    NOT probed and do not imitate the behavioural model's training data, so its readings here say
+    nothing about whether it detects confusion.
 
 ISOLATION FROM PARTICIPANT DATA
     Simulated accounts are `sim001@simulation.affectlearn.io` ... and are flagged `is_demo`, so every
@@ -102,6 +104,21 @@ RESPONSE_MODEL = {
 }
 NOT_PROBED = {"show_video", "skip_ahead", "suggest_break"}
 
+# ASSUMED struggle behaviour per scripted state (not measured anywhere). It feeds the performance
+# window the browser sends every cycle (`frontend/src/hooks/use-performance-window.ts`): the chance
+# per 30 s cycle of going back to re-read, the chance of revealing an exercise answer, and how
+# many times a wrong quiz answer is tried again. Cards the performance channel triggers from these
+# counters show the channel, gate and delivery working end to end, not how often people struggle.
+STRUGGLE = {
+    "reread": {"engaged": 0.03, "bored": 0.01, "confused": 0.35},
+    "reveal": {"engaged": 0.0, "bored": 0.02, "confused": 0.25},
+    "retries": {"engaged": 0, "bored": 0, "confused": 2},
+}
+
+# The pilot's behavioural floor (docker-compose.pilot.yml ADAPT_MIN_CONFIDENCE_BEHAVIORAL), used
+# only to report how many behavioural readings could have cleared it.
+BEHAVIOURAL_FLOOR = 0.70
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
@@ -119,6 +136,8 @@ class Sim:
     sent: Counter = field(default_factory=Counter)
     received: Counter = field(default_factory=Counter)
     states: Counter = field(default_factory=Counter)
+    timeline: dict = field(default_factory=dict)   # cycle -> scripted state
+    counters: dict = field(default_factory=dict)   # section id -> struggle counters
     errors: list = field(default_factory=list)
     user_id: str = ""
 
@@ -240,6 +259,34 @@ def next_state(sim: Sim) -> str:
     return sim.rng.choices(list(row), weights=list(row.values()))[0]
 
 
+def new_counters(entered_ms: int) -> dict[str, Any]:
+    """One section's struggle counters, as `use-section-signals` keeps them in the browser."""
+    return {"back_nav_count": 0, "show_answer_used": False, "quiz_attempt_count": 0,
+            "quiz_incorrect_count": 0, "entered_ms": entered_ms}
+
+
+def performance_window(counters: dict[str, Any], section_id: str, cycle: int,
+                       now: int) -> dict[str, Any]:
+    """The `performance_window` payload, key for key as `use-performance-window.ts` sends it."""
+    return {
+        "cycle_number": cycle, "section_id": section_id,
+        "back_nav_count": counters["back_nav_count"],
+        "show_answer_used": counters["show_answer_used"],
+        "quiz_attempt_count": counters["quiz_attempt_count"],
+        "quiz_incorrect_count": counters["quiz_incorrect_count"],
+        "time_on_section_s": round((now - counters["entered_ms"]) / 1000, 1),
+    }
+
+
+def struggle(sim: Sim, counters: dict[str, Any], section: dict) -> None:
+    """One cycle of scripted re-reading and answer-revealing for the current state (STRUGGLE)."""
+    if sim.rng.random() < STRUGGLE["reread"][sim.state]:
+        counters["back_nav_count"] += 1
+    has_exercise = any(b.get("blockType") == "exercise" for b in section.get("contentBlocks", []))
+    if has_exercise and sim.rng.random() < STRUGGLE["reveal"][sim.state]:
+        counters["show_answer_used"] = True
+
+
 # ── one simulated learner ───────────────────────────────────────────────────
 
 
@@ -315,7 +362,10 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
                         reactions.add(task)
                         task.add_done_callback(reactions.discard)
 
+            answered: set[str] = set()
+
             async def enter(idx: int) -> None:
+                sim.counters[sections[idx]["id"]] = new_counters(now_ms())
                 await send("ui_event", {"event": "section_entered", "section_id": sections[idx]["id"]})
                 await http.post("/section-visits", json={"sectionId": sections[idx]["id"],
                                                          "entrySource": "next"})
@@ -330,6 +380,7 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
                     cycle += 1
                     sim.state = next_state(sim)
                     sim.states[sim.state] += 1
+                    sim.timeline[cycle] = sim.state
                     frames, with_face = geometry_frames(sim.state, sim.rng)
                     await send("facial_features", {
                         "cycle_number": cycle, "capture_started_at": window_start,
@@ -355,12 +406,19 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
                         "dropped_events": 0, "section_id": section["id"], "page_instance_id": f"sim-{sim.code}",
                         "viewport": {"w": 1536, "h": 730, "doc_h": 3000, "dpr": 1.25}, "ui_events": [],
                     })
+                    # Mid-section, so the counters reach the server while the learner is still here.
+                    counters = sim.counters[section["id"]]
+                    struggle(sim, counters, section)
+                    if cycle % 4 == 2 and section["id"] not in answered:
+                        answered.add(section["id"])
+                        await answer_quizzes(http, sim, section, counters)
+                    await send("performance_window",
+                               performance_window(counters, section["id"], cycle, now_ms()))
                     await send("heartbeat", {"seq": cycle})
                     if adaptive and sim.state == "confused" and sim.rng.random() < 0.15:
                         await send("help_request", {"request": "still_stuck", "section_id": section["id"],
                                                     "cycle_number": cycle})
                     if cycle % 4 == 0 and section_idx < len(sections) - 1:
-                        await answer_quizzes(http, sim, section)
                         section_idx += 1
                         section = sections[section_idx]
                         await enter(section_idx)
@@ -375,7 +433,9 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
                     task.cancel()
 
 
-async def answer_quizzes(http: httpx.AsyncClient, sim: Sim, section: dict) -> None:
+async def answer_quizzes(http: httpx.AsyncClient, sim: Sim, section: dict,
+                         counters: dict[str, Any]) -> None:
+    """Answer the section's quizzes; a wrong answer is tried again up to STRUGGLE["retries"]."""
     p_correct = {"engaged": 0.85, "bored": 0.6, "confused": 0.35}[sim.state]
     for block in section.get("contentBlocks", []):
         if block.get("blockType") != "quiz":
@@ -385,12 +445,18 @@ async def answer_quizzes(http: httpx.AsyncClient, sim: Sim, section: dict) -> No
             continue
         right = [o for o in options if o.get("isCorrect")]
         wrong = [o for o in options if not o.get("isCorrect")]
-        pick = right if (sim.rng.random() < p_correct or not wrong) else [sim.rng.choice(wrong)]
-        await http.post("/quiz-responses", json={
-            "contentBlockId": block["id"], "selectedAnswers": [o["id"] for o in pick],
-            "isCorrect": bool(pick and pick[0].get("isCorrect")),
-            "responseTimeMs": int(sim.rng.uniform(4000, 30000)), "sectionId": section["id"]})
-        sim.sent["quiz_response"] += 1
+        for _ in range(1 + STRUGGLE["retries"][sim.state]):
+            pick = right if (sim.rng.random() < p_correct or not wrong) else [sim.rng.choice(wrong)]
+            correct = bool(pick and pick[0].get("isCorrect"))
+            await http.post("/quiz-responses", json={
+                "contentBlockId": block["id"], "selectedAnswers": [o["id"] for o in pick],
+                "isCorrect": correct,
+                "responseTimeMs": int(sim.rng.uniform(4000, 30000)), "sectionId": section["id"]})
+            sim.sent["quiz_response"] += 1
+            counters["quiz_attempt_count"] += 1
+            if correct:
+                break
+            counters["quiz_incorrect_count"] += 1
 
 
 # ── report ────────────────────────────────────────────────────────────────────
@@ -401,6 +467,44 @@ def _pct(values: list[float], q: float) -> float | None:
         return None
     values = sorted(values)
     return values[min(len(values) - 1, int(round(q * (len(values) - 1))))]
+
+
+def decision_runs(events: list[Any]) -> dict[str, dict[str, Any]]:
+    """Group events by the graph run that produced them: decision_id -> {event_type: event}."""
+    runs: dict[str, dict[str, Any]] = defaultdict(dict)
+    for e in events:
+        if e.decision_id:
+            runs[e.decision_id].setdefault(e.event_type, e)
+    return runs
+
+
+def cards_by_source(runs: dict[str, dict[str, Any]]) -> Counter:
+    """Which channel each delivered card came from: the `affect_source` the gate passed."""
+    sources: Counter = Counter()
+    for run in runs.values():
+        if "adaptation_delivered" not in run:
+            continue
+        profile = run.get("learner_profile_updated")
+        source = (profile.payload or {}).get("affect_source") if profile else None
+        sources[source or ("learner_request" if "help_requested" in run else "unknown")] += 1
+    return sources
+
+
+def behavioural_by_state(sims: list[Sim], events: list[Any]) -> dict[str, dict[str, Any]]:
+    """The behavioural model's P(confused), grouped by the state the script was in that cycle."""
+    by_id = {s.user_id: s for s in sims}
+    ps: dict[str, list[float]] = defaultdict(list)
+    for e in events:
+        if e.event_type != "behavioral_affect_detected":
+            continue
+        sim = by_id.get(e.learner_id)
+        state = sim.timeline.get(e.cycle_number) if sim else None
+        p = (e.payload or {}).get("p_confused")
+        if state and p is not None:
+            ps[state].append(float(p))
+    return {state: {"n": len(v), "mean": round(statistics.fmean(v), 3), "max": round(max(v), 3),
+                    "share_at_floor": round(sum(p >= BEHAVIOURAL_FLOOR for p in v) / len(v), 3)}
+            for state, v in sorted(ps.items())}
 
 
 async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Path) -> dict:
@@ -421,11 +525,10 @@ async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Pat
     per: dict[str, dict[str, Any]] = {}
     gate_reasons: dict[str, Counter] = defaultdict(Counter)
     shadow: Counter = Counter()
+    shadow_by_source: Counter = Counter()
+    perf_gate: dict[str, Counter] = defaultdict(Counter)
     latencies, llm_ms = [], []
-    runs: dict[str, dict[str, ResearchEvent]] = defaultdict(dict)
-    for e in events:
-        if e.decision_id:
-            runs[e.decision_id].setdefault(e.event_type, e)
+    runs = decision_runs(events)
     for s in sims:
         mine = [e for e in events if e.learner_id == s.user_id]
         types = Counter(e.event_type for e in mine)
@@ -437,6 +540,8 @@ async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Pat
             "behavioural_sent": s.sent["behavioral_window"],
             "behavioural_recorded": types["behavioral_affect_detected"],
             "facial_read_disengaged": disengaged,
+            "performance_sent": s.sent["performance_window"],
+            "performance_readings": types["performance_signal_detected"],
             "cards_received": s.received["adaptation"],
             "offers_per_hour": round(s.received["adaptation"] / hours, 1) if hours else None,
             "missing_event_id": sum(1 for e in mine if not e.event_id),
@@ -448,40 +553,44 @@ async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Pat
                 gate_reasons[s.arm][p.get("adaptation_gate")] += 1
                 if p.get("shadow_would_offer"):
                     shadow[s.code] += 1
+                    shadow_by_source[p.get("affect_source")] += 1
+                if p.get("affect_source") == "performance":
+                    # The control arm is never eligible, so its shadow verdict is the informative one.
+                    verdict = p.get("shadow_gate") if s.arm == "control" else p.get("adaptation_gate")
+                    perf_gate[s.arm][verdict] += 1
         per[s.code]["shadow_would_offer"] = shadow[s.code]
     for run in runs.values():
-        detection = run.get("facial_affect_detected") or run.get("behavioral_affect_detected")
+        detection = (run.get("facial_affect_detected") or run.get("behavioral_affect_detected")
+                     or run.get("performance_signal_detected"))
         delivered = run.get("adaptation_delivered")
         if detection and delivered and (detection.payload or {}).get("received_at_ms"):
             latencies.append((delivered.timestamp - detection.payload["received_at_ms"]) / 1000)
         strategy = run.get("strategy_decided")
         if strategy and (strategy.payload or {}).get("llm_ms") is not None:
             llm_ms.append(strategy.payload["llm_ms"])
-    # Which channel each card answered, and how close the interaction channel came to its floor.
-    triggers = Counter(
-        (e.payload or {}).get("affect_source") for e in events
-        if e.event_type == "learner_profile_updated"
-        and (e.payload or {}).get("adaptation_gate") in ("ok", "learner_request")
-    )
+    # How close the interaction channel came to its floor.
     p_confused = [float((e.payload or {})["p_confused"]) for e in events
                   if e.event_type == "behavioral_affect_detected"
                   and (e.payload or {}).get("p_confused") is not None]
     chains = [r for r in runs.values() if "adaptation_delivered" in r]
     complete = sum(1 for r in chains if "learner_profile_updated" in r and "strategy_decided" in r and
                    ("facial_affect_detected" in r or "behavioral_affect_detected" in r or
-                    "help_requested" in r))
+                    "performance_signal_detected" in r or "help_requested" in r))
     report = {
         "banner": BANNER,
         "started": datetime.fromtimestamp(started_ms / 1000, timezone.utc).isoformat(),
         "minutes": round((ended_ms - started_ms) / 60000, 1),
         "learners": len(sims),
         "response_model_assumed": RESPONSE_MODEL,
+        "struggle_assumed": STRUGGLE,
         "per_learner": per,
         "totals": {
             "facial_sent": sum(p["facial_sent"] for p in per.values()),
             "facial_recorded": sum(p["facial_recorded"] for p in per.values()),
             "behavioural_sent": sum(p["behavioural_sent"] for p in per.values()),
             "behavioural_recorded": sum(p["behavioural_recorded"] for p in per.values()),
+            "performance_sent": sum(p["performance_sent"] for p in per.values()),
+            "performance_readings": sum(p["performance_readings"] for p in per.values()),
             "events_recorded": len(events),
             "events_missing_event_id": sum(p["missing_event_id"] for p in per.values()),
             "cards_delivered": len(chains),
@@ -491,12 +600,17 @@ async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Pat
             "llm_fallbacks": sum(1 for a in ledger if a.fallback),
         },
         "gate_reasons_by_arm": {arm: dict(c.most_common()) for arm, c in gate_reasons.items()},
-        "cards_by_trigger_source": dict(triggers.most_common()),
+        # Which channel each DELIVERED card answered (see `cards_by_source`).
+        "cards_by_trigger_source": dict(cards_by_source(runs).most_common()),
+        "shadow_offers_by_source": dict(shadow_by_source.most_common()),
         "interaction_channel": {
             "windows": len(p_confused),
             "max_p_confused": round(max(p_confused), 4) if p_confused else None,
             "windows_at_or_above_floor_0_70": sum(p >= 0.70 for p in p_confused),
         },
+        "behavioural_by_state": behavioural_by_state(sims, events),
+        "behavioural_floor": BEHAVIOURAL_FLOOR,
+        "performance_verdicts_by_arm": {arm: dict(c.most_common()) for arm, c in perf_gate.items()},
         "actions": dict(Counter(a.action_type for a in ledger).most_common()),
         "reading_to_card_seconds": {"median": _pct(latencies, 0.5), "p90": _pct(latencies, 0.9),
                                      "n": len(latencies)},
@@ -513,7 +627,7 @@ def render_markdown(r: dict) -> str:
     lines = [
         f"# System simulation report\n\n**{r['banner']}.**\n",
         f"{r['learners']} scripted learners, {r['minutes']} minutes, started {r['started']}. Every "
-        "state, facial measurement, behaviour and reaction to help is scripted "
+        "state, facial measurement, behaviour, struggle counter and reaction to help is scripted "
         "(`scripts/simulate_learners.py`). This report describes the system, not learners.\n",
         "## Data completeness\n",
         "| Measure | Value |", "|---|---|",
@@ -532,24 +646,50 @@ def render_markdown(r: dict) -> str:
     ]
     for arm, reasons in r["gate_reasons_by_arm"].items():
         lines.append(f"- **{arm}**: " + ", ".join(f"{k} {v}" for k, v in reasons.items()))
+
+    def _counts(c: dict) -> str:
+        return ", ".join(f"{k} {v}" for k, v in c.items()) or "none"
+
     ic = r["interaction_channel"]
     lines += ["\n## What triggered the cards\n",
-              ", ".join(f"{k} {v}" for k, v in r["cards_by_trigger_source"].items()) or "none",
+              _counts(r["cards_by_trigger_source"]),
+              "\nControl arm, moments the gate would have helped, by source: "
+              f"{_counts(r['shadow_offers_by_source'])}",
               f"\nInteraction channel: highest P(confused) {ic['max_p_confused']} over {ic['windows']} "
               f"windows; {ic['windows_at_or_above_floor_0_70']} at or above the 0.70 floor."]
-    lines += ["\n## Actions delivered\n", ", ".join(f"{k} {v}" for k, v in r["actions"].items()) or "none",
-              "\n## Per scripted learner\n",
-              "| Code | Profile | Arm | Facial rec/sent | Read disengaged | Cards | Offers/h | Shadow offers |",
-              "|---|---|---|---|---|---|---|---|"]
+    lines += ["\n## Actions delivered\n", _counts(r["actions"]),
+              "\n## Performance channel\n",
+              "- Windows sent / readings at or above the reporting score (0.45): "
+              f"{t['performance_sent']} / {t['performance_readings']}"]
+    for arm, verdicts in r["performance_verdicts_by_arm"].items():
+        label = "shadow verdicts" if arm == "control" else "gate verdicts"
+        lines.append(f"- **{arm}** {label}: {_counts(verdicts)}")
+    lines += ["\n## Behavioural model against the scripted state\n",
+              f"| Scripted state | Windows | Mean P(confused) | Max | Share at or above {r['behavioural_floor']} |",
+              "|---|---|---|---|---|"]
+    for state, b in r["behavioural_by_state"].items():
+        lines.append(f"| {state} | {b['n']} | {b['mean']} | {b['max']} | {b['share_at_floor']} |")
+    lines += ["\n## Per scripted learner\n",
+              "| Code | Profile | Arm | Facial rec/sent | Read disengaged | Perf readings | Cards | Offers/h | "
+              "Shadow offers |",
+              "|---|---|---|---|---|---|---|---|---|"]
     for code, p in r["per_learner"].items():
         lines.append(f"| {code} | {p['profile']} | {p['arm']} | {p['facial_recorded']}/{p['facial_sent']} | "
-                     f"{p['facial_read_disengaged']} | {p['cards_received']} | {p['offers_per_hour']} | "
-                     f"{p['shadow_would_offer']} |")
+                     f"{p['facial_read_disengaged']} | {p['performance_readings']} | {p['cards_received']} | "
+                     f"{p['offers_per_hour']} | {p['shadow_would_offer']} |")
     lines += ["\n## How to read this\n",
               "- Completeness, ids, latency and gate reasons describe the running system and can be "
               "reported as a system simulation.",
               "- Offer rates depend on the scripted profiles; they show how the gate paces help for "
               "these inputs, not how often real learners will be helped.",
+              "- The behavioural windows are not scripted to look like the behavioural model's training "
+              "data (DUX expense forms, where confusion shows as erratic mouse movement and clicks), so "
+              "the table above shows how the model responds to these scripts, not whether it detects "
+              "confusion. The evidence that it stays under its floor on this platform is the 30-day "
+              "live record (maximum P(confused) 0.63), not this simulation.",
+              "- The performance counters are scripted too "
+              f"({json.dumps(r['struggle_assumed'])}). Cards from them show that the channel, the gate "
+              "and delivery work end to end, not how often real learners struggle.",
               "- Nothing here measures learning, engagement or whether help works: the reaction to "
               f"help is an assumption ({json.dumps(r['response_model_assumed'])}).\n"]
     return "\n".join(lines)
