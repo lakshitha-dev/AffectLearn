@@ -63,7 +63,7 @@ export function QuizBlock({ blockId, content, onSubmit, previewMode }: QuizBlock
       <p className="font-medium text-base text-foreground">{content.question}</p>
 
       <div role={isMultiple ? "group" : "radiogroup"} className="space-y-2">
-        {content.options.map((option) => {
+        {content.options.map((option, optionIndex) => {
           const isSelected = selected.has(option.id);
           const showCorrect = submitted && option.isCorrect;
           const showWrong = submitted && isSelected && !option.isCorrect;
@@ -71,6 +71,7 @@ export function QuizBlock({ blockId, content, onSubmit, previewMode }: QuizBlock
           return (
             <button
               key={option.id}
+              data-track={`quiz-${blockId}-option-${optionIndex}`}
               role={isMultiple ? "checkbox" : "radio"}
               aria-checked={isSelected}
               onClick={() => handleSelect(option.id)}
@@ -98,6 +99,7 @@ export function QuizBlock({ blockId, content, onSubmit, previewMode }: QuizBlock
       {!submitted && !previewMode && (
         <Button
           size="sm"
+          data-track={`quiz-${blockId}-check`}
           disabled={selected.size === 0}
           onClick={handleSubmit}
         >

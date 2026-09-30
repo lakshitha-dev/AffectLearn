@@ -12,6 +12,8 @@ from app.api.routes import (
     learner_profiles,
     learners,
     monitor,
+    instruments,
+    pilot,
     questionnaire,
     research,
     reviews,
@@ -37,6 +39,8 @@ api_router.include_router(
     system_config.router, prefix="/admin", tags=["system-config"]
 )
 api_router.include_router(research.router, prefix="/admin", tags=["research"])
+api_router.include_router(pilot.router, prefix="/admin", tags=["pilot"])
+api_router.include_router(instruments.router, tags=["instruments"])
 api_router.include_router(surveys.router, prefix="/surveys", tags=["surveys"])
 api_router.include_router(questionnaire.router, tags=["onboarding"])
 api_router.include_router(section_progress.router)

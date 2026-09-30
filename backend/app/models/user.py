@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, Enum, String
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseModel
@@ -28,6 +28,17 @@ class User(BaseModel):
     email_verified = Column(Boolean, nullable=False, default=False)
     consent_given_at = Column(DateTime(timezone=True), nullable=True)
     webcam_enabled = Column(Boolean, nullable=False, default=False)
+    # WHAT WAS CONSENTED TO, AND UNDER WHICH TEXT (migration 032).
+    #
+    # `consent_given_at` alone recorded that a box was ticked, not what it said or what it covered.
+    # `consent_version` names the consent text the learner saw; `consent_scopes` records the
+    # optional parts separately (see `services/consent.py` for the scope names). Webcam consent is
+    # `webcam_enabled` itself -- the learner's camera choice -- so the two can never disagree.
+    # `consent_withdrawn_at` stops all capture at once without deleting the account, so a
+    # participant can stop the study first and decide about their data afterwards.
+    consent_version = Column(String(32), nullable=True)
+    consent_scopes = Column(JSON, nullable=True)
+    consent_withdrawn_at = Column(DateTime(timezone=True), nullable=True)
     #: A seeded demonstration account (migration 029, `app/db/seed_demo.py`). Excluded from every
     #: research surface — see `services/demo_scope.py`.
     is_demo = Column(Boolean, nullable=False, default=False, server_default="false", index=True)

@@ -224,6 +224,39 @@ export interface UiEventMessage extends WSMessage {
     | { event: "quiz_activity"; section_id?: string };
 }
 
+/**
+ * What happened to a delivered card that is NOT the learner's verdict on it: it became visible,
+ * it was re-opened or expanded, its "Did that help?" question was shown or left unanswered, or
+ * (for a break suggestion) how the break went. Recorded as research events only -- the ledger's
+ * interaction and the delivery guard are driven by `adaptation_interaction`, never by these.
+ */
+export type AdaptationLifecycleEvent =
+  | "rendered"
+  | "reopened"
+  | "expanded"
+  | "collapsed"
+  | "probe_shown"
+  | "probe_unanswered"
+  | "break_taken"
+  | "break_declined"
+  | "break_returned_early"
+  | "break_completed";
+
+export interface AdaptationEventMessage extends WSMessage {
+  type: "adaptation_event";
+  data: {
+    adaptation_id: string;
+    action: AdaptationAction;
+    event: AdaptationLifecycleEvent;
+    /** Milliseconds since the card was received, when that is meaningful. */
+    since_received_ms?: number;
+    /** Break only: seconds the learner was away before returning. */
+    seconds_away?: number;
+    section_id?: string;
+    cycle_number?: number;
+  };
+}
+
 export type UpstreamMessage =
   | ClientHelloMessage
   | HeartbeatMessage
@@ -233,7 +266,8 @@ export type UpstreamMessage =
   | AdaptationProbeMessage
   | HelpRequestMessage
   | UiEventMessage
-  | SelfReportMessage;
+  | SelfReportMessage
+  | AdaptationEventMessage;
 
 // ---------- Downstream (server → client) ----------
 

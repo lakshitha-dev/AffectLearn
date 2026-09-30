@@ -228,6 +228,7 @@ export function SelfReportBar({ onReport }: SelfReportBarProps) {
             return (
               <button
                 key={option.value}
+                data-track={`self-report-${option.value}`}
                 ref={(el) => {
                   optionRefs.current[idx] = el;
                 }}
@@ -256,6 +257,7 @@ export function SelfReportBar({ onReport }: SelfReportBarProps) {
         {selected === null && (
           <button
             type="button"
+            data-track="self-report-skip"
             onClick={skip}
             className="ml-1 text-sm text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
           >
