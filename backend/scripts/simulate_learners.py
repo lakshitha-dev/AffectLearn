@@ -106,14 +106,17 @@ NOT_PROBED = {"show_video", "skip_ahead", "suggest_break"}
 
 # ASSUMED struggle behaviour per scripted state (not measured anywhere). It feeds the performance
 # window the browser sends every cycle (`frontend/src/hooks/use-performance-window.ts`): the chance
-# per 30 s cycle of going back to re-read, the chance of revealing an exercise answer, and how
-# many times a wrong quiz answer is tried again. Cards the performance channel triggers from these
-# counters show the channel, gate and delivery working end to end, not how often people struggle.
+# per 30 s cycle of going back to re-read, the chance of revealing an exercise answer, and how many
+# extra 30 s cycles a learner who is confused when the section would end stays on it (which is
+# what makes reading pace slow). Each quiz takes one answer, as `QuizBlock` allows. Cards the
+# performance channel triggers from these counters show the channel, gate and delivery working end
+# to end, not how often people struggle.
 STRUGGLE = {
     "reread": {"engaged": 0.03, "bored": 0.01, "confused": 0.35},
     "reveal": {"engaged": 0.0, "bored": 0.02, "confused": 0.25},
-    "retries": {"engaged": 0, "bored": 0, "confused": 2},
+    "linger": {"engaged": 0, "bored": 0, "confused": 6},
 }
+CYCLES_PER_SECTION = 4
 
 # The pilot's behavioural floor (docker-compose.pilot.yml ADAPT_MIN_CONFIDENCE_BEHAVIORAL), used
 # only to report how many behavioural readings could have cleared it.
@@ -278,6 +281,11 @@ def performance_window(counters: dict[str, Any], section_id: str, cycle: int,
     }
 
 
+def leaves_section(sim: Sim, cycles_on_section: int) -> bool:
+    """Move on after CYCLES_PER_SECTION cycles, or later while confused (STRUGGLE["linger"])."""
+    return cycles_on_section >= CYCLES_PER_SECTION + STRUGGLE["linger"][sim.state]
+
+
 def struggle(sim: Sim, counters: dict[str, Any], section: dict) -> None:
     """One cycle of scripted re-reading and answer-revealing for the current state (STRUGGLE)."""
     if sim.rng.random() < STRUGGLE["reread"][sim.state]:
@@ -313,7 +321,7 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
         async with websockets.connect(f"{ws_url}?token={token}", max_size=None) as ws:
             hello = json.loads(await ws.recv())
             adaptive = bool((hello.get("data") or {}).get("adaptive"))
-            section_idx, cycle, reports = 0, 0, 0
+            section_idx, cycle, reports, on_section = 0, 0, 0, 0
             section = sections[0]
 
             async def send(kind: str, data: dict) -> None:
@@ -362,8 +370,6 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
                         reactions.add(task)
                         task.add_done_callback(reactions.discard)
 
-            answered: set[str] = set()
-
             async def enter(idx: int) -> None:
                 sim.counters[sections[idx]["id"]] = new_counters(now_ms())
                 await send("ui_event", {"event": "section_entered", "section_id": sections[idx]["id"]})
@@ -406,11 +412,11 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
                         "dropped_events": 0, "section_id": section["id"], "page_instance_id": f"sim-{sim.code}",
                         "viewport": {"w": 1536, "h": 730, "doc_h": 3000, "dpr": 1.25}, "ui_events": [],
                     })
+                    on_section += 1
                     # Mid-section, so the counters reach the server while the learner is still here.
                     counters = sim.counters[section["id"]]
                     struggle(sim, counters, section)
-                    if cycle % 4 == 2 and section["id"] not in answered:
-                        answered.add(section["id"])
+                    if on_section == 2:
                         await answer_quizzes(http, sim, section, counters)
                     await send("performance_window",
                                performance_window(counters, section["id"], cycle, now_ms()))
@@ -418,8 +424,8 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
                     if adaptive and sim.state == "confused" and sim.rng.random() < 0.15:
                         await send("help_request", {"request": "still_stuck", "section_id": section["id"],
                                                     "cycle_number": cycle})
-                    if cycle % 4 == 0 and section_idx < len(sections) - 1:
-                        section_idx += 1
+                    if leaves_section(sim, on_section) and section_idx < len(sections) - 1:
+                        section_idx, on_section = section_idx + 1, 0
                         section = sections[section_idx]
                         await enter(section_idx)
                         if section_idx % 2 == 0:
@@ -435,7 +441,7 @@ async def run_learner(sim: Sim, api: str, minutes: float) -> None:
 
 async def answer_quizzes(http: httpx.AsyncClient, sim: Sim, section: dict,
                          counters: dict[str, Any]) -> None:
-    """Answer the section's quizzes; a wrong answer is tried again up to STRUGGLE["retries"]."""
+    """Answer each of the section's quizzes once, as `QuizBlock` allows, and count the attempts."""
     p_correct = {"engaged": 0.85, "bored": 0.6, "confused": 0.35}[sim.state]
     for block in section.get("contentBlocks", []):
         if block.get("blockType") != "quiz":
@@ -445,18 +451,15 @@ async def answer_quizzes(http: httpx.AsyncClient, sim: Sim, section: dict,
             continue
         right = [o for o in options if o.get("isCorrect")]
         wrong = [o for o in options if not o.get("isCorrect")]
-        for _ in range(1 + STRUGGLE["retries"][sim.state]):
-            pick = right if (sim.rng.random() < p_correct or not wrong) else [sim.rng.choice(wrong)]
-            correct = bool(pick and pick[0].get("isCorrect"))
-            await http.post("/quiz-responses", json={
-                "contentBlockId": block["id"], "selectedAnswers": [o["id"] for o in pick],
-                "isCorrect": correct,
-                "responseTimeMs": int(sim.rng.uniform(4000, 30000)), "sectionId": section["id"]})
-            sim.sent["quiz_response"] += 1
-            counters["quiz_attempt_count"] += 1
-            if correct:
-                break
-            counters["quiz_incorrect_count"] += 1
+        pick = right if (sim.rng.random() < p_correct or not wrong) else [sim.rng.choice(wrong)]
+        correct = bool(pick and pick[0].get("isCorrect"))
+        await http.post("/quiz-responses", json={
+            "contentBlockId": block["id"], "selectedAnswers": [o["id"] for o in pick],
+            "isCorrect": correct,
+            "responseTimeMs": int(sim.rng.uniform(4000, 30000)), "sectionId": section["id"]})
+        sim.sent["quiz_response"] += 1
+        counters["quiz_attempt_count"] += 1
+        counters["quiz_incorrect_count"] += 0 if correct else 1
 
 
 # ── report ────────────────────────────────────────────────────────────────────

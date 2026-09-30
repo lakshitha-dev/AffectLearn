@@ -17,6 +17,7 @@ from scripts.simulate_learners import (
     cards_by_source,
     decision_runs,
     geometry_frames,
+    leaves_section,
     new_counters,
     performance_window,
     struggle,
@@ -101,12 +102,20 @@ def test_an_engaged_learner_never_reveals_an_answer():
     assert counters["show_answer_used"] is False
 
 
-def test_scripted_struggle_can_reach_the_performance_floor():
-    """Three wrong answers and a revealed answer: the combination the pilot floor (0.60) needs."""
-    counters = {**new_counters(0), "quiz_attempt_count": 3, "quiz_incorrect_count": 3,
-                "show_answer_used": True}
+def test_scripted_struggle_can_reach_the_pilot_floor():
+    """What one confused visit can produce on a section with one quiz and an exercise: one wrong
+    answer, a revealed answer and two re-reads = 0.50, over the pilot floor of 0.45."""
+    counters = {**new_counters(0), "quiz_attempt_count": 1, "quiz_incorrect_count": 1,
+                "show_answer_used": True, "back_nav_count": 2}
     reading = performance_signals.detect(performance_window(counters, "s1", 1, 60_000))
-    assert reading is not None and reading["affect_confidence"] >= 0.60
+    assert reading is not None and reading["affect_confidence"] >= 0.45
+
+
+def test_a_confused_learner_lingers_on_the_section():
+    """Staying longer is what makes the slow-pace term count."""
+    assert leaves_section(_sim("engaged"), 4)
+    assert not leaves_section(_sim("confused"), 4)
+    assert leaves_section(_sim("confused"), 4 + STRUGGLE["linger"]["confused"])
 
 
 def test_struggle_probabilities_are_probabilities():
