@@ -127,7 +127,15 @@ class Sim:
 
 
 async def ensure_accounts(n: int, seed: int) -> list[Sim]:
-    """Demo-flagged, consented, camera-on accounts; arms alternate so each profile is in both."""
+    """Fresh demo-flagged, consented, camera-on accounts; arms alternate so each profile is in both.
+
+    Every run starts from NEW accounts. Reusing the previous run's accounts carried their platform
+    session over (it is restored for 12 h), so the earlier run's offers counted against this run's
+    session cap and its ledger rows appeared in this run's report.
+    """
+    removed = await cleanup()
+    if removed:
+        print(f"erased {removed} simulated account(s) from an earlier run (its report is already written)")
     rng = random.Random(seed)
     profiles = list(PROFILES)
     sims: list[Sim] = []
@@ -402,9 +410,12 @@ async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Pat
             select(ResearchEvent).where(ResearchEvent.learner_id.in_(list(by_id)),
                                         ResearchEvent.timestamp >= started_ms)
         )).scalars().all()
+        # This run only, like the events above.
         ledger = (await db.execute(
-            select(AssistanceEvent).where(AssistanceEvent.learner_id.in_(
-                [uuid.UUID(u) for u in by_id]))
+            select(AssistanceEvent).where(
+                AssistanceEvent.learner_id.in_([uuid.UUID(u) for u in by_id]),
+                AssistanceEvent.created_at >= datetime.fromtimestamp(started_ms / 1000, timezone.utc),
+            )
         )).scalars().all()
     hours = (ended_ms - started_ms) / 3_600_000
     per: dict[str, dict[str, Any]] = {}
@@ -446,6 +457,15 @@ async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Pat
         strategy = run.get("strategy_decided")
         if strategy and (strategy.payload or {}).get("llm_ms") is not None:
             llm_ms.append(strategy.payload["llm_ms"])
+    # Which channel each card answered, and how close the interaction channel came to its floor.
+    triggers = Counter(
+        (e.payload or {}).get("affect_source") for e in events
+        if e.event_type == "learner_profile_updated"
+        and (e.payload or {}).get("adaptation_gate") in ("ok", "learner_request")
+    )
+    p_confused = [float((e.payload or {})["p_confused"]) for e in events
+                  if e.event_type == "behavioral_affect_detected"
+                  and (e.payload or {}).get("p_confused") is not None]
     chains = [r for r in runs.values() if "adaptation_delivered" in r]
     complete = sum(1 for r in chains if "learner_profile_updated" in r and "strategy_decided" in r and
                    ("facial_affect_detected" in r or "behavioral_affect_detected" in r or
@@ -471,6 +491,12 @@ async def build_report(sims: list[Sim], started_ms: int, ended_ms: int, out: Pat
             "llm_fallbacks": sum(1 for a in ledger if a.fallback),
         },
         "gate_reasons_by_arm": {arm: dict(c.most_common()) for arm, c in gate_reasons.items()},
+        "cards_by_trigger_source": dict(triggers.most_common()),
+        "interaction_channel": {
+            "windows": len(p_confused),
+            "max_p_confused": round(max(p_confused), 4) if p_confused else None,
+            "windows_at_or_above_floor_0_70": sum(p >= 0.70 for p in p_confused),
+        },
         "actions": dict(Counter(a.action_type for a in ledger).most_common()),
         "reading_to_card_seconds": {"median": _pct(latencies, 0.5), "p90": _pct(latencies, 0.9),
                                      "n": len(latencies)},
@@ -506,6 +532,11 @@ def render_markdown(r: dict) -> str:
     ]
     for arm, reasons in r["gate_reasons_by_arm"].items():
         lines.append(f"- **{arm}**: " + ", ".join(f"{k} {v}" for k, v in reasons.items()))
+    ic = r["interaction_channel"]
+    lines += ["\n## What triggered the cards\n",
+              ", ".join(f"{k} {v}" for k, v in r["cards_by_trigger_source"].items()) or "none",
+              f"\nInteraction channel: highest P(confused) {ic['max_p_confused']} over {ic['windows']} "
+              f"windows; {ic['windows_at_or_above_floor_0_70']} at or above the 0.70 floor."]
     lines += ["\n## Actions delivered\n", ", ".join(f"{k} {v}" for k, v in r["actions"].items()) or "none",
               "\n## Per scripted learner\n",
               "| Code | Profile | Arm | Facial rec/sent | Read disengaged | Cards | Offers/h | Shadow offers |",
