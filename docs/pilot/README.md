@@ -32,12 +32,14 @@ decisions for the researcher, the supervisor or the ethics process, not for the 
   only engaged vs disengaged. The behavioural confusion model almost never reaches its 0.70 floor
   on this platform (live maximum 0.63 over 30 days). The pilot configuration therefore lets the
   performance channel trigger help. This channel is a hand-weighted count of wrong answers, a
-  revealed answer, going back to re-read and slow reading. Its floor is 0.45, its own reporting
-  score, because each quiz takes one answer and 0.60 is out of reach on most sections. Its
-  weights were chosen for face validity and have not been fitted. The adaptive arm's help will
-  come from three sources: facial disengagement, the performance channel, and the learner
-  pressing "I'm stuck".
-  This is a pilot-only setting; everywhere else the performance channel stays advisory.
+  revealed answer, going back to re-read and slow reading. Wrong answers count against the
+  section's own quizzes, because each quiz takes one answer. Its floor is 0.45, its own
+  reporting score, which needs two indicators together, such as a wrong answer and two re-reads.
+  The 18 sections with no quiz or exercise can reach at most 0.40, so there help comes only from
+  the other channels. Its weights were chosen for face validity and have not been fitted. The
+  adaptive arm's help will come from three sources: facial disengagement, the performance
+  channel, and the learner pressing "I'm stuck". This is a pilot-only setting; everywhere else
+  the performance channel stays advisory.
 - **The sample is too small to test effectiveness.** With 20–30 participants split between two
   arms, only very large effects are detectable (d ≥ 1.06 at n = 30). The pilot estimates effect
   sizes and tests feasibility. It is not an effectiveness trial.

@@ -45,6 +45,18 @@ async def test_the_context_carries_a_word_count(db):
     assert context["n_words"] == 5
 
 
+async def test_the_context_counts_the_sections_quizzes(db):
+    """Where the performance channel's wrong-answer count saturates."""
+    section = await _seed_section(db, "text")
+    db.add(ContentBlock(block_type="quiz", content={"question": "q", "options": []}, sort_order=1,
+                        section_id=section.id))
+    await db.flush()
+
+    context = await content_context_service.build(section.id, db)
+
+    assert context["n_quizzes"] == 1
+
+
 async def test_a_long_section_is_counted_in_full(db):
     """1,000 words is ~6,000 characters, three times the prompt budget."""
     section = await _seed_section(db, "word " * 1000)

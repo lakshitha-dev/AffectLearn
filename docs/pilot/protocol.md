@@ -181,12 +181,14 @@ See [data-management-plan.md](data-management-plan.md). No video or images are s
    confusion help would not exist. To confirm:
    - promoting an unfitted heuristic before any pilot data. The alternative is to keep it
      advisory, so that the gate only records `channel_advisory` when it would have helped;
-   - the 0.45 floor, which is the channel's own reporting score (the code default is 0.60). Each
-     quiz takes one answer and most sections have at most one quiz, so a wrong answer adds 0.12.
-     At 0.60 the channel could fire on only 14 of the 56 sections, and only with three re-reads
-     and very slow reading. At 0.45 it needs at least two indicators together, for example a
-     revealed answer plus 3 re-reads, or 1 wrong answer plus 2 re-reads plus slow reading. It is
-     reachable on 38 of the 56 sections;
+   - the scoring of wrong answers. Each quiz takes one answer and most sections have one quiz,
+     so wrong answers now count against the section's own quizzes (at most three). One wrong
+     answer on a section's only quiz adds the full 0.35 instead of 0.12;
+   - the 0.45 floor, which is the channel's own reporting score (the code default is 0.60). It
+     needs at least two indicators together, for example a wrong answer plus 2 re-reads, or a
+     revealed answer plus 3 re-reads. It is reachable on the 38 of the 56 sections that have a
+     quiz or an exercise. At 0.60 a wrong answer would also need a revealed answer, or three
+     re-reads and slow reading;
    - the counters are cumulative for a section. Once a section crosses the floor it stays over
      it, and only the help ladder, "Got it" (resolved) and the card holds limit repeat offers
      there.

@@ -75,9 +75,9 @@ services:
       - ADAPT_MIN_CONFIDENCE_GEOMETRY=0.70
       - ADAPT_MIN_CONFIDENCE_BEHAVIORAL=0.70
       # Unfitted heuristic (weights chosen for face validity, services/performance_signals.py).
-      # 0.45 is its own reporting threshold, which still needs two indicators together. The code
-      # default 0.60 is out of reach on most sections: each quiz takes one answer and most
-      # sections have at most one quiz, so wrong answers add at most 0.12 there.
+      # 0.45 is its own reporting threshold, which still needs two indicators together, e.g. a
+      # wrong answer and two re-reads. At the code default 0.60 a wrong answer would also need a
+      # revealed answer, or three re-reads and slow reading.
       - ADAPT_MIN_CONFIDENCE_PERFORMANCE=0.45
       - ADAPT_MIN_CONSECUTIVE=2
       - ADAPT_COOLDOWN_CYCLES=3

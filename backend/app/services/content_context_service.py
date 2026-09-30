@@ -151,7 +151,7 @@ def _render_body(blocks: list[ContentBlock]) -> str:
 
 
 async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
-    """Return `{topic, lesson, body, difficulty, n_words}` + content coordinates for a section id.
+    """Return `{topic, lesson, body, difficulty, n_words, n_quizzes}` + content coordinates.
 
     Coordinates are `{section_id, lesson_id, module_id, course_id}`; they are what lets an
     emitted research event say where in the course it happened. Never raises.
@@ -220,6 +220,10 @@ async def build(section_id: Any, db: AsyncSession) -> dict[str, Any]:
         # Without it the slow-pace term never contributed on the live path. Prompt builders read
         # named keys, so this never reaches a prompt.
         "n_words": word_count(blocks),
+        # Where the performance channel's wrong-answer count saturates: each quiz takes one answer.
+        "n_quizzes": sum(
+            1 for b in blocks if getattr(b.block_type, "value", b.block_type) == "quiz"
+        ),
         # Content coordinates. Prompt-building ignores these; they exist so the WS handler and
         # the agent nodes can stamp WHERE IN THE COURSE a cycle happened onto the research event
         # without a further lookup. Before this, affect and adaptation rows carried only

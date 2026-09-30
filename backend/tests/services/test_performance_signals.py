@@ -145,3 +145,34 @@ class TestRobustness:
         """A negative count from a buggy client must not REDUCE the score below zero, which
         would let a broken build silently suppress every intervention."""
         assert _score(quiz_incorrect_count=-10, back_nav_count=-10) == 0.0
+
+
+class TestWrongAnswersFollowTheSection:
+    """Each quiz takes one answer, and most sections have one quiz. With a fixed cap of three, a
+    wrong answer on a section's only question was worth a third of its weight."""
+
+    def test_the_only_question_wrong_counts_in_full(self):
+        result = ps.struggle_score({"quiz_incorrect_count": 1}, section_quizzes=1)
+        assert result["contributions"]["incorrect_answers"] == pytest.approx(0.35)
+
+    def test_an_unknown_quiz_count_keeps_the_cap_of_three(self):
+        assert _score(quiz_incorrect_count=1) == pytest.approx(0.35 / 3, abs=1e-4)
+
+    def test_the_cap_never_exceeds_three(self):
+        many = ps.struggle_score({"quiz_incorrect_count": 3}, section_quizzes=10)
+        assert many["contributions"]["incorrect_answers"] == pytest.approx(0.35)
+        assert many["counts"]["incorrect_saturates_at"] == 3
+
+    def test_a_section_without_quizzes_is_treated_as_one(self):
+        result = ps.struggle_score({"quiz_incorrect_count": 1}, section_quizzes=0)
+        assert result["counts"]["incorrect_saturates_at"] == 1
+
+    def test_one_wrong_answer_alone_still_cannot_trigger(self):
+        """The property the floor exists for survives the rescaling."""
+        result = ps.struggle_score({"quiz_incorrect_count": 1}, section_quizzes=1)
+        assert result["score"] < ps.MIN_ACTIONABLE_SCORE
+
+    def test_a_wrong_answer_and_two_re_reads_can(self):
+        result = ps.struggle_score({"quiz_incorrect_count": 1, "back_nav_count": 2},
+                                   section_quizzes=1)
+        assert result["score"] >= ps.MIN_ACTIONABLE_SCORE
