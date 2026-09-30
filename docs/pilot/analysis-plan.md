@@ -72,6 +72,12 @@ Pre-set criteria. Each is reported as met or not met:
    - Association with self-reported confusion.
    - For participants who opted into raw windows: exploratory re-derivation of features. No
      retraining claims are made from pilot data.
+   - Offline comparison, fixed before the pilot. Score the platform-matched model
+     (`models/behavioral_confusion_gbdt_platform.onnx`, not used live) on the per-window
+     features stored with every `behavioral_affect_detected` event. Report, for it and for the
+     deployed model: the distribution of P(confused), the share of windows at or above 0.70, and
+     agreement with self-reported confusion within ±60 s (AUC with a participant-clustered
+     bootstrap CI). The comparison is exploratory.
 3. **Performance channel.**
    - The distribution of struggle scores and their breakdown (wrong answers, revealed answer,
      re-reads, slow pace), per participant.
