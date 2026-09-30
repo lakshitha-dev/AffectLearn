@@ -149,7 +149,8 @@ def _cards(messages: list[dict]) -> list[dict]:
     return [m for m in messages if m.get("type") == "adaptation"]
 
 
-def test_a_learners_session_end_to_end(journey, test_user: User, monkeypatch):
+def test_a_learners_session_end_to_end(journey, consented_user: User, monkeypatch):
+    test_user = consented_user  # a participant: consented, camera on
     client, store, verdicts = journey
     token = create_access_token(str(test_user.id))
 

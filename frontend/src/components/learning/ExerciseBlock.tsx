@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -15,7 +15,7 @@ interface ExerciseContent {
 interface ExerciseBlockProps {
   blockId: string;
   content: ExerciseContent;
-  onSubmit?: (blockId: string, answer: string, isCorrect: boolean) => void;
+  onSubmit?: (blockId: string, answer: string, isCorrect: boolean, responseTimeMs: number) => void;
   /**
    * Fired when the learner reveals the answer. A learner giving up is probably the single
    * clearest confusion signal this UI produces, and until now it was discarded entirely — the
@@ -36,12 +36,14 @@ export function ExerciseBlock({
   const [input, setInput] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  // Time from first seeing the exercise to submitting, as QuizBlock records it.
+  const shownAtRef = useRef(Date.now());
 
   function handleSubmit() {
     const correct = input.trim().toLowerCase() === content.answer.trim().toLowerCase();
     setIsCorrect(correct);
     setSubmitted(true);
-    onSubmit?.(blockId, input, correct);
+    onSubmit?.(blockId, input, correct, Date.now() - shownAtRef.current);
   }
 
   return (
@@ -51,6 +53,7 @@ export function ExerciseBlock({
 
       <div className="flex gap-3 items-center">
         <input
+          data-track={`exercise-${blockId}-input`}
           type={content.type === "number" ? "number" : "text"}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -66,7 +69,12 @@ export function ExerciseBlock({
           }}
         />
         {!submitted && !previewMode && (
-          <Button size="sm" disabled={!input.trim()} onClick={handleSubmit}>
+          <Button
+            size="sm"
+            data-track={`exercise-${blockId}-submit`}
+            disabled={!input.trim()}
+            onClick={handleSubmit}
+          >
             Submit
           </Button>
         )}
@@ -85,6 +93,7 @@ export function ExerciseBlock({
 
       {!submitted && (
         <button
+          data-track={`exercise-${blockId}-show-answer`}
           className="text-xs text-muted-foreground hover:text-foreground underline"
           onClick={() => {
             setInput(content.answer);

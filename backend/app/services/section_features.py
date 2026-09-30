@@ -253,18 +253,19 @@ def from_signals(
 def section_shape_from_blocks(blocks: Iterable[Any]) -> dict[str, Any]:
     """Content-shape descriptors for a section's blocks. Pure; never raises.
 
-    Word count comes from the same rendering the LLM prompt uses
-    (`content_context_service._render_body`), so "how much text is on this page" means one thing
-    across the whole system rather than drifting between two definitions.
+    Word count comes from `content_context_service.word_count`, the same count the live
+    performance channel uses, so "how much text is on this page" means one thing across the whole
+    system rather than drifting between two definitions. It renders blocks the way the prompt
+    does but is not cut off at the prompt's character budget.
     """
     from app.services import content_context_service as ccs
 
     blocks = list(blocks or [])
     try:
-        body = ccs._render_body(blocks)
+        n_words = ccs.word_count(blocks)
     except Exception:  # noqa: BLE001 — shape is context, never worth failing a request over
         logger.warning("section_shape_render_failed", exc_info=True)
-        body = ""
+        n_words = 0
 
     kinds = []
     for b in blocks:
@@ -272,7 +273,7 @@ def section_shape_from_blocks(blocks: Iterable[Any]) -> dict[str, Any]:
         kinds.append(str(getattr(bt, "value", bt) or ""))
 
     return {
-        "n_words": len(body.split()),
+        "n_words": n_words,
         "n_blocks": len(blocks),
         "n_code_blocks": sum(1 for k in kinds if k == "code"),
         "has_exercise": any(k == "exercise" for k in kinds),

@@ -79,6 +79,7 @@ export function probeTarget(queue: readonly Adaptation[]): Adaptation | null {
 
 export function AdaptationProbe({
   onRespond,
+  onLifecycle,
   delayMs = PROBE_DELAY_MS,
 }: {
   onRespond?: (payload: {
@@ -87,6 +88,16 @@ export function AdaptationProbe({
     response: ProbeResponse | null;
     dismissed: boolean;
     shown_after_ms: number;
+  }) => void;
+  /**
+   * The question was shown, or was taken off screen without an answer (a newer card replaced it,
+   * or the learner left the page). An unanswered probe is a different fact from a declined one.
+   */
+  onLifecycle?: (payload: {
+    adaptation_id: string;
+    action: AdaptationAction;
+    event: "probe_shown" | "probe_unanswered";
+    since_received_ms: number;
   }) => void;
   /** Overridable so tests need not wait 30 real seconds. */
   delayMs?: number;
@@ -109,7 +120,43 @@ export function AdaptationProbe({
     return () => clearTimeout(timer);
   }, [target, delayMs]);
 
-  if (!target || dueId !== target.id || answered.current.has(target.id)) return null;
+  const showing =
+    target !== null && dueId === target.id && !answered.current.has(target.id) ? target : null;
+
+  // Shown / left unanswered. Tracked by id so each probe reports at most once of each.
+  const lifecycleRef = useRef(onLifecycle);
+  lifecycleRef.current = onLifecycle;
+  const shownRef = useRef<Adaptation | null>(null);
+  useEffect(() => {
+    const previous = shownRef.current;
+    if (previous && previous.id !== showing?.id && !answered.current.has(previous.id)) {
+      lifecycleRef.current?.({
+        adaptation_id: previous.id, action: previous.action, event: "probe_unanswered",
+        since_received_ms: Date.now() - previous.receivedAt,
+      });
+    }
+    if (showing && previous?.id !== showing.id) {
+      lifecycleRef.current?.({
+        adaptation_id: showing.id, action: showing.action, event: "probe_shown",
+        since_received_ms: Date.now() - showing.receivedAt,
+      });
+    }
+    shownRef.current = showing;
+  }, [showing]);
+  useEffect(
+    () => () => {
+      const last = shownRef.current;
+      if (last && !answered.current.has(last.id)) {
+        lifecycleRef.current?.({
+          adaptation_id: last.id, action: last.action, event: "probe_unanswered",
+          since_received_ms: Date.now() - last.receivedAt,
+        });
+      }
+    },
+    [],
+  );
+
+  if (!showing || !target) return null;
 
   const close = (response: ProbeResponse | null) => {
     answered.current.add(target.id);
@@ -137,6 +184,7 @@ export function AdaptationProbe({
         <button
           key={o.value}
           type="button"
+          data-track={`probe-${o.value}`}
           onClick={() => close(o.value)}
           className={cn(
             "rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium",
@@ -149,6 +197,7 @@ export function AdaptationProbe({
       ))}
       <button
         type="button"
+        data-track="probe-dismiss"
         onClick={() => close(null)}
         aria-label="Dismiss this question"
         className={cn(

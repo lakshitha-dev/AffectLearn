@@ -1,14 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ConsentStep } from "./ConsentStep";
+import type { ConsentScopes } from "@/types/api-responses";
+
+// The agreement is the last checkbox; the optional raw-record scope comes first.
+function agreeBox() {
+  const boxes = screen.getAllByRole("checkbox");
+  return boxes[boxes.length - 1];
+}
 
 describe("ConsentStep", () => {
-  let onAgree: ReturnType<typeof vi.fn>;
-  let onBack: ReturnType<typeof vi.fn>;
+  let onAgree: Mock<(scopes: ConsentScopes) => void>;
+  let onBack: Mock<() => void>;
 
   beforeEach(() => {
-    onAgree = vi.fn();
-    onBack = vi.fn();
+    onAgree = vi.fn<(scopes: ConsentScopes) => void>();
+    onBack = vi.fn<() => void>();
   });
 
   // Helper to get fresh props referencing current mocks
@@ -36,21 +43,23 @@ describe("ConsentStep", () => {
       ).toBeInTheDocument();
     });
 
-    it("renders the consent checkbox", () => {
+    it("renders the consent checkbox and the optional raw-record checkbox", () => {
       render(<ConsentStep {...makeProps()} />);
-      expect(screen.getByRole("checkbox")).toBeInTheDocument();
+      expect(screen.getAllByRole("checkbox")).toHaveLength(2);
     });
 
     it("renders the checkbox label text", () => {
       render(<ConsentStep {...makeProps()} />);
       expect(
-        screen.getByText("I have read and understood the above consent information")
+        screen.getByText(
+          "I have read and understood the above consent information and agree to take part",
+        )
       ).toBeInTheDocument();
     });
 
-    it("checkbox is unchecked initially", () => {
+    it("both checkboxes are unchecked initially", () => {
       render(<ConsentStep {...makeProps()} />);
-      expect(screen.getByRole("checkbox")).not.toBeChecked();
+      for (const box of screen.getAllByRole("checkbox")) expect(box).not.toBeChecked();
     });
 
     it("renders 'I agree' button", () => {
@@ -82,13 +91,13 @@ describe("ConsentStep", () => {
 
     it("'I agree' button is enabled after checkbox is checked", () => {
       render(<ConsentStep {...makeProps()} />);
-      fireEvent.click(screen.getByRole("checkbox"));
+      fireEvent.click(agreeBox());
       expect(screen.getByRole("button", { name: "I agree" })).not.toBeDisabled();
     });
 
     it("'I agree' button has aria-disabled=false after checkbox is checked", () => {
       render(<ConsentStep {...makeProps()} />);
-      fireEvent.click(screen.getByRole("checkbox"));
+      fireEvent.click(agreeBox());
       expect(screen.getByRole("button", { name: "I agree" })).toHaveAttribute("aria-disabled", "false");
     });
 
@@ -113,7 +122,7 @@ describe("ConsentStep", () => {
   describe("checkbox interaction", () => {
     it("toggles checked state when clicked", () => {
       render(<ConsentStep {...makeProps()} />);
-      const checkbox = screen.getByRole("checkbox");
+      const checkbox = agreeBox();
 
       fireEvent.click(checkbox);
       expect(checkbox).toBeChecked();
@@ -124,7 +133,7 @@ describe("ConsentStep", () => {
 
     it("checking then unchecking re-disables the 'I agree' button", () => {
       render(<ConsentStep {...makeProps()} />);
-      const checkbox = screen.getByRole("checkbox");
+      const checkbox = agreeBox();
 
       fireEvent.click(checkbox);
       expect(screen.getByRole("button", { name: "I agree" })).not.toBeDisabled();
@@ -137,7 +146,7 @@ describe("ConsentStep", () => {
   describe("'I agree' button click", () => {
     it("calls onAgree when checkbox is checked and button clicked", () => {
       render(<ConsentStep {...makeProps()} />);
-      fireEvent.click(screen.getByRole("checkbox"));
+      fireEvent.click(agreeBox());
       fireEvent.click(screen.getByRole("button", { name: "I agree" }));
       expect(onAgree).toHaveBeenCalledTimes(1);
     });
@@ -177,12 +186,12 @@ describe("ConsentStep", () => {
   describe("consent sections", () => {
     it("renders webcam consent section heading", () => {
       render(<ConsentStep {...makeProps()} />);
-      expect(screen.getByText("Webcam Facial Analysis")).toBeInTheDocument();
+      expect(screen.getByText("Webcam Facial Analysis (optional)")).toBeInTheDocument();
     });
 
     it("renders behavioural tracking section heading", () => {
       render(<ConsentStep {...makeProps()} />);
-      expect(screen.getByText("Mouse & Keyboard Behavioural Tracking")).toBeInTheDocument();
+      expect(screen.getByText("Mouse, Scroll & Keyboard Activity")).toBeInTheDocument();
     });
 
     it("renders data usage section heading", () => {
@@ -192,7 +201,30 @@ describe("ConsentStep", () => {
 
     it("renders right to withdraw section heading", () => {
       render(<ConsentStep {...makeProps()} />);
-      expect(screen.getByText("Right to Withdraw")).toBeInTheDocument();
+      expect(screen.getByText("Right to Stop and to Withdraw")).toBeInTheDocument();
+    });
+  });
+
+  describe("consent scopes", () => {
+    it("reports raw-record storage as declined unless ticked", () => {
+      render(<ConsentStep {...makeProps()} />);
+      fireEvent.click(agreeBox());
+      fireEvent.click(screen.getByRole("button", { name: "I agree" }));
+      expect(onAgree).toHaveBeenCalledWith({ behavioural: true, rawInteraction: false });
+    });
+
+    it("reports raw-record storage as agreed when ticked", () => {
+      render(<ConsentStep {...makeProps()} />);
+      fireEvent.click(screen.getAllByRole("checkbox")[0]);
+      fireEvent.click(agreeBox());
+      fireEvent.click(screen.getByRole("button", { name: "I agree" }));
+      expect(onAgree).toHaveBeenCalledWith({ behavioural: true, rawInteraction: true });
+    });
+
+    it("never claims keystrokes or video are stored", () => {
+      render(<ConsentStep {...makeProps()} />);
+      expect(screen.getByText(/never records which key you pressed/)).toBeInTheDocument();
+      expect(screen.getByText(/no photographs or video ever leave your computer/)).toBeInTheDocument();
     });
   });
 

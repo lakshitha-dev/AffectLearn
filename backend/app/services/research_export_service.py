@@ -82,6 +82,8 @@ def _ordered(stmt):
 def _to_dict(row: ResearchEvent) -> dict[str, Any]:
     return {
         "id": str(row.id),
+        "event_id": row.event_id,
+        "decision_id": row.decision_id,
         "event_type": row.event_type,
         "learner_id": row.learner_id,
         "session_id": row.session_id,
@@ -93,6 +95,9 @@ def _to_dict(row: ResearchEvent) -> dict[str, Any]:
         "course_id": row.course_id,
         "section_id": row.section_id,
         "block_id": row.block_id,
+        # Which runtime configuration produced the row. Stored since migration 027 but never
+        # exported, so an analysis could not split on it without querying the table directly.
+        "config_version": row.config_version,
         "payload": row.payload,
     }
 

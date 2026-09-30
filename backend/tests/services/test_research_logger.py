@@ -154,3 +154,88 @@ class TestEmittersAreTotal:
             "session_id": "s",
             "payload": {"reason": "a → b"},
         })
+
+
+# ── Migration 030: event identity + restart-safe sequence numbers ───────────────
+
+
+@pytest.mark.asyncio
+async def test_emit_assigns_a_unique_event_id(monkeypatch):
+    published: list[dict] = []
+
+    async def fake_stream_add(stream, value):
+        published.append(value)
+        return "1-0"
+
+    monkeypatch.setattr(research_logger.redis_service, "stream_add", fake_stream_add)
+    await research_logger.emit({"event_type": "a", "session_id": "s1"})
+    await research_logger.emit({"event_type": "b", "session_id": "s1"})
+    await research_logger.emit({"event_type": "c", "session_id": "s1", "event_id": "kept"})
+
+    ids = [e["event_id"] for e in published]
+    assert len(set(ids[:2])) == 2 and all(len(i) == 36 for i in ids[:2])
+    assert ids[2] == "kept"          # a replay keeps the identity of the row it reproduces
+
+
+@pytest.mark.asyncio
+async def test_sequence_continues_across_restart_via_redis(monkeypatch):
+    """The in-process counter restarts at 1 when the API does; the Redis counter must not."""
+    published: list[dict] = []
+    counters: dict[str, int] = {"research_seq:s1": 41}
+
+    async def fake_stream_add(stream, value):
+        published.append(value)
+        return "1-0"
+
+    async def fake_incr(key, ttl_seconds=None):
+        counters[key] = counters.get(key, 0) + 1
+        return counters[key]
+
+    monkeypatch.setattr(research_logger.redis_service, "stream_add", fake_stream_add)
+    monkeypatch.setattr(research_logger.redis_service, "incr", fake_incr)
+    research_logger._reset_sequences()          # simulate a fresh process
+    await research_logger.emit({"event_type": "a", "session_id": "s1"})
+    assert published[-1]["sequence_number"] == 42
+
+
+@pytest.mark.asyncio
+async def test_sequence_falls_back_upward_when_redis_drops(monkeypatch):
+    published: list[dict] = []
+    state = {"up": True, "n": 0}
+
+    async def fake_stream_add(stream, value):
+        published.append(value)
+        return "1-0"
+
+    async def flaky_incr(key, ttl_seconds=None):
+        if not state["up"]:
+            return None
+        state["n"] += 1
+        return state["n"]
+
+    monkeypatch.setattr(research_logger.redis_service, "stream_add", fake_stream_add)
+    monkeypatch.setattr(research_logger.redis_service, "incr", flaky_incr)
+    await research_logger.emit({"event_type": "a", "session_id": "s1"})
+    await research_logger.emit({"event_type": "a", "session_id": "s1"})
+    state["up"] = False
+    await research_logger.emit({"event_type": "a", "session_id": "s1"})
+    assert [e["sequence_number"] for e in published] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_payloads_can_be_kept_out_of_the_log_line(monkeypatch):
+    """The pilot runs with RESEARCH_LOG_PAYLOADS=0: container logs keep the envelope only."""
+    logged: list[dict] = []
+
+    async def fake_stream_add(stream, value):
+        return "1-0"
+
+    monkeypatch.setattr(research_logger.redis_service, "stream_add", fake_stream_add)
+    monkeypatch.setattr(research_logger, "_LOG_PAYLOADS", False)
+    monkeypatch.setattr(research_logger.logger, "info",
+                        lambda name, **kw: logged.append({"name": name, **kw}))
+    await research_logger.emit({"event_type": "self_report", "session_id": "s1",
+                                "learner_id": "u1", "payload": {"affect": "bored"}})
+    (line,) = [entry for entry in logged if entry["name"] == "research_event"]
+    assert line["event_type"] == "self_report" and line["event_id"]
+    assert "payload" not in line and "learner_id" not in line
