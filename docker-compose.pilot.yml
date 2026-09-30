@@ -65,12 +65,17 @@ services:
       - BEHAVIORAL_STATS_PATH=models/behavioral_feature_stats.json
       - AFFECT_DETECTION_MODE=auto
       - FUSION_DRIVES_DECISION=false
-      - DECISIVE_AFFECT_SOURCES=behavioral_model,fusion,facial_geometry
+      # PILOT ONLY: `performance` is added so confusion can trigger help automatically. The
+      # behavioural model never reaches its 0.70 floor on this UI (live max 0.63). The code
+      # default and the Azure deploy keep the performance channel advisory.
+      - DECISIVE_AFFECT_SOURCES=behavioral_model,fusion,facial_geometry,performance
       # ── gate (deployed; global floor 0.70 per thesis Table 4.20) ──
       - ADAPT_STATES=bored,confused
       - ADAPT_MIN_CONFIDENCE=0.70
       - ADAPT_MIN_CONFIDENCE_GEOMETRY=0.70
       - ADAPT_MIN_CONFIDENCE_BEHAVIORAL=0.70
+      # Unfitted heuristic (weights chosen for face validity, services/performance_signals.py).
+      - ADAPT_MIN_CONFIDENCE_PERFORMANCE=0.60
       - ADAPT_MIN_CONSECUTIVE=2
       - ADAPT_COOLDOWN_CYCLES=3
       - ADAPT_MAX_PER_SESSION=6
