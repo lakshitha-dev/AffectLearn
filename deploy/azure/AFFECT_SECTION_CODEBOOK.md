@@ -72,10 +72,11 @@ normalization (see *Analysis notes → Baseline* below).
 | Consensus and Byzantine Fault Tolerance | Consensus, FLP Impossibility, and Quorums | **confused** |
 | Consensus and Byzantine Fault Tolerance | Byzantine Fault Tolerance and the n >= 3f + 1 Bound | **confused** |
 | Consensus and Byzantine Fault Tolerance | Leader Election, Terms, and Split-Brain | **confused** |
+| Consensus and Byzantine Fault Tolerance | Consensus in Practice: Choosing Your Guarantees | **engaged** |
 | Consensus and Byzantine Fault Tolerance | Fault-Tolerance Diagnosis: A Demanding Assessment | **frustrated** |
 | Evaluation and Safety | Evaluating Agent Systems: Four Dimensions | **engaged** |
 | Evaluation and Safety | Glossary of Evaluation Metrics | **bored** |
-| Evaluation and Safety | Reward Hacking, Specification Gaming, and Safety | **confused** |
+| Evaluation and Safety | Reward Hacking, Specification Gaming, and Safety | **engaged** |
 | Evaluation and Safety | Keeping Humans in the Loop | **engaged** |
 
 ---
@@ -141,3 +142,9 @@ The elicitation is strengthened structurally so the affect labels come through c
   challenging or confusing" *without naming the manipulation* (avoids demand characteristics);
   the end-of-study screen debriefs that the study measured emotion during learning (not the
   participant) and that difficulty was by design.
+- **Label hygiene (post course-review):** "Reward Hacking, Specification Gaming, and Safety"
+  was relabeled confused→**engaged** (it reads as advanced example-driven narrative, not the
+  notation-overload of the true confused sections). An engaged synthesis section — "Consensus
+  in Practice: Choosing Your Guarantees" — was **inserted before** the Multi-Agent frustrated
+  assessment so the three back-to-back confused sections (FLP/BFT/leader-election) don't bleed
+  into it (Baker's confused→frustrated cascade), keeping the frustrated label clean.
