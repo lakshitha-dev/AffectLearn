@@ -207,14 +207,15 @@ export function CalibrationStep({ onDone, onSkip, currentStep, totalSteps }: Cal
       {state === "failure" && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            We couldn&apos;t detect your face clearly. Check lighting and camera angle, or skip to continue
-            with behavioral monitoring.
+            No problem — the camera didn&apos;t get a clear read, so we&apos;ll use your
+            behavioral signals (mouse, typing, scrolling) instead. You can continue now, or try
+            the camera again.
           </p>
           <div className="flex gap-3 justify-center">
+            <Button onClick={onSkip}>Continue</Button>
             <Button variant="outline" onClick={() => void startCountdown()}>
-              Try again
+              Try camera again
             </Button>
-            <Button variant="outline" onClick={onSkip}>Skip</Button>
           </div>
         </div>
       )}

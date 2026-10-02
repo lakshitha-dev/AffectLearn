@@ -140,7 +140,7 @@ describe("CalibrationStep — MediaPipe integration (Story 4.2 AC #6)", () => {
     });
 
     expect(useWebcamStore.getState().calibrated).toBe(false);
-    expect(screen.getByText(/Try again/i)).toBeInTheDocument();
+    expect(screen.getByText(/Try camera again/i)).toBeInTheDocument();
   });
 
   it("fails when no face is ever detected", async () => {
@@ -165,7 +165,7 @@ describe("CalibrationStep — MediaPipe integration (Story 4.2 AC #6)", () => {
     });
 
     expect(useWebcamStore.getState().calibrated).toBe(false);
-    expect(screen.getByText(/Try again/i)).toBeInTheDocument();
+    expect(screen.getByText(/Try camera again/i)).toBeInTheDocument();
   });
 
   it("fails when getUserMedia is denied", async () => {
@@ -184,11 +184,11 @@ describe("CalibrationStep — MediaPipe integration (Story 4.2 AC #6)", () => {
       await vi.advanceTimersByTimeAsync(50);
     });
 
-    expect(screen.getByText(/Try again/i)).toBeInTheDocument();
+    expect(screen.getByText(/Try camera again/i)).toBeInTheDocument();
     expect(useWebcamStore.getState().calibrated).toBe(false);
   });
 
-  it("preserves Skip path → invokes onSkip when user clicks Skip after failure", async () => {
+  it("preserves the skip path → invokes onSkip when user clicks Continue after failure", async () => {
     mocks.loadFaceDetectorSpy.mockResolvedValueOnce(
       makeDetector([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
     );
@@ -210,8 +210,8 @@ describe("CalibrationStep — MediaPipe integration (Story 4.2 AC #6)", () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
 
-    const skipButton = screen.getByText(/^Skip$/);
-    act(() => skipButton.click());
+    const continueButton = screen.getByText(/^Continue$/);
+    act(() => continueButton.click());
     expect(onSkip).toHaveBeenCalled();
   });
 });
