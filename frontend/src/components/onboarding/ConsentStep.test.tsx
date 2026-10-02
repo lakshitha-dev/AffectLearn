@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ConsentStep } from "./ConsentStep";
 
 describe("ConsentStep", () => {
-  let onAgree: ReturnType<typeof vi.fn>;
-  let onBack: ReturnType<typeof vi.fn>;
+  let onAgree: Mock<() => void>;
+  let onBack: Mock<() => void>;
 
   beforeEach(() => {
     onAgree = vi.fn();

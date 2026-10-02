@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AssessmentScreen } from "./AssessmentScreen";
-import type { Assessment } from "@/types/assessment";
+import type { AnswerPayload, Assessment } from "@/types/assessment";
 
 const twoQuestionAssessment: Assessment = {
   id: "a1",
@@ -49,7 +49,7 @@ const singleQuestionAssessment: Assessment = {
 };
 
 describe("AssessmentScreen", () => {
-  let onSubmit: ReturnType<typeof vi.fn>;
+  let onSubmit: Mock<(answers: AnswerPayload[]) => void>;
 
   beforeEach(() => {
     onSubmit = vi.fn();

@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { WelcomeStep } from "./WelcomeStep";
 
 describe("WelcomeStep", () => {
-  let onNext: ReturnType<typeof vi.fn>;
+  let onNext: Mock<() => void>;
 
   beforeEach(() => {
     onNext = vi.fn();

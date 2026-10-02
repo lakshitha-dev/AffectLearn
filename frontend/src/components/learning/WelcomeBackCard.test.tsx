@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WelcomeBackCard } from "./WelcomeBackCard";
@@ -56,7 +56,7 @@ const resumeTarget: ResumeTarget = {
 };
 
 describe("WelcomeBackCard", () => {
-  let onDismiss: ReturnType<typeof vi.fn>;
+  let onDismiss: Mock<() => void>;
 
   beforeEach(() => {
     onDismiss = vi.fn();
