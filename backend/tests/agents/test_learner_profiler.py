@@ -164,25 +164,41 @@ async def test_a_withheld_cycle_still_spends_the_cooldown(monkeypatch, profile_e
     A withheld cycle cleared every gate condition; it is the control observation. If it did not
     spend the cooldown, the control arm would become eligible again sooner than the delivered
     arm, drift to a higher trigger rate, and stop being matched to it -- and nothing downstream
-    could detect that had happened.
+    could detect that had happened. It is complete at the gate, so it spends it there.
     """
     out, payload = await _run_gated_cycle(monkeypatch, profile_events, rate=1.0, cycle=9)
 
     assert out["should_adapt"] is False
     assert out["adaptation_gate_reason"] == "withheld_random"
     assert payload["arm"] == "withheld"
-    # The cooldown marker is stamped exactly as it would be for a delivered cycle.
-    assert out["learner_profile"]["last_adaptation_cycle"] == 9
-    assert out["learner_profile"]["last_adaptation_session"] == "s1"
+    prof = out["learner_profile"]
+    assert prof["last_adaptation_session"] == "s1"
+    assert isinstance(prof["last_adaptation_ms"], int)
+    assert prof["eligible_this_session"] == 1
+    # Nothing was shown, so nothing was tried: the ladder does not move, and nothing is carried
+    # forward to the socket handler.
+    assert not prof.get("ladder_rungs")
+    assert out["offer_commit"] is None
 
 
-async def test_a_delivered_cycle_spends_the_cooldown_identically(monkeypatch, profile_events):
+async def test_a_passing_cycle_spends_nothing_until_its_card_is_delivered(
+    monkeypatch, profile_events
+):
+    """The strategist may still choose no_action, or the card may be dropped: nothing is spent yet.
+
+    The cost is carried forward instead, and spent by the socket handler after a successful send.
+    """
     out, payload = await _run_gated_cycle(monkeypatch, profile_events, rate=0.0, cycle=9)
 
     assert out["should_adapt"] is True
     assert payload["arm"] == "delivered"
-    assert out["learner_profile"]["last_adaptation_cycle"] == 9
-    assert out["learner_profile"]["last_adaptation_session"] == "s1"
+    prof = out["learner_profile"]
+    assert "last_adaptation_ms" not in prof
+    assert not prof.get("eligible_this_session")
+    assert not prof.get("ladder_rungs")
+    assert out["offer_commit"] == {
+        "gate_reason": "ok", "session_id": "s1", "section_id": None, "affect_state": "bored",
+    }
 
 
 async def test_a_cycle_that_failed_the_gate_spends_nothing(monkeypatch, profile_events):
@@ -198,4 +214,51 @@ async def test_a_cycle_that_failed_the_gate_spends_nothing(monkeypatch, profile_
 
     assert out["adaptation_gate_reason"] == "low_confidence"
     assert profile_events[-1]["payload"]["arm"] is None
-    assert "last_adaptation_cycle" not in out["learner_profile"]
+    assert "last_adaptation_ms" not in out["learner_profile"]
+    assert out["offer_commit"] is None
+
+
+# ── commit_delivered_offer: what a card costs once it reached the learner ─────────────
+
+def _ok_offer(session="s1", section="sec1", state="bored"):
+    return {"gate_reason": "ok", "session_id": session, "section_id": section,
+            "affect_state": state}
+
+
+async def test_a_delivered_card_spends_cooldown_cap_and_rung(monkeypatch):
+    stored = _patch_redis(monkeypatch, get_value={"cycle_count": 3})
+
+    assert await lp.commit_delivered_offer("u1", _ok_offer(), now_ms=1_000_000) is True
+
+    prof = stored["value"]
+    assert prof["last_adaptation_ms"] == 1_000_000
+    assert prof["last_adaptation_session"] == "s1"
+    assert prof["eligible_this_session"] == 1
+    assert prof["ladder_rungs"] == {"sec1|bored": 1}
+
+
+async def test_a_delivered_learner_request_advances_the_ladder_only(monkeypatch):
+    stored = _patch_redis(monkeypatch, get_value={"cycle_count": 3})
+    offer = {**_ok_offer(state="confused"), "gate_reason": "learner_request"}
+
+    assert await lp.commit_delivered_offer("u1", offer, now_ms=1_000_000) is True
+
+    prof = stored["value"]
+    assert prof["ladder_rungs"] == {"sec1|confused": 1}
+    assert "last_adaptation_ms" not in prof
+    assert not prof.get("eligible_this_session")
+
+
+async def test_no_offer_commits_nothing(monkeypatch):
+    stored = _patch_redis(monkeypatch, get_value={"cycle_count": 3})
+
+    assert await lp.commit_delivered_offer("u1", None) is False
+    assert stored == {}
+
+
+async def test_commit_never_raises(monkeypatch):
+    async def boom(key):
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(lp.redis_service, "get_json", boom)
+    assert await lp.commit_delivered_offer("u1", _ok_offer()) is False

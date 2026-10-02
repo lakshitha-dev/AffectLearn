@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QuestionCard } from "./QuestionCard";
 import type { AssessmentQuestion } from "@/types/assessment";
@@ -25,7 +25,7 @@ const question2: AssessmentQuestion = {
 };
 
 describe("QuestionCard", () => {
-  let onSelect: ReturnType<typeof vi.fn>;
+  let onSelect: Mock<(questionId: string, optionId: string) => void>;
 
   beforeEach(() => {
     onSelect = vi.fn();

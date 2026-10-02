@@ -1,0 +1,15 @@
+{
+  "_note": "How far the Pedagogical Agent jumps up the confusion ladder in the offline evaluation.",
+  "confused_decisions": 120,
+  "skipped_ahead": 46,
+  "early_video": 43,
+  "early_video_no_basis": 14,
+  "early_video_no_basis_by_cell": {
+    "answer_revealed|request=False|rung=2": 3,
+    "answer_revealed|request=True|rung=0": 4,
+    "no_errors|request=False|rung=2": 1,
+    "no_errors|request=True|rung=0": 2,
+    "wrong_answers|request=False|rung=2": 1,
+    "wrong_answers|request=True|rung=0": 3
+  }
+}

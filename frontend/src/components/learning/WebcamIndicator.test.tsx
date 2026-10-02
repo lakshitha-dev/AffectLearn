@@ -95,7 +95,7 @@ describe("WebcamIndicator", () => {
 
       it("clears the timeout when component unmounts in error mode", () => {
         const setModeSpy = vi.fn();
-        useWebcamStore.setState({ mode: "error", setMode: setModeSpy } as Parameters<typeof useWebcamStore.setState>[0]);
+        useWebcamStore.setState({ mode: "error", setMode: setModeSpy } as unknown as Parameters<typeof useWebcamStore.setState>[0]);
 
         const { unmount } = render(<WebcamIndicator />);
         unmount();

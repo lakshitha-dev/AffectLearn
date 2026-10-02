@@ -123,17 +123,22 @@
     "fit": "all windows (hyperparameters already fixed by LOPO)"
   },
   "honest_performance_lopo": {
-    "auc": 0.7473,
-    "cohen_kappa": 0.2738,
-    "accuracy": 0.7301,
+    "auc": 0.7341,
+    "auc_ci95_session": [0.700, 0.767],
+    "cohen_kappa": 0.2195,
+    "accuracy": 0.6843,
     "majority_baseline": 0.8189,
-    "confused_recall": 0.5798,
-    "protocol": "leave-one-participant-out over 46 participants, within-participant permutation p=0.0005"
+    "confused_recall": 0.5953,
+    "features": "raw (as served); no per-session normalisation",
+    "protocol": "leave-one-session-out over 46 sessions, within-session permutation p=0.0005",
+    "source": "affectlearn-ml reports/dux_review/raw_and_normalised_arms.json",
+    "transductive_upper_bound_auc": 0.7473,
+    "transductive_note": "0.7473 z-scores each session against the whole session, including later windows; the served model cannot do that"
   },
   "in_sample_auc_do_not_report": 0.9251056477159333,
   "deployment": {
     "recommended_threshold": 0.7,
-    "threshold_rationale": "precision 0.500 at ~1.5 interventions/hour with ADAPT_MIN_CONSECUTIVE=2 and ADAPT_COOLDOWN_CYCLES=3; see reports/dux_confusion/FINDINGS.md"
+    "threshold_rationale": "0.70 was adopted from a sweep of the session-normalised variant (18 offers, precision 0.500, offline replay). Raw served model under the deployed gate rule: 64 offers, precision 0.422 [0.294, 0.545]; see affectlearn-ml reports/gate_deployed_rule/sweep.json"
   },
   "limitations": [
     "DUX participants used business software, not learning material.",
