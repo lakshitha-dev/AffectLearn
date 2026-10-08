@@ -83,6 +83,12 @@ interface AdaptiveHintCalloutProps {
   /** The learner said the card worked ("Got it"). Reported, then the card is dismissed. */
   onGotIt?: () => void;
   /**
+   * The learner closed the "Show hint" affordance left behind after a dismissal. The callout
+   * then renders nothing; a host that draws its own frame around it (the floating sheet) uses
+   * this to remove the frame too. Nothing is reported: the dismissal already was.
+   */
+  onClose?: () => void;
+  /**
    * The section this card is about. When supplied, confusion cards offer "Watch a video
    * explanation" (the Video Resource Agent); when absent, no video button is shown.
    */
@@ -130,6 +136,7 @@ export function AdaptiveHintCallout({
   onDismiss,
   onRequest,
   onGotIt,
+  onClose,
   sectionId,
 }: AdaptiveHintCalloutProps) {
   const reducedMotion = useReducedMotion();
@@ -147,6 +154,8 @@ export function AdaptiveHintCallout({
   // Set once the learner has asked for the next step, so the buttons cannot fire twice while the
   // agents work; the next card replaces this one when it arrives.
   const [requested, setRequested] = useState(false);
+  // Closed for good: the "Show hint" re-access is gone as well.
+  const [closed, setClosed] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -198,15 +207,32 @@ export function AdaptiveHintCallout({
     }
   };
 
+  if (closed) return null;
+
   if (dismissed) {
     return (
-      <div role="complementary" aria-label="Learning hint" className="my-6">
+      <div
+        role="complementary"
+        aria-label="Learning hint"
+        className="my-3 flex items-center justify-between gap-3"
+      >
         <button
           type="button"
           onClick={handleRestore}
           className="text-sm text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
         >
           Show hint
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setClosed(true);
+            onClose?.();
+          }}
+          aria-label="Close hint"
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-border"
+        >
+          <X className="h-4 w-4" />
         </button>
       </div>
     );

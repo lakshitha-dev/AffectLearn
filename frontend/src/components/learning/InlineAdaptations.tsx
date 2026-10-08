@@ -223,6 +223,10 @@ function CenteredHint({
     const raf = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(raf);
   }, []);
+  // The learner closed the "Show hint" left after dismissing: remove the sheet itself, or an
+  // empty card would stay over the page. Keyed by adaptation id, so the next card reappears.
+  const [closed, setClosed] = useState(false);
+  if (closed) return null;
 
   return (
     <div
@@ -248,6 +252,7 @@ function CenteredHint({
             onGotIt={onGotIt}
             onRequest={onRequest}
             sectionId={sectionId}
+            onClose={() => setClosed(true)}
             onDismiss={() => {
               // Queue ownership is unchanged: the callout still owns its own dismissed/re-access
               // state and the item stays in the queue. What is new is that the dismissal is
