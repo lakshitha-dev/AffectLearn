@@ -8,17 +8,16 @@ import { WelcomeStep } from "@/components/onboarding/WelcomeStep";
 import { ConsentStep } from "@/components/onboarding/ConsentStep";
 import { WebcamStep } from "@/components/onboarding/WebcamStep";
 import { CalibrationStep } from "@/components/onboarding/CalibrationStep";
-import { QuestionnaireStep, type QuestionnaireValues } from "@/components/onboarding/QuestionnaireStep";
-import { useGiveConsent, useSetWebcamMode, useSubmitQuestionnaire } from "@/hooks/use-onboarding";
+import { useGiveConsent, useSetWebcamMode } from "@/hooks/use-onboarding";
 import { useSessionStore } from "@/stores/session-store";
 import { useWebcamStore } from "@/stores/webcam-store";
 import { AuthGuard } from "@/components/shared/auth-guard";
 
-type OnboardingStep = "welcome" | "consent" | "webcam" | "calibration" | "questionnaire";
+type OnboardingStep = "welcome" | "consent" | "webcam" | "calibration";
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 4;
 const STEP_NUMBERS: Record<OnboardingStep, number> = {
-  welcome: 1, consent: 2, webcam: 3, calibration: 4, questionnaire: 5,
+  welcome: 1, consent: 2, webcam: 3, calibration: 4,
 };
 
 export default function OnboardingPage() {
@@ -29,7 +28,6 @@ export default function OnboardingPage() {
 
   const consentMutation = useGiveConsent();
   const webcamModeMutation = useSetWebcamMode();
-  const questionnaireMutation = useSubmitQuestionnaire();
 
   // Only redirect if user arrived at /onboarding already consented (not after giving consent mid-wizard)
   const initialConsentRef = useRef(user?.consentGivenAt);
@@ -58,22 +56,13 @@ export default function OnboardingPage() {
     if (enabled) {
       setStep("calibration");
     } else {
-      setStep("questionnaire");
+      finish();
     }
   }
 
-  function handleCalibrationDone() {
-    setStep("questionnaire");
-  }
-
-  async function handleQuestionnaireSubmit(responses: QuestionnaireValues) {
-    try {
-      await questionnaireMutation.mutateAsync(responses as Record<string, unknown>);
-    } catch {
-      // Best-effort onboarding step — proceed to courses regardless so a transient
-      // failure does not trap the learner (the coordinator ensures completion).
-      toast.error("We couldn't save your answers, but you can continue.");
-    }
+  // Onboarding ends after the webcam choice (and calibration, if the webcam is on). The
+  // background questionnaire is no longer asked here.
+  function finish() {
     router.replace("/courses");
   }
 
@@ -109,16 +98,8 @@ export default function OnboardingPage() {
           )}
           {step === "calibration" && (
             <CalibrationStep
-              onDone={handleCalibrationDone}
-              onSkip={() => { setMode("behavioral"); setStep("questionnaire"); }}
-              currentStep={currentStepNum}
-              totalSteps={TOTAL_STEPS}
-            />
-          )}
-          {step === "questionnaire" && (
-            <QuestionnaireStep
-              onSubmit={handleQuestionnaireSubmit}
-              isSubmitting={questionnaireMutation.isPending}
+              onDone={finish}
+              onSkip={() => { setMode("behavioral"); finish(); }}
               currentStep={currentStepNum}
               totalSteps={TOTAL_STEPS}
             />
