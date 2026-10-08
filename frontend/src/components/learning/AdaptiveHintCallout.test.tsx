@@ -208,6 +208,24 @@ describe("AdaptiveHintCallout", () => {
       expect(screen.getByRole("button", { name: "Show hint" })).toBeInTheDocument();
     });
 
+    it("closes the 'Show hint' affordance for good, without reporting a second dismissal", async () => {
+      const onDismiss = vi.fn();
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      const { container } = render(
+        <AdaptiveHintCallout
+          adaptation={makeAdaptation("show_hint", "Hint body")}
+          onDismiss={onDismiss}
+          onClose={onClose}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Dismiss hint" }));
+      await user.click(screen.getByRole("button", { name: "Close hint" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+      expect(container).toBeEmptyDOMElement();
+    });
+
     it("dismisses when Escape is pressed on the focused callout", async () => {
       const onDismiss = vi.fn();
       const user = userEvent.setup();

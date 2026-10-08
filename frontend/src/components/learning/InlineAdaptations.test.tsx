@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { InlineAdaptations } from "./InlineAdaptations";
@@ -86,6 +86,20 @@ describe("InlineAdaptations", () => {
     // Dismissed locally → 'Show hint' affordance, but the item stays in the queue.
     expect(screen.getByRole("button", { name: "Show hint" })).toBeInTheDocument();
     expect(useAdaptationStore.getState().adaptationQueue).toHaveLength(1);
+  });
+
+  it("closing the leftover 'Show hint' removes the whole sheet, and the next card still shows", async () => {
+    seed("show_hint", "First hint");
+    const user = userEvent.setup();
+    const { container } = render(<InlineAdaptations />);
+    await user.click(screen.getByRole("button", { name: "Dismiss hint" }));
+    await user.click(screen.getByRole("button", { name: "Close hint" }));
+    // No empty card left floating over the lesson.
+    expect(container).toBeEmptyDOMElement();
+    expect(useAdaptationStore.getState().adaptationQueue).toHaveLength(1);
+
+    act(() => seed("show_breakdown", "1. Next step"));
+    expect(screen.getByText("Next step")).toBeInTheDocument();
   });
 });
 
