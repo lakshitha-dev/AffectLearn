@@ -186,4 +186,7 @@ def predict_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
         "probs": [float(p) for p in probs],
         "face_ratio": face_ratio,
         "frames_scored": int(arr.shape[0]),
+        # The exact model input, named, so a stored reading can be re-scored or recalibrated
+        # later without the per-frame geometry (which is not kept).
+        "features": {name: round(float(v), 6) for name, v in zip(FEATURE_NAMES, x[0])},
     }

@@ -61,6 +61,10 @@ class AssistanceEvent(BaseModel):
     #: key the client echoes back on both the interaction and the following quiz attempt, so a
     #: duplicate would silently split one intervention's response across two rows.
     adaptation_id = Column(String(64), nullable=False, unique=True, index=True)
+    #: The graph run that produced this intervention (migration 031): the same id stamped on the
+    #: detection, gate, strategy and content research events, so the ledger row joins back to the
+    #: reading that caused it. Null on rows written before the migration.
+    decision_id = Column(String(36), nullable=True, index=True)
 
     learner_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),

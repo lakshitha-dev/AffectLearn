@@ -166,3 +166,46 @@ async def test_persist_batch_persists_content_coordinates(db):
     assert row.course_id == "course-a"
     assert row.section_id == "section-b"
     assert row.block_id is None
+
+
+# ── Migration 030: idempotent persistence on event_id ───────────────────────────
+
+
+def _identified(seq, event_id, session="s1"):
+    return {**_event(seq, session=session), "event_id": event_id}
+
+
+@pytest.mark.asyncio
+async def test_persist_batch_skips_event_ids_already_stored(db):
+    """A worker restart re-reads a batch it already committed. The re-read must add nothing."""
+    batch = [_identified(1, "e-1"), _identified(2, "e-2")]
+    assert await svc.persist_batch(db, batch) == 2
+    assert await svc.persist_batch(db, batch) == 0
+    count = (await db.execute(select(func.count(ResearchEvent.id)))).scalar_one()
+    assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_persist_batch_skips_repeats_within_one_batch(db):
+    n = await svc.persist_batch(db, [_identified(1, "e-1"), _identified(1, "e-1"),
+                                     _identified(2, "e-2")])
+    assert n == 2
+    ids = (await db.execute(select(ResearchEvent.event_id))).scalars().all()
+    assert sorted(ids) == ["e-1", "e-2"]
+
+
+@pytest.mark.asyncio
+async def test_persist_batch_inserts_new_ids_alongside_known_ones(db):
+    await svc.persist_batch(db, [_identified(1, "e-1")])
+    n = await svc.persist_batch(db, [_identified(1, "e-1"), _identified(2, "e-2")])
+    assert n == 1
+    count = (await db.execute(select(func.count(ResearchEvent.id)))).scalar_one()
+    assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_persist_batch_keeps_events_without_an_id(db):
+    """Stream entries emitted before migration 030 carry no id and cannot be matched."""
+    assert await svc.persist_batch(db, [_event(1), _event(1)]) == 2
+    row = (await db.execute(select(ResearchEvent).limit(1))).scalar_one()
+    assert row.event_id is None

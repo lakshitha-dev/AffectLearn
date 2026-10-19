@@ -72,6 +72,7 @@ async def record_delivery(
     section_id: Any = None,
     phase: str | None = None,
     group: str | None = None,
+    decision_id: str | None = None,
 ) -> AssistanceEvent | None:
     """Write the ledger row for one intervention. Commits. Never raises.
 
@@ -92,6 +93,7 @@ async def record_delivery(
     try:
         row = AssistanceEvent(
             adaptation_id=str(adaptation_id)[:64],
+            decision_id=(str(decision_id)[:36] if decision_id else None),
             learner_id=learner_uuid,
             session_id=(str(session_id)[:64] if session_id else None),
             cycle_number=int(cycle_number or 0),

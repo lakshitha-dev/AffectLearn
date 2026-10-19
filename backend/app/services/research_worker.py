@@ -4,9 +4,12 @@
 started best-effort in the app lifespan. Best-effort: if Redis is unavailable the stream
 read returns empty and the worker idles/exits — structlog remains the backstop (NFR22).
 
-Durability note: this uses a simple XREAD with a tracked `last_id` (single worker). At-least-
-once across worker restarts (XREADGROUP + XACK) is a documented upgrade; duplicates from a
-restart are de-dupable offline by (session_id, sequence_number).
+Durability: the read position (`last_id`) is saved to Redis after every committed batch and
+restored on start. It used to live only in memory and start at "0" on every boot, which re-read
+and re-inserted the whole stream after each restart. The cursor is saved AFTER the commit, so a
+crash in between re-reads at most one batch -- and `persist_batch` skips events whose `event_id`
+is already stored, which makes that re-read a no-op. Net effect: at-least-once delivery, exactly
+once in the table.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from app.services import redis_service, research_event_service
 logger = structlog.get_logger(__name__)
 
 _STREAM = "research_events"
+_CURSOR_KEY = "research_events:worker_cursor"
 
 # Liveness heartbeat: monotonic time of the worker's last loop iteration (0 = never started).
 # Read by the /health/pipeline endpoint so the pilot can detect a stalled drain worker.
@@ -49,6 +53,21 @@ async def drain_once(db, last_id: str = "0", count: int = 200) -> tuple[str, int
     return entries[-1][0], inserted
 
 
+async def load_cursor() -> str | None:
+    """The saved read position; "0" (start of the stream) when none is stored.
+
+    None when Redis is unreachable, so the caller retries instead of mistaking an outage for an
+    empty cursor and re-reading the whole stream once Redis comes back.
+    """
+    if not await redis_service.ping():
+        return None
+    return await redis_service.get_str(_CURSOR_KEY) or "0"
+
+
+async def save_cursor(last_id: str) -> None:
+    await redis_service.set_str(_CURSOR_KEY, last_id)
+
+
 async def run_worker(stop_event: asyncio.Event | None = None, poll_interval: float = 1.0) -> None:
     """Loop `drain_once` until stopped.
 
@@ -58,13 +77,23 @@ async def run_worker(stop_event: asyncio.Event | None = None, poll_interval: flo
     timeout can't silently kill research data collection for the rest of the process.
     """
     global _heartbeat
-    last_id = "0"
+    last_id: str | None = None
     logger.info("research_worker_started")
     while stop_event is None or not stop_event.is_set():
         _heartbeat = time.monotonic()   # liveness beat for /health/pipeline
         try:
+            if last_id is None:
+                # Resolved inside the loop, not before it: Redis may be down at boot, and a
+                # cursor read that failed must be retried rather than defaulting to "0".
+                last_id = await load_cursor()
+                if last_id is None:
+                    await asyncio.sleep(poll_interval)
+                    continue
             async with async_session() as db:
-                last_id, n = await drain_once(db, last_id)
+                new_last_id, n = await drain_once(db, last_id)
+                if new_last_id != last_id:
+                    await save_cursor(new_last_id)
+                    last_id = new_last_id
                 if n:
                     logger.info("research_worker_drained", count=n)
         except Exception:
